@@ -1,33 +1,97 @@
 import { Tabs } from 'expo-router';
-import React from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { Colors, FontSize } from '../../constants/theme';
+import { Platform } from 'react-native';
 
-import { HapticTab } from '@/components/haptic-tab';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
+
+interface TabIconProps {
+  name: IoniconName;
+  activeName: IoniconName;
+  color: string;
+  size: number;
+  focused: boolean;
+}
+
+function TabIcon({ name, activeName, color, size, focused }: TabIconProps) {
+  return (
+    <Ionicons name={focused ? activeName : name} size={size} color={color} />
+  );
+}
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
-
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-        headerShown: false,
-        tabBarButton: HapticTab,
-      }}>
+        tabBarStyle: {
+          backgroundColor: Colors.tabBar,
+          borderTopColor: Colors.border,
+          borderTopWidth: 0.5,
+          height: Platform.OS === 'ios' ? 84 : 60,
+          paddingBottom: Platform.OS === 'ios' ? 28 : 8,
+          paddingTop: 8,
+        },
+        tabBarActiveTintColor: Colors.primary,
+        tabBarInactiveTintColor: Colors.textMuted,
+        tabBarLabelStyle: {
+          fontSize: FontSize.xs,
+          fontWeight: '600',
+          letterSpacing: 0.3,
+        },
+        headerStyle: { backgroundColor: Colors.surface },
+        headerTintColor: Colors.text,
+        headerTitleStyle: {
+          fontWeight: '700',
+          color: Colors.text,
+          fontSize: FontSize.md,
+        },
+        headerShadowVisible: false,
+      }}
+    >
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+          title: 'Log',
+          headerTitle: 'GainLog',
+          tabBarIcon: ({ color, size, focused }) => (
+            <TabIcon
+              name="add-circle-outline"
+              activeName="add-circle"
+              color={color}
+              size={size}
+              focused={focused}
+            />
+          ),
         }}
       />
       <Tabs.Screen
-        name="explore"
+        name="history"
         options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+          title: 'History',
+          tabBarIcon: ({ color, size, focused }) => (
+            <TabIcon
+              name="time-outline"
+              activeName="time"
+              color={color}
+              size={size}
+              focused={focused}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="stats"
+        options={{
+          title: 'Stats',
+          tabBarIcon: ({ color, size, focused }) => (
+            <TabIcon
+              name="bar-chart-outline"
+              activeName="bar-chart"
+              color={color}
+              size={size}
+              focused={focused}
+            />
+          ),
         }}
       />
     </Tabs>
