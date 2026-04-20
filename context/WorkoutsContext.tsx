@@ -6,13 +6,12 @@ import React, {
   useState,
 } from 'react';
 import { WorkoutSession } from '../types/workout';
-import { loadSessions, saveSessions, isSeeded, markSeeded } from '../utils/storage';
-import { generateId } from '../utils/id';
-import { MOCK_SESSIONS } from '../data/mockData';
+import { API_URL } from '../constants/api';
 
 interface WorkoutsContextValue {
   sessions: WorkoutSession[];
   loading: boolean;
+  error: string | null;
   addSession: (data: Omit<WorkoutSession, 'id'>) => Promise<WorkoutSession>;
   deleteSession: (id: string) => Promise<void>;
   getSession: (id: string) => WorkoutSession | undefined;
@@ -23,28 +22,33 @@ const WorkoutsContext = createContext<WorkoutsContextValue | undefined>(
   undefined,
 );
 
-function sortDesc(sessions: WorkoutSession[]): WorkoutSession[] {
-  return [...sessions].sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-  );
+async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...init,
+  });
+  if (!res.ok) {
+    throw new Error(`Request failed: ${res.status} ${res.statusText}`);
+  }
+  if (res.status === 204) return undefined as T;
+  return res.json() as Promise<T>;
 }
 
 export function WorkoutsProvider({ children }: { children: React.ReactNode }) {
   const [sessions, setSessions] = useState<WorkoutSession[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
-      const seeded = await isSeeded();
-      if (!seeded) {
-        await saveSessions(MOCK_SESSIONS);
-        await markSeeded();
-        setSessions(sortDesc(MOCK_SESSIONS));
-      } else {
-        const stored = await loadSessions();
-        setSessions(sortDesc(stored));
-      }
+      const data = await apiFetch<WorkoutSession[]>('/workouts/');
+      setSessions(data);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Failed to load workouts. Check your connection.',
+      );
     } finally {
       setLoading(false);
     }
@@ -56,23 +60,19 @@ export function WorkoutsProvider({ children }: { children: React.ReactNode }) {
 
   const addSession = useCallback(
     async (data: Omit<WorkoutSession, 'id'>): Promise<WorkoutSession> => {
-      const session: WorkoutSession = { ...data, id: generateId() };
-      setSessions(prev => {
-        const next = sortDesc([session, ...prev]);
-        saveSessions(next).catch(console.error);
-        return next;
+      const session = await apiFetch<WorkoutSession>('/workouts/', {
+        method: 'POST',
+        body: JSON.stringify(data),
       });
+      setSessions(prev => [session, ...prev]);
       return session;
     },
     [],
   );
 
   const deleteSession = useCallback(async (id: string) => {
-    setSessions(prev => {
-      const next = prev.filter(s => s.id !== id);
-      saveSessions(next).catch(console.error);
-      return next;
-    });
+    await apiFetch<void>(`/workouts/${id}`, { method: 'DELETE' });
+    setSessions(prev => prev.filter(s => s.id !== id));
   }, []);
 
   const getSession = useCallback(
@@ -82,7 +82,7 @@ export function WorkoutsProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <WorkoutsContext.Provider
-      value={{ sessions, loading, addSession, deleteSession, getSession, refresh }}
+      value={{ sessions, loading, error, addSession, deleteSession, getSession, refresh }}
     >
       {children}
     </WorkoutsContext.Provider>
