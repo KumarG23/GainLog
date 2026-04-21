@@ -231,7 +231,7 @@ function SuccessView({ onReset, insightLoading, insight }: SuccessViewProps) {
 // ---------------------------------------------------------------------------
 
 export default function LogScreen() {
-  const { addSession } = useWorkouts();
+  const { addSession, refresh } = useWorkouts();
 
   const [exercises, setExercises] = useState<DraftExercise[]>([]);
   const [duration, setDuration] = useState('');
@@ -349,13 +349,16 @@ export default function LogScreen() {
           if (!res.ok) throw new Error('insight request failed');
           return res.json() as Promise<{ insight: string }>;
         })
-        .then(data => setInsight(data.insight))
+        .then(data => {
+          setInsight(data.insight);
+          refresh();
+        })
         .catch(() => {/* don't surface — success screen still shows */})
         .finally(() => setInsightLoading(false));
     } finally {
       setSaving(false);
     }
-  }, [exercises, duration, heartRate, calories, notes, addSession]);
+  }, [exercises, duration, heartRate, calories, notes, addSession, refresh]);
 
   const resetForm = useCallback(() => {
     setExercises([]);
