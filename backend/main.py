@@ -1,13 +1,18 @@
+import os
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List, Optional
 
+import anthropic
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 from sqlmodel import Field, Relationship, Session, SQLModel, create_engine, select
+
+load_dotenv()
 
 DATA_DIR = Path(__file__).parent / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -101,6 +106,10 @@ class WorkoutSessionIn(CamelModel):
     notes: Optional[str] = None
 
 
+class InsightResponse(BaseModel):
+    insight: str
+
+
 # ── App ────────────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
@@ -137,6 +146,58 @@ def _to_out(s: WorkoutSessionDB) -> WorkoutSessionOut:
         ],
     )
 
+
+# ── Insight helpers ────────────────────────────────────────────────────────────
+
+def _session_volume(s: WorkoutSessionDB) -> int:
+    return int(sum(ws.weight * ws.reps for ex in s.exercises for ws in ex.sets))
+
+
+def _format_session(s: WorkoutSessionDB, label: str) -> str:
+    lines = [f"{label} ({s.date[:10]}, {s.duration_minutes} min):"]
+    for ex in s.exercises:
+        sets_str = "  ".join(f"{ws.weight}×{ws.reps}" for ws in ex.sets)
+        vol = int(sum(ws.weight * ws.reps for ws in ex.sets))
+        lines.append(f"  {ex.name}: {sets_str}  [{vol} lbs volume]")
+    if s.avg_heart_rate:
+        lines.append(f"  Avg HR: {s.avg_heart_rate} bpm")
+    if s.active_calories:
+        lines.append(f"  Calories: {s.active_calories} kcal")
+    lines.append(f"  Session volume: {_session_volume(s)} lbs")
+    return "\n".join(lines)
+
+
+def _build_prompt(current: WorkoutSessionDB, history: list[WorkoutSessionDB]) -> str:
+    current_block = _format_session(current, "CURRENT WORKOUT")
+
+    if history:
+        history_blocks = "\n\n".join(
+            _format_session(s, f"PREVIOUS SESSION {i + 1}") for i, s in enumerate(history)
+        )
+        avg_vol = sum(_session_volume(s) for s in history) / len(history)
+        context = (
+            f"RECENT HISTORY ({len(history)} sessions):\n\n"
+            f"{history_blocks}\n\n"
+            f"Recent average session volume: {int(avg_vol)} lbs"
+        )
+    else:
+        context = "No previous sessions on record — this is their first logged workout."
+
+    return f"""You are a personal trainer AI reviewing a client's workout log.
+
+{current_block}
+
+{context}
+
+Write a coaching insight of exactly 2-3 sentences that covers:
+1. How today's total volume compares to the recent average (use specific numbers and a percentage if history exists).
+2. Call out any personal record — a set with more weight or more reps than anything seen in the recent history for that exercise. If none, skip this point.
+3. One concrete, specific suggestion for the next session (e.g. add a set, increase weight on a particular exercise, try a new movement).
+
+Rules: be encouraging but direct. Use exact numbers from the data. No bullet points, no headers, no markdown. Output plain prose only."""
+
+
+# ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/workouts/", response_model=List[WorkoutSessionOut], response_model_by_alias=True)
 def list_workouts(db: Session = Depends(get_db)):
@@ -191,3 +252,31 @@ def delete_workout(session_id: str, db: Session = Depends(get_db)):
         db.delete(ex)
     db.delete(row)
     db.commit()
+
+
+@app.post("/workouts/{session_id}/insight", response_model=InsightResponse)
+def get_insight(session_id: str, db: Session = Depends(get_db)):
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="AI insights not configured")
+
+    row = db.get(WorkoutSessionDB, session_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Workout not found")
+
+    history = db.exec(
+        select(WorkoutSessionDB)
+        .where(WorkoutSessionDB.id != session_id)
+        .order_by(WorkoutSessionDB.date.desc())
+        .limit(4)
+    ).all()
+
+    prompt = _build_prompt(row, list(history))
+
+    client = anthropic.Anthropic(api_key=api_key)
+    message = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=256,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return InsightResponse(insight=message.content[0].text.strip())

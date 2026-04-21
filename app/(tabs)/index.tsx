@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -15,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize, Radius, Spacing } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
 import { generateId } from '../../utils/id';
+import { API_URL } from '../../constants/api';
 
 // ---------------------------------------------------------------------------
 // Draft types (strings for inputs, converted on save)
@@ -177,10 +179,19 @@ function ExerciseCard({
 // Success state
 // ---------------------------------------------------------------------------
 
-function SuccessView({ onReset }: { onReset: () => void }) {
+interface SuccessViewProps {
+  onReset: () => void;
+  insightLoading: boolean;
+  insight: string | null;
+}
+
+function SuccessView({ onReset, insightLoading, insight }: SuccessViewProps) {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.successContainer}>
+      <ScrollView
+        contentContainerStyle={styles.successContainer}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.successIconRing}>
           <Ionicons name="checkmark-circle" size={72} color={Colors.success} />
         </View>
@@ -188,11 +199,29 @@ function SuccessView({ onReset }: { onReset: () => void }) {
         <Text style={styles.successSubtitle}>
           Great work. Your session has been saved.
         </Text>
+
+        {(insightLoading || insight !== null) && (
+          <View style={styles.insightCard}>
+            <View style={styles.insightHeader}>
+              <Ionicons name="sparkles" size={13} color={Colors.primary} />
+              <Text style={styles.insightLabel}>AI Coaching Insight</Text>
+            </View>
+            {insightLoading ? (
+              <View style={styles.insightLoading}>
+                <ActivityIndicator size="small" color={Colors.primary} />
+                <Text style={styles.insightLoadingText}>Analyzing your workout…</Text>
+              </View>
+            ) : (
+              <Text style={styles.insightText}>{insight}</Text>
+            )}
+          </View>
+        )}
+
         <TouchableOpacity style={styles.newWorkoutBtn} onPress={onReset}>
           <Ionicons name="add-circle-outline" size={18} color={Colors.primary} />
           <Text style={styles.newWorkoutBtnText}>Log Another Workout</Text>
         </TouchableOpacity>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -211,6 +240,8 @@ export default function LogScreen() {
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [insight, setInsight] = useState<string | null>(null);
+  const [insightLoading, setInsightLoading] = useState(false);
 
   // -- Exercise mutations ---------------------------------------------------
 
@@ -292,7 +323,7 @@ export default function LogScreen() {
 
     setSaving(true);
     try {
-      await addSession({
+      const session = await addSession({
         date: new Date().toISOString(),
         durationMinutes: parsedDuration,
         avgHeartRate: heartRate.trim() ? parseInt(heartRate, 10) : undefined,
@@ -311,6 +342,16 @@ export default function LogScreen() {
         })),
       });
       setSaved(true);
+      // Fetch insight in the background — failure is silent so success screen always shows
+      setInsightLoading(true);
+      fetch(`${API_URL}/workouts/${session.id}/insight`, { method: 'POST' })
+        .then(res => {
+          if (!res.ok) throw new Error('insight request failed');
+          return res.json() as Promise<{ insight: string }>;
+        })
+        .then(data => setInsight(data.insight))
+        .catch(() => {/* don't surface — success screen still shows */})
+        .finally(() => setInsightLoading(false));
     } finally {
       setSaving(false);
     }
@@ -323,12 +364,20 @@ export default function LogScreen() {
     setCalories('');
     setNotes('');
     setSaved(false);
+    setInsight(null);
+    setInsightLoading(false);
   }, []);
 
   // -------------------------------------------------------------------------
 
   if (saved) {
-    return <SuccessView onReset={resetForm} />;
+    return (
+      <SuccessView
+        onReset={resetForm}
+        insightLoading={insightLoading}
+        insight={insight}
+      />
+    );
   }
 
   const today = new Date().toLocaleDateString('en-US', {
@@ -747,10 +796,11 @@ const styles = StyleSheet.create({
 
   // Success
   successContainer: {
-    flex: 1,
+    flexGrow: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: Spacing.xxl,
+    paddingVertical: Spacing.xxxl,
     gap: Spacing.sm,
   },
   successIconRing: {
@@ -766,7 +816,7 @@ const styles = StyleSheet.create({
     fontSize: FontSize.base,
     color: Colors.textSecondary,
     textAlign: 'center',
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.sm,
   },
   newWorkoutBtn: {
     flexDirection: 'row',
@@ -783,5 +833,44 @@ const styles = StyleSheet.create({
     fontSize: FontSize.base,
     fontWeight: '600',
     color: Colors.primary,
+  },
+
+  // AI insight card
+  insightCard: {
+    alignSelf: 'stretch',
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: Spacing.base,
+    marginTop: Spacing.md,
+  },
+  insightHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    marginBottom: Spacing.sm,
+  },
+  insightLabel: {
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    color: Colors.primary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  insightLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingVertical: Spacing.xs,
+  },
+  insightLoadingText: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+  },
+  insightText: {
+    fontSize: FontSize.base,
+    color: Colors.textSecondary,
+    lineHeight: 22,
   },
 });
