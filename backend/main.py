@@ -10,6 +10,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
+from sqlalchemy import text
 from sqlmodel import Field, Relationship, Session, SQLModel, create_engine, select
 
 load_dotenv()
@@ -48,6 +49,7 @@ class WorkoutSessionDB(SQLModel, table=True):
     avg_heart_rate: Optional[int] = None
     active_calories: Optional[int] = None
     notes: Optional[str] = None
+    insight: Optional[str] = None
     exercises: List[ExerciseDB] = Relationship(back_populates="session")
 
 
@@ -94,6 +96,7 @@ class WorkoutSessionOut(CamelModel):
     avg_heart_rate: Optional[int] = None
     active_calories: Optional[int] = None
     notes: Optional[str] = None
+    insight: Optional[str] = None
 
 
 class WorkoutSessionIn(CamelModel):
@@ -115,6 +118,13 @@ class InsightResponse(BaseModel):
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     SQLModel.metadata.create_all(engine)
+    # Add insight column to existing databases that predate this field
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE workout_session ADD COLUMN insight TEXT"))
+            conn.commit()
+        except Exception:
+            pass  # Column already exists
     yield
 
 
@@ -136,6 +146,7 @@ def _to_out(s: WorkoutSessionDB) -> WorkoutSessionOut:
         avg_heart_rate=s.avg_heart_rate,
         active_calories=s.active_calories,
         notes=s.notes,
+        insight=s.insight,
         exercises=[
             ExerciseOut(
                 id=e.id,
@@ -279,4 +290,8 @@ def get_insight(session_id: str, db: Session = Depends(get_db)):
         max_tokens=256,
         messages=[{"role": "user", "content": prompt}],
     )
-    return InsightResponse(insight=message.content[0].text.strip())
+    insight_text = message.content[0].text.strip()
+    row.insight = insight_text
+    db.add(row)
+    db.commit()
+    return InsightResponse(insight=insight_text)

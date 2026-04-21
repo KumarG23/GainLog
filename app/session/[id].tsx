@@ -253,6 +253,17 @@ export default function SessionDetailScreen() {
           <ExerciseTable key={exercise.id} exercise={exercise} index={idx} />
         ))}
 
+        {/* AI insight */}
+        {session.insight != null && session.insight.length > 0 && (
+          <View style={styles.insightCard}>
+            <View style={styles.insightHeader}>
+              <Ionicons name="sparkles" size={13} color={Colors.primary} />
+              <Text style={styles.insightLabel}>AI Coaching Insight</Text>
+            </View>
+            <Text style={styles.insightText}>{session.insight}</Text>
+          </View>
+        )}
+
         <View style={{ height: Spacing.xxxl }} />
       </ScrollView>
     </SafeAreaView>
@@ -491,5 +502,33 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     color: Colors.textMuted,
     fontWeight: '500',
+  },
+
+  // AI insight card
+  insightCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: Spacing.base,
+    marginBottom: Spacing.md,
+  },
+  insightHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    marginBottom: Spacing.sm,
+  },
+  insightLabel: {
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    color: Colors.primary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  insightText: {
+    fontSize: FontSize.base,
+    color: Colors.textSecondary,
+    lineHeight: 22,
   },
 });

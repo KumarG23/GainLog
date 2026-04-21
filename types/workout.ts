@@ -18,4 +18,5 @@ export interface WorkoutSession {
   avgHeartRate?: number; // bpm
   activeCalories?: number;
   notes?: string;
+  insight?: string;
 }
