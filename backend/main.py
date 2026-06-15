@@ -1,10 +1,8 @@
-import os
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List, Optional
 
-import anthropic
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +10,11 @@ from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 from sqlalchemy import text
 from sqlmodel import Field, Relationship, Session, SQLModel, create_engine, select
+
+try:
+    from .coach import get_coach_provider
+except ImportError:
+    from coach import get_coach_provider
 
 load_dotenv()
 
@@ -267,10 +270,6 @@ def delete_workout(session_id: str, db: Session = Depends(get_db)):
 
 @app.post("/workouts/{session_id}/insight", response_model=InsightResponse)
 def get_insight(session_id: str, db: Session = Depends(get_db)):
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=503, detail="AI insights not configured")
-
     row = db.get(WorkoutSessionDB, session_id)
     if not row:
         raise HTTPException(status_code=404, detail="Workout not found")
@@ -284,13 +283,12 @@ def get_insight(session_id: str, db: Session = Depends(get_db)):
 
     prompt = _build_prompt(row, list(history))
 
-    client = anthropic.Anthropic(api_key=api_key)
-    message = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=256,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    insight_text = message.content[0].text.strip()
+    try:
+        provider = get_coach_provider()
+        insight_text = provider.generate(prompt)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"AI insights unavailable: {exc}") from exc
+
     row.insight = insight_text
     db.add(row)
     db.commit()
