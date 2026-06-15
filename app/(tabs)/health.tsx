@@ -54,6 +54,7 @@ export default function HealthScreen() {
   const router = useRouter();
   const {
     dashboardSummary,
+    coachStatus,
     goals,
     loading,
     error,
@@ -84,6 +85,10 @@ export default function HealthScreen() {
     carbsG: 0,
     fatG: 0,
   };
+
+  const coachProviderName = coachStatus?.provider
+    ? coachStatus.provider.charAt(0).toUpperCase() + coachStatus.provider.slice(1)
+    : null;
 
   const handleKindChange = (kind: GoalKind) => {
     setGoalKind(kind);
@@ -213,6 +218,32 @@ export default function HealthScreen() {
               value={formatVolume(dashboardSummary?.totalWorkoutVolume ?? 0)}
               color={Colors.textSecondary}
             />
+          </View>
+
+          <View style={styles.section}>
+            <View style={styles.coachRow}>
+              <View style={styles.coachIcon}>
+                <Ionicons name="sparkles-outline" size={18} color={Colors.primary} />
+              </View>
+              <View style={styles.coachBody}>
+                <Text style={styles.sectionTitle}>AI Coach</Text>
+                <Text style={styles.coachTitle}>
+                  {coachStatus
+                    ? `${coachProviderName} ${coachStatus.model ?? ''}`.trim()
+                    : 'unavailable'}
+                </Text>
+                <Text style={styles.coachStatus}>
+                  {coachStatus?.configured
+                    ? coachStatus.provider === 'ollama'
+                      ? 'Local provider configured'
+                      : 'Provider configured'
+                    : 'Provider not configured'}
+                </Text>
+                {coachStatus?.baseUrl && (
+                  <Text style={styles.coachMeta}>{coachStatus.baseUrl}</Text>
+                )}
+              </View>
+            </View>
           </View>
 
           <View style={styles.section}>
@@ -439,6 +470,34 @@ const styles = StyleSheet.create({
     color: Colors.text,
     fontSize: FontSize.md,
     fontWeight: '800',
+  },
+  coachRow: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+    alignItems: 'center',
+  },
+  coachIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.primaryDim,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  coachBody: { flex: 1, gap: 3 },
+  coachTitle: {
+    color: Colors.text,
+    fontSize: FontSize.base,
+    fontWeight: '800',
+  },
+  coachStatus: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+  },
+  coachMeta: {
+    color: Colors.textMuted,
+    fontSize: FontSize.xs,
   },
   iconButton: {
     width: 34,

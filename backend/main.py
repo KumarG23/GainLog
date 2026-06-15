@@ -238,6 +238,13 @@ class DashboardSummaryOut(CamelModel):
     latest_workout: Optional[WorkoutSessionOut]
 
 
+class CoachStatusOut(CamelModel):
+    provider: str
+    model: Optional[str] = None
+    base_url: Optional[str] = None
+    configured: bool
+
+
 class InsightResponse(BaseModel):
     insight: str
 
@@ -331,6 +338,24 @@ def _validate_goal_kind(kind: str) -> None:
     if kind not in GOAL_KINDS:
         allowed = ", ".join(sorted(GOAL_KINDS))
         raise HTTPException(status_code=400, detail=f"Unsupported goal kind. Use one of: {allowed}")
+
+
+def _get_coach_status() -> CoachStatusOut:
+    provider = os.environ.get("GAINLOG_COACH_PROVIDER", "ollama").strip().lower()
+    if provider == "ollama":
+        return CoachStatusOut(
+            provider=provider,
+            model=os.environ.get("OLLAMA_MODEL", "qwen2.5:7b"),
+            base_url=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
+            configured=True,
+        )
+    if provider == "anthropic":
+        return CoachStatusOut(
+            provider=provider,
+            model=os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514"),
+            configured=bool(os.environ.get("ANTHROPIC_API_KEY")),
+        )
+    return CoachStatusOut(provider=provider, configured=False)
 
 
 def _nutrition_totals_for_date(db: Session, date_prefix: str) -> NutritionTotals:
@@ -444,6 +469,11 @@ Rules: be encouraging but direct. Use exact numbers from the data. No bullet poi
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/coach/status", response_model=CoachStatusOut, response_model_by_alias=True)
+def get_coach_status():
+    return _get_coach_status()
 
 
 @app.get("/body-weight/", response_model=List[BodyWeightEntryOut], response_model_by_alias=True)

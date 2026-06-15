@@ -42,3 +42,10 @@ export interface DashboardSummary {
   totalWorkoutVolume: number;
   latestWorkout: unknown | null;
 }
+
+export interface CoachStatus {
+  provider: string;
+  model?: string;
+  baseUrl?: string;
+  configured: boolean;
+}

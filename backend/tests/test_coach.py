@@ -74,3 +74,19 @@ def test_ollama_generate(monkeypatch):
     assert calls["json"]["prompt"] == "coach me"
     assert calls["json"]["stream"] is False
     assert calls["timeout"] == 30
+
+
+def test_coach_status_defaults_to_ollama(client, monkeypatch):
+    monkeypatch.delenv("GAINLOG_COACH_PROVIDER", raising=False)
+    monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+    monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+
+    response = client.get("/coach/status")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "provider": "ollama",
+        "model": "qwen2.5:7b",
+        "baseUrl": "http://localhost:11434",
+        "configured": True,
+    }

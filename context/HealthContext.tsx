@@ -8,6 +8,7 @@ import React, {
 import { API_URL } from '../constants/api';
 import {
   BodyWeightEntry,
+  CoachStatus,
   DashboardSummary,
   Goal,
   NutritionEntry,
@@ -25,6 +26,7 @@ interface HealthContextValue {
   goals: Goal[];
   nutritionEntries: NutritionEntry[];
   dashboardSummary: DashboardSummary | null;
+  coachStatus: CoachStatus | null;
   loading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
@@ -57,6 +59,7 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [nutritionEntries, setNutritionEntries] = useState<NutritionEntry[]>([]);
   const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(null);
+  const [coachStatus, setCoachStatus] = useState<CoachStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,16 +67,18 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     setError(null);
     try {
-      const [weights, goalsData, nutrition, summary] = await Promise.all([
+      const [weights, goalsData, nutrition, summary, coach] = await Promise.all([
         apiFetch<BodyWeightEntry[]>('/body-weight/'),
         apiFetch<Goal[]>('/goals/'),
         apiFetch<NutritionEntry[]>('/nutrition/'),
         apiFetch<DashboardSummary>('/dashboard/summary'),
+        apiFetch<CoachStatus>('/coach/status').catch(() => null),
       ]);
       setBodyWeightEntries(weights);
       setGoals(goalsData);
       setNutritionEntries(nutrition);
       setDashboardSummary(summary);
+      setCoachStatus(coach);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Failed to load health data. Check your connection.',
@@ -152,6 +157,7 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
         goals,
         nutritionEntries,
         dashboardSummary,
+        coachStatus,
         loading,
         error,
         refresh,
