@@ -45,7 +45,7 @@ __pycache__/
 
 # GainLog backend runtime data
 backend/data/*.db
-backend/data/.db-
+backend/data/*.db-*
 
 app-example
 

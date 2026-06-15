@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 
 TEST_DB = Path("/tmp/gainlog-test.db")
-os.environ.setdefault("GAINLOG_DATABASE_URL", f"sqlite:///{TEST_DB}")
+os.environ["GAINLOG_DATABASE_URL"] = f"sqlite:///{TEST_DB}"
 
 
 @pytest.fixture
