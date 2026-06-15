@@ -94,6 +94,36 @@ export default function TabLayout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="health"
+        options={{
+          title: 'Health',
+          tabBarIcon: ({ color, size, focused }) => (
+            <TabIcon
+              name="scale-outline"
+              activeName="scale"
+              color={color}
+              size={size}
+              focused={focused}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="nutrition"
+        options={{
+          title: 'Nutrition',
+          tabBarIcon: ({ color, size, focused }) => (
+            <TabIcon
+              name="restaurant-outline"
+              activeName="restaurant"
+              color={color}
+              size={size}
+              focused={focused}
+            />
+          ),
+        }}
+      />
     </Tabs>
   );
 }
