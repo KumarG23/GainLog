@@ -38,6 +38,15 @@ backend/.env
 # typescript
 *.tsbuildinfo
 
+# Python
+__pycache__/
+.pytest_cache/
+*.py[cod]
+
+# GainLog backend runtime data
+backend/data/*.db
+backend/data/.db-
+
 app-example
 
 # generated native folders

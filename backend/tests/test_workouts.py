@@ -1,17 +1,18 @@
+import os
 from pathlib import Path
+
+TEST_DB = Path("/tmp/gainlog-test.db")
+os.environ["GAINLOG_DATABASE_URL"] = f"sqlite:///{TEST_DB}"
 
 from fastapi.testclient import TestClient
 
 from backend.main import app, engine
 
 
-DB_PATH = Path(__file__).resolve().parents[1] / "data" / "gainlog.db"
-
-
 def reset_db():
     engine.dispose()
-    if DB_PATH.exists():
-        DB_PATH.unlink()
+    if TEST_DB.exists():
+        TEST_DB.unlink()
 
 
 def test_workout_crud_round_trip():

@@ -1,3 +1,4 @@
+import os
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -20,7 +21,10 @@ load_dotenv()
 
 DATA_DIR = Path(__file__).parent / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
-DATABASE_URL = f"sqlite:///{DATA_DIR}/gainlog.db"
+DATABASE_URL = os.environ.get(
+    "GAINLOG_DATABASE_URL",
+    f"sqlite:///{DATA_DIR}/gainlog.db",
+)
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 
 
