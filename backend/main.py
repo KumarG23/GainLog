@@ -1,6 +1,7 @@
 import os
 import uuid
 from contextlib import asynccontextmanager
+from datetime import date as date_cls
 from pathlib import Path
 from typing import List, Optional
 
@@ -60,6 +61,40 @@ class WorkoutSessionDB(SQLModel, table=True):
     exercises: List[ExerciseDB] = Relationship(back_populates="session")
 
 
+class BodyWeightEntryDB(SQLModel, table=True):
+    __tablename__ = "body_weight_entry"
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
+    date: str
+    weight_lbs: float
+    notes: Optional[str] = None
+
+
+class GoalDB(SQLModel, table=True):
+    __tablename__ = "goal"
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
+    kind: str
+    title: str
+    target_value: Optional[float] = None
+    unit: Optional[str] = None
+    start_date: str
+    target_date: Optional[str] = None
+    status: str = "active"
+    notes: Optional[str] = None
+
+
+class NutritionEntryDB(SQLModel, table=True):
+    __tablename__ = "nutrition_entry"
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
+    date: str
+    meal: str
+    name: str
+    calories: int
+    protein_g: float = 0
+    carbs_g: float = 0
+    fat_g: float = 0
+    notes: Optional[str] = None
+
+
 def get_db():
     with Session(engine) as session:
         yield session
@@ -116,6 +151,93 @@ class WorkoutSessionIn(CamelModel):
     notes: Optional[str] = None
 
 
+class BodyWeightEntryOut(CamelModel):
+    id: str
+    date: str
+    weight_lbs: float
+    notes: Optional[str] = None
+
+
+class BodyWeightEntryIn(CamelModel):
+    id: Optional[str] = None
+    date: str
+    weight_lbs: float
+    notes: Optional[str] = None
+
+
+class GoalOut(CamelModel):
+    id: str
+    kind: str
+    title: str
+    target_value: Optional[float] = None
+    unit: Optional[str] = None
+    start_date: str
+    target_date: Optional[str] = None
+    status: str
+    notes: Optional[str] = None
+
+
+class GoalIn(CamelModel):
+    id: Optional[str] = None
+    kind: str
+    title: str
+    target_value: Optional[float] = None
+    unit: Optional[str] = None
+    start_date: str
+    target_date: Optional[str] = None
+    status: str = "active"
+    notes: Optional[str] = None
+
+
+class GoalPatch(CamelModel):
+    title: Optional[str] = None
+    target_value: Optional[float] = None
+    unit: Optional[str] = None
+    target_date: Optional[str] = None
+    status: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class NutritionEntryOut(CamelModel):
+    id: str
+    date: str
+    meal: str
+    name: str
+    calories: int
+    protein_g: float
+    carbs_g: float
+    fat_g: float
+    notes: Optional[str] = None
+
+
+class NutritionEntryIn(CamelModel):
+    id: Optional[str] = None
+    date: str
+    meal: str
+    name: str
+    calories: int
+    protein_g: float = 0
+    carbs_g: float = 0
+    fat_g: float = 0
+    notes: Optional[str] = None
+
+
+class NutritionTotals(CamelModel):
+    calories: int
+    protein_g: float
+    carbs_g: float
+    fat_g: float
+
+
+class DashboardSummaryOut(CamelModel):
+    latest_weight: Optional[BodyWeightEntryOut]
+    active_goals: List[GoalOut]
+    today_nutrition: NutritionTotals
+    workout_count: int
+    total_workout_volume: int
+    latest_workout: Optional[WorkoutSessionOut]
+
+
 class InsightResponse(BaseModel):
     insight: str
 
@@ -165,6 +287,65 @@ def _to_out(s: WorkoutSessionDB) -> WorkoutSessionOut:
     )
 
 
+def _body_weight_to_out(entry: BodyWeightEntryDB) -> BodyWeightEntryOut:
+    return BodyWeightEntryOut(
+        id=entry.id,
+        date=entry.date,
+        weight_lbs=entry.weight_lbs,
+        notes=entry.notes,
+    )
+
+
+def _goal_to_out(goal: GoalDB) -> GoalOut:
+    return GoalOut(
+        id=goal.id,
+        kind=goal.kind,
+        title=goal.title,
+        target_value=goal.target_value,
+        unit=goal.unit,
+        start_date=goal.start_date,
+        target_date=goal.target_date,
+        status=goal.status,
+        notes=goal.notes,
+    )
+
+
+def _nutrition_to_out(entry: NutritionEntryDB) -> NutritionEntryOut:
+    return NutritionEntryOut(
+        id=entry.id,
+        date=entry.date,
+        meal=entry.meal,
+        name=entry.name,
+        calories=entry.calories,
+        protein_g=entry.protein_g,
+        carbs_g=entry.carbs_g,
+        fat_g=entry.fat_g,
+        notes=entry.notes,
+    )
+
+
+GOAL_KINDS = {"weight", "calories", "protein", "workout_frequency"}
+
+
+def _validate_goal_kind(kind: str) -> None:
+    if kind not in GOAL_KINDS:
+        allowed = ", ".join(sorted(GOAL_KINDS))
+        raise HTTPException(status_code=400, detail=f"Unsupported goal kind. Use one of: {allowed}")
+
+
+def _nutrition_totals_for_date(db: Session, date_prefix: str) -> NutritionTotals:
+    rows = db.exec(
+        select(NutritionEntryDB)
+        .where(NutritionEntryDB.date.startswith(date_prefix))
+    ).all()
+    return NutritionTotals(
+        calories=sum(entry.calories for entry in rows),
+        protein_g=sum(entry.protein_g for entry in rows),
+        carbs_g=sum(entry.carbs_g for entry in rows),
+        fat_g=sum(entry.fat_g for entry in rows),
+    )
+
+
 # ── Insight helpers ────────────────────────────────────────────────────────────
 
 def _session_volume(s: WorkoutSessionDB) -> int:
@@ -185,7 +366,44 @@ def _format_session(s: WorkoutSessionDB, label: str) -> str:
     return "\n".join(lines)
 
 
-def _build_prompt(current: WorkoutSessionDB, history: list[WorkoutSessionDB]) -> str:
+def _format_broader_context(
+    latest_weight: Optional[BodyWeightEntryDB],
+    active_weight_goal: Optional[GoalDB],
+    nutrition_totals: NutritionTotals,
+    nutrition_date: str,
+) -> str:
+    lines = []
+    if latest_weight:
+        lines.append(
+            f"Latest body weight: {latest_weight.weight_lbs:g} lbs on {latest_weight.date[:10]}."
+        )
+    if active_weight_goal:
+        goal = f"Active weight goal: {active_weight_goal.title}"
+        if active_weight_goal.target_value is not None:
+            unit = f" {active_weight_goal.unit}" if active_weight_goal.unit else ""
+            goal += f" targeting {active_weight_goal.target_value:g}{unit}"
+        if active_weight_goal.target_date:
+            goal += f" by {active_weight_goal.target_date[:10]}"
+        lines.append(f"{goal}.")
+    if (
+        nutrition_totals.calories
+        or nutrition_totals.protein_g
+        or nutrition_totals.carbs_g
+        or nutrition_totals.fat_g
+    ):
+        lines.append(
+            f"Nutrition on {nutrition_date}: {nutrition_totals.calories} kcal, "
+            f"{nutrition_totals.protein_g:g}g protein, {nutrition_totals.carbs_g:g}g carbs, "
+            f"{nutrition_totals.fat_g:g}g fat."
+        )
+    return "\n".join(lines)
+
+
+def _build_prompt(
+    current: WorkoutSessionDB,
+    history: list[WorkoutSessionDB],
+    broader_context: Optional[str] = None,
+) -> str:
     current_block = _format_session(current, "CURRENT WORKOUT")
 
     if history:
@@ -201,11 +419,17 @@ def _build_prompt(current: WorkoutSessionDB, history: list[WorkoutSessionDB]) ->
     else:
         context = "No previous sessions on record — this is their first logged workout."
 
+    broader_context_block = (
+        f"\n\nBROADER FITNESS CONTEXT:\n{broader_context}"
+        if broader_context
+        else ""
+    )
+
     return f"""You are a personal trainer AI reviewing a client's workout log.
 
 {current_block}
 
-{context}
+{context}{broader_context_block}
 
 Write a coaching insight of exactly 2-3 sentences that covers:
 1. How today's total volume compares to the recent average (use specific numbers and a percentage if history exists).
@@ -220,6 +444,166 @@ Rules: be encouraging but direct. Use exact numbers from the data. No bullet poi
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/body-weight/", response_model=List[BodyWeightEntryOut], response_model_by_alias=True)
+def list_body_weight(db: Session = Depends(get_db)):
+    rows = db.exec(select(BodyWeightEntryDB).order_by(BodyWeightEntryDB.date.desc())).all()
+    return [_body_weight_to_out(row) for row in rows]
+
+
+@app.post("/body-weight/", response_model=BodyWeightEntryOut, response_model_by_alias=True, status_code=201)
+def create_body_weight(payload: BodyWeightEntryIn, db: Session = Depends(get_db)):
+    entry_id = payload.id or str(uuid.uuid4())
+    row = BodyWeightEntryDB(
+        id=entry_id,
+        date=payload.date,
+        weight_lbs=payload.weight_lbs,
+        notes=payload.notes,
+    )
+    db.add(row)
+    db.commit()
+    row = db.get(BodyWeightEntryDB, entry_id)
+    return _body_weight_to_out(row)
+
+
+@app.get("/body-weight/{entry_id}", response_model=BodyWeightEntryOut, response_model_by_alias=True)
+def get_body_weight(entry_id: str, db: Session = Depends(get_db)):
+    row = db.get(BodyWeightEntryDB, entry_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Body weight entry not found")
+    return _body_weight_to_out(row)
+
+
+@app.delete("/body-weight/{entry_id}", status_code=204)
+def delete_body_weight(entry_id: str, db: Session = Depends(get_db)):
+    row = db.get(BodyWeightEntryDB, entry_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Body weight entry not found")
+    db.delete(row)
+    db.commit()
+
+
+@app.get("/goals/", response_model=List[GoalOut], response_model_by_alias=True)
+def list_goals(db: Session = Depends(get_db)):
+    rows = db.exec(select(GoalDB).order_by(GoalDB.start_date.desc())).all()
+    return [_goal_to_out(row) for row in rows]
+
+
+@app.post("/goals/", response_model=GoalOut, response_model_by_alias=True, status_code=201)
+def create_goal(payload: GoalIn, db: Session = Depends(get_db)):
+    _validate_goal_kind(payload.kind)
+    goal_id = payload.id or str(uuid.uuid4())
+    row = GoalDB(
+        id=goal_id,
+        kind=payload.kind,
+        title=payload.title,
+        target_value=payload.target_value,
+        unit=payload.unit,
+        start_date=payload.start_date,
+        target_date=payload.target_date,
+        status=payload.status,
+        notes=payload.notes,
+    )
+    db.add(row)
+    db.commit()
+    row = db.get(GoalDB, goal_id)
+    return _goal_to_out(row)
+
+
+@app.patch("/goals/{goal_id}", response_model=GoalOut, response_model_by_alias=True)
+def update_goal(goal_id: str, payload: GoalPatch, db: Session = Depends(get_db)):
+    row = db.get(GoalDB, goal_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Goal not found")
+    updates = payload.model_dump(exclude_unset=True)
+    for field, value in updates.items():
+        setattr(row, field, value)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _goal_to_out(row)
+
+
+@app.delete("/goals/{goal_id}", status_code=204)
+def delete_goal(goal_id: str, db: Session = Depends(get_db)):
+    row = db.get(GoalDB, goal_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Goal not found")
+    db.delete(row)
+    db.commit()
+
+
+@app.get("/nutrition/", response_model=List[NutritionEntryOut], response_model_by_alias=True)
+def list_nutrition(date: Optional[str] = None, db: Session = Depends(get_db)):
+    query = select(NutritionEntryDB)
+    if date:
+        query = query.where(NutritionEntryDB.date.startswith(date))
+    rows = db.exec(query.order_by(NutritionEntryDB.date.desc())).all()
+    return [_nutrition_to_out(row) for row in rows]
+
+
+@app.post("/nutrition/", response_model=NutritionEntryOut, response_model_by_alias=True, status_code=201)
+def create_nutrition(payload: NutritionEntryIn, db: Session = Depends(get_db)):
+    entry_id = payload.id or str(uuid.uuid4())
+    row = NutritionEntryDB(
+        id=entry_id,
+        date=payload.date,
+        meal=payload.meal,
+        name=payload.name,
+        calories=payload.calories,
+        protein_g=payload.protein_g,
+        carbs_g=payload.carbs_g,
+        fat_g=payload.fat_g,
+        notes=payload.notes,
+    )
+    db.add(row)
+    db.commit()
+    row = db.get(NutritionEntryDB, entry_id)
+    return _nutrition_to_out(row)
+
+
+@app.get("/nutrition/{entry_id}", response_model=NutritionEntryOut, response_model_by_alias=True)
+def get_nutrition(entry_id: str, db: Session = Depends(get_db)):
+    row = db.get(NutritionEntryDB, entry_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Nutrition entry not found")
+    return _nutrition_to_out(row)
+
+
+@app.delete("/nutrition/{entry_id}", status_code=204)
+def delete_nutrition(entry_id: str, db: Session = Depends(get_db)):
+    row = db.get(NutritionEntryDB, entry_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Nutrition entry not found")
+    db.delete(row)
+    db.commit()
+
+
+@app.get("/dashboard/summary", response_model=DashboardSummaryOut, response_model_by_alias=True)
+def get_dashboard_summary(db: Session = Depends(get_db)):
+    today = date_cls.today().isoformat()
+    latest_weight = db.exec(
+        select(BodyWeightEntryDB).order_by(BodyWeightEntryDB.date.desc()).limit(1)
+    ).first()
+    active_goals = db.exec(
+        select(GoalDB)
+        .where(GoalDB.status == "active")
+        .order_by(GoalDB.start_date.desc())
+    ).all()
+    workouts = db.exec(select(WorkoutSessionDB)).all()
+    latest_workout = db.exec(
+        select(WorkoutSessionDB).order_by(WorkoutSessionDB.date.desc()).limit(1)
+    ).first()
+
+    return DashboardSummaryOut(
+        latest_weight=_body_weight_to_out(latest_weight) if latest_weight else None,
+        active_goals=[_goal_to_out(goal) for goal in active_goals],
+        today_nutrition=_nutrition_totals_for_date(db, today),
+        workout_count=len(workouts),
+        total_workout_volume=sum(_session_volume(workout) for workout in workouts),
+        latest_workout=_to_out(latest_workout) if latest_workout else None,
+    )
 
 
 @app.get("/workouts/", response_model=List[WorkoutSessionOut], response_model_by_alias=True)
@@ -290,7 +674,26 @@ def get_insight(session_id: str, db: Session = Depends(get_db)):
         .limit(4)
     ).all()
 
-    prompt = _build_prompt(row, list(history))
+    nutrition_date = row.date[:10]
+    latest_weight = db.exec(
+        select(BodyWeightEntryDB).order_by(BodyWeightEntryDB.date.desc()).limit(1)
+    ).first()
+    active_weight_goal = db.exec(
+        select(GoalDB)
+        .where(GoalDB.kind == "weight")
+        .where(GoalDB.status == "active")
+        .order_by(GoalDB.start_date.desc())
+        .limit(1)
+    ).first()
+    nutrition_totals = _nutrition_totals_for_date(db, nutrition_date)
+    broader_context = _format_broader_context(
+        latest_weight=latest_weight,
+        active_weight_goal=active_weight_goal,
+        nutrition_totals=nutrition_totals,
+        nutrition_date=nutrition_date,
+    )
+
+    prompt = _build_prompt(row, list(history), broader_context)
 
     try:
         provider = get_coach_provider()
