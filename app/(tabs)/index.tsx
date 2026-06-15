@@ -413,7 +413,7 @@ export default function LogScreen() {
               <Ionicons name="barbell-outline" size={48} color={Colors.textMuted} />
               <Text style={styles.emptyTitle}>No exercises yet</Text>
               <Text style={styles.emptySubtitle}>
-                Tap "Add Exercise" to start building your session.
+                Tap &quot;Add Exercise&quot; to start building your session.
               </Text>
             </View>
           ) : (
