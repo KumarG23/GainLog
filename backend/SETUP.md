@@ -28,7 +28,47 @@ sudo -u gainlog /opt/gainlog/venv/bin/pip install --upgrade pip
 sudo -u gainlog /opt/gainlog/venv/bin/pip install -r /opt/gainlog/backend/requirements.txt
 ```
 
-## 5. Install and enable the systemd service
+## 5. Local AI Coach with Ollama
+
+GainLog defaults to a local Ollama-compatible coach provider.
+
+Environment variables:
+
+```bash
+GAINLOG_COACH_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=qwen2.5:7b
+OLLAMA_TIMEOUT_SECONDS=60
+```
+
+If Ollama runs on another machine, set `OLLAMA_BASE_URL` to that host, for example:
+
+```bash
+OLLAMA_BASE_URL=http://100.66.106.122:11434
+```
+
+Pull a model:
+
+```bash
+ollama pull qwen2.5:7b
+```
+
+Test Ollama:
+
+```bash
+curl http://localhost:11434/api/generate \
+  -d '{"model":"qwen2.5:7b","prompt":"Write one sentence of workout coaching.","stream":false}'
+```
+
+Optional Anthropic fallback:
+
+```bash
+GAINLOG_COACH_PROVIDER=anthropic
+ANTHROPIC_API_KEY=...
+ANTHROPIC_MODEL=claude-sonnet-4-20250514
+```
+
+## 6. Install and enable the systemd service
 
 ```bash
 sudo cp /opt/gainlog/backend/gainlog.service /etc/systemd/system/gainlog.service
@@ -37,14 +77,23 @@ sudo systemctl enable gainlog
 sudo systemctl start gainlog
 ```
 
-## 6. Verify it's running
+## 7. Verify it's running
 
 ```bash
 sudo systemctl status gainlog
+curl http://localhost:8000/health
 curl http://localhost:8000/workouts/
 ```
 
 The API docs (Swagger UI) are available at http://<server-ip>:8000/docs
+
+## Local verification
+
+```bash
+npm run lint
+npx tsc --noEmit
+python -m pytest backend/tests -v
+```
 
 ## Useful commands
 
