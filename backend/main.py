@@ -213,6 +213,11 @@ Rules: be encouraging but direct. Use exact numbers from the data. No bullet poi
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
 @app.get("/workouts/", response_model=List[WorkoutSessionOut], response_model_by_alias=True)
 def list_workouts(db: Session = Depends(get_db)):
     rows = db.exec(select(WorkoutSessionDB).order_by(WorkoutSessionDB.date.desc())).all()
