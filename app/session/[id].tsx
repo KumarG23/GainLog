@@ -42,6 +42,36 @@ interface ExerciseTableProps {
 }
 
 function ExerciseTable({ exercise, index }: ExerciseTableProps) {
+  if (exercise.kind === 'cardio') {
+    const details = [
+      exercise.cardioDurationMinutes != null
+        ? `${exercise.cardioDurationMinutes} min`
+        : null,
+      exercise.distanceMiles != null ? `${exercise.distanceMiles} mi` : null,
+      exercise.resistanceLevel != null
+        ? `Resistance ${exercise.resistanceLevel}`
+        : null,
+    ].filter((detail): detail is string => detail !== null);
+
+    return (
+      <View style={styles.exerciseCard}>
+        <View style={styles.exerciseHeader}>
+          <View style={styles.exerciseIndexBadge}>
+            <Ionicons name="heart" size={13} color={Colors.primary} />
+          </View>
+          <Text style={styles.exerciseName}>{exercise.name}</Text>
+        </View>
+        <View style={styles.cardioSummary}>
+          {details.map(detail => (
+            <View key={detail} style={styles.cardioMetric}>
+              <Text style={styles.cardioMetricText}>{detail}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+    );
+  }
+
   const best = bestSet(exercise.sets);
   const volume = exerciseVolume(exercise);
 
@@ -416,6 +446,23 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
     fontWeight: '700',
     color: Colors.text,
+  },
+  cardioSummary: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+    padding: Spacing.base,
+  },
+  cardioMetric: {
+    backgroundColor: Colors.primaryDim,
+    borderRadius: Radius.full,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+  },
+  cardioMetricText: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.primary,
   },
 
   // Table

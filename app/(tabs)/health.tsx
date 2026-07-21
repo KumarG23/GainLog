@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize, Radius, Spacing } from '../../constants/theme';
 import { useHealth } from '../../context/HealthContext';
 import { formatVolume } from '../../utils/stats';
+import { localDateKey, localIsoTimestamp } from '../../utils/date';
 
 type GoalKind = 'weight' | 'calories' | 'protein' | 'workout_frequency';
 
@@ -28,7 +29,7 @@ const GOAL_KINDS: { value: GoalKind; label: string; unit: string }[] = [
 ];
 
 function todayIso() {
-  return new Date().toISOString();
+  return localIsoTimestamp();
 }
 
 interface SummaryTileProps {
@@ -55,11 +56,13 @@ export default function HealthScreen() {
   const {
     dashboardSummary,
     coachStatus,
+    dailyReview,
     goals,
     loading,
     error,
     addBodyWeightEntry,
     addGoal,
+    generateDailyReview,
     updateGoal,
   } = useHealth();
 
@@ -73,6 +76,7 @@ export default function HealthScreen() {
   const [goalNotes, setGoalNotes] = useState('');
   const [savingWeight, setSavingWeight] = useState(false);
   const [savingGoal, setSavingGoal] = useState(false);
+  const [reviewingDay, setReviewingDay] = useState(false);
 
   const activeGoals = useMemo(
     () => goals.filter(goal => goal.status === 'active'),
@@ -161,6 +165,20 @@ export default function HealthScreen() {
     }
   };
 
+  const handleDailyReview = async () => {
+    setReviewingDay(true);
+    try {
+      await generateDailyReview(localDateKey());
+    } catch (err) {
+      Alert.alert(
+        'Review unavailable',
+        err instanceof Error ? err.message : 'Unable to generate the daily review.',
+      );
+    } finally {
+      setReviewingDay(false);
+    }
+  };
+
   if (loading && !dashboardSummary) {
     return (
       <SafeAreaView style={styles.container} edges={['bottom']}>
@@ -244,6 +262,42 @@ export default function HealthScreen() {
                 )}
               </View>
             </View>
+          </View>
+
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <View style={styles.reviewTitleRow}>
+                <Ionicons name="analytics-outline" size={18} color={Colors.primary} />
+                <Text style={styles.sectionTitle}>Daily Review</Text>
+              </View>
+              {dailyReview && (
+                <Text style={styles.reviewDate}>{dailyReview.date}</Text>
+              )}
+            </View>
+            <Text style={styles.reviewHint}>
+              Combines today’s weight, meals, macros, goals, and training.
+            </Text>
+            {dailyReview && (
+              <Text style={styles.reviewText}>{dailyReview.review}</Text>
+            )}
+            <TouchableOpacity
+              style={[styles.primaryButton, reviewingDay && styles.buttonDisabled]}
+              onPress={handleDailyReview}
+              disabled={reviewingDay || !coachStatus?.configured}
+            >
+              {reviewingDay ? (
+                <ActivityIndicator size="small" color={Colors.text} />
+              ) : (
+                <Ionicons name="sparkles-outline" size={16} color={Colors.text} />
+              )}
+              <Text style={styles.primaryButtonText}>
+                {reviewingDay
+                  ? 'Reviewing Day'
+                  : dailyReview
+                    ? 'Refresh Daily Review'
+                    : 'Generate Daily Review'}
+              </Text>
+            </TouchableOpacity>
           </View>
 
           <View style={styles.section}>
@@ -498,6 +552,26 @@ const styles = StyleSheet.create({
   coachMeta: {
     color: Colors.textMuted,
     fontSize: FontSize.xs,
+  },
+  reviewTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  reviewDate: {
+    color: Colors.textMuted,
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+  },
+  reviewHint: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.sm,
+    lineHeight: 20,
+  },
+  reviewText: {
+    color: Colors.text,
+    fontSize: FontSize.base,
+    lineHeight: 23,
   },
   iconButton: {
     width: 34,

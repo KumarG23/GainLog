@@ -41,6 +41,7 @@ backend/.env
 # Python
 __pycache__/
 .pytest_cache/
+.venv/
 *.py[cod]
 
 # GainLog backend runtime data

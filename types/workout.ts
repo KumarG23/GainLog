@@ -4,10 +4,16 @@ export interface WorkoutSet {
   reps: number;
 }
 
+export type ExerciseKind = 'strength' | 'cardio';
+
 export interface Exercise {
   id: string;
   name: string;
+  kind?: ExerciseKind;
   sets: WorkoutSet[];
+  cardioDurationMinutes?: number;
+  distanceMiles?: number;
+  resistanceLevel?: number;
 }
 
 export interface WorkoutSession {

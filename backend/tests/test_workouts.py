@@ -60,3 +60,43 @@ def test_workout_crud_round_trip():
 
         missing = client.get(f"/workouts/{session_id}")
         assert missing.status_code == 404
+
+
+def test_cardio_exercise_round_trip():
+    reset_db()
+    with TestClient(app) as client:
+        payload = {
+            "date": "2026-07-21T12:00:00Z",
+            "durationMinutes": 30,
+            "avgHeartRate": 132,
+            "activeCalories": 246,
+            "exercises": [
+                {
+                    "name": "Elliptical",
+                    "kind": "cardio",
+                    "sets": [],
+                    "cardioDurationMinutes": 30,
+                    "distanceMiles": 2.4,
+                    "resistanceLevel": 8,
+                }
+            ],
+        }
+
+        created = client.post("/workouts/", json=payload)
+
+        assert created.status_code == 201
+        exercise = created.json()["exercises"][0]
+        assert exercise == {
+            "id": exercise["id"],
+            "name": "Elliptical",
+            "kind": "cardio",
+            "sets": [],
+            "cardioDurationMinutes": 30,
+            "distanceMiles": 2.4,
+            "resistanceLevel": 8.0,
+        }
+
+        fetched = client.get(f"/workouts/{created.json()['id']}")
+        assert fetched.status_code == 200
+        assert fetched.json()["exercises"][0]["kind"] == "cardio"
+        assert fetched.json()["exercises"][0]["cardioDurationMinutes"] == 30

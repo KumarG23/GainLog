@@ -15,12 +15,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize, Radius, Spacing } from '../../constants/theme';
 import { useHealth } from '../../context/HealthContext';
+import { localDateKey, localIsoTimestamp } from '../../utils/date';
 
 const MEALS = ['breakfast', 'lunch', 'dinner', 'snack'];
-
-function todayDate() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function toNumber(value: string) {
   const parsed = Number.parseFloat(value);
@@ -46,7 +43,7 @@ export default function NutritionScreen() {
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const today = todayDate();
+  const today = localDateKey();
   const todayEntries = useMemo(
     () => nutritionEntries.filter(entry => entry.date.startsWith(today)),
     [nutritionEntries, today],
@@ -73,7 +70,7 @@ export default function NutritionScreen() {
     setSaving(true);
     try {
       await addNutritionEntry({
-        date: new Date().toISOString(),
+        date: localIsoTimestamp(),
         meal,
         name: name.trim(),
         calories: parsedCalories,

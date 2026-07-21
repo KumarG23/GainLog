@@ -51,6 +51,10 @@ function SessionCard({ session, onPress }: SessionCardProps) {
     (acc, ex) => acc + ex.sets.length,
     0,
   );
+  const cardioMinutes = session.exercises.reduce(
+    (acc, ex) => acc + (ex.cardioDurationMinutes ?? 0),
+    0,
+  );
 
   return (
     <TouchableOpacity
@@ -88,14 +92,27 @@ function SessionCard({ session, onPress }: SessionCardProps) {
           </Text>
         </View>
 
-        <View style={styles.statDot} />
+        {totalSets > 0 && (
+          <>
+            <View style={styles.statDot} />
+            <View style={styles.statItem}>
+              <Ionicons name="layers-outline" size={14} color={Colors.textMuted} />
+              <Text style={styles.statText}>
+                {totalSets} set{totalSets !== 1 ? 's' : ''}
+              </Text>
+            </View>
+          </>
+        )}
 
-        <View style={styles.statItem}>
-          <Ionicons name="layers-outline" size={14} color={Colors.textMuted} />
-          <Text style={styles.statText}>
-            {totalSets} set{totalSets !== 1 ? 's' : ''}
-          </Text>
-        </View>
+        {cardioMinutes > 0 && (
+          <>
+            <View style={styles.statDot} />
+            <View style={styles.statItem}>
+              <Ionicons name="heart-outline" size={14} color={Colors.primary} />
+              <Text style={styles.statText}>{cardioMinutes} cardio min</Text>
+            </View>
+          </>
+        )}
 
         <View style={styles.statDot} />
 

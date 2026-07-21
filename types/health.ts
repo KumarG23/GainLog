@@ -49,3 +49,9 @@ export interface CoachStatus {
   baseUrl?: string;
   configured: boolean;
 }
+
+export interface DailyReview {
+  date: string;
+  review: string;
+  generatedAt: string;
+}

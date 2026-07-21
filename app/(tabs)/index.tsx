@@ -13,10 +13,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { Href, useRouter } from 'expo-router';
 import { Colors, FontSize, Radius, Spacing } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
+import { useHealth } from '../../context/HealthContext';
 import { generateId } from '../../utils/id';
 import { API_URL } from '../../constants/api';
+import { ExerciseKind } from '../../types/workout';
+import { localDateKey, localIsoTimestamp } from '../../utils/date';
 
 // ---------------------------------------------------------------------------
 // Draft types (strings for inputs, converted on save)
@@ -31,15 +35,27 @@ interface DraftSet {
 interface DraftExercise {
   id: string;
   name: string;
+  kind: ExerciseKind;
   sets: DraftSet[];
+  cardioDurationMinutes: string;
+  distanceMiles: string;
+  resistanceLevel: string;
 }
 
 function newSet(): DraftSet {
   return { id: generateId(), weight: '', reps: '' };
 }
 
-function newExercise(): DraftExercise {
-  return { id: generateId(), name: '', sets: [newSet()] };
+function newExercise(kind: ExerciseKind): DraftExercise {
+  return {
+    id: generateId(),
+    name: kind === 'cardio' ? 'Elliptical' : '',
+    kind,
+    sets: kind === 'strength' ? [newSet()] : [],
+    cardioDurationMinutes: '',
+    distanceMiles: '',
+    resistanceLevel: '',
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -109,6 +125,10 @@ interface ExerciseCardProps {
   onAddSet: () => void;
   onRemoveSet: (setId: string) => void;
   onUpdateSet: (setId: string, field: 'weight' | 'reps', value: string) => void;
+  onUpdateCardio: (
+    field: 'cardioDurationMinutes' | 'distanceMiles' | 'resistanceLevel',
+    value: string,
+  ) => void;
   onRemove: () => void;
 }
 
@@ -119,6 +139,7 @@ function ExerciseCard({
   onAddSet,
   onRemoveSet,
   onUpdateSet,
+  onUpdateCardio,
   onRemove,
 }: ExerciseCardProps) {
   return (
@@ -132,7 +153,7 @@ function ExerciseCard({
           style={styles.exerciseNameInput}
           value={exercise.name}
           onChangeText={onUpdateName}
-          placeholder="Exercise name"
+          placeholder={exercise.kind === 'cardio' ? 'Cardio activity' : 'Exercise name'}
           placeholderTextColor={Colors.textMuted}
           returnKeyType="done"
         />
@@ -144,33 +165,70 @@ function ExerciseCard({
         </TouchableOpacity>
       </View>
 
-      {/* Sets header */}
-      <View style={styles.setsHeaderRow}>
-        <View style={styles.setBadge} />
-        <Text style={[styles.setColumnLabel, styles.weightInput]}>LBS</Text>
-        <View style={{ width: Spacing.base }} />
-        <Text style={[styles.setColumnLabel, styles.repsInput]}>REPS</Text>
-        <View style={{ width: 28 }} />
-      </View>
+      {exercise.kind === 'strength' ? (
+        <>
+          <View style={styles.setsHeaderRow}>
+            <View style={styles.setBadge} />
+            <Text style={[styles.setColumnLabel, styles.weightInput]}>LBS</Text>
+            <View style={{ width: Spacing.base }} />
+            <Text style={[styles.setColumnLabel, styles.repsInput]}>REPS</Text>
+            <View style={{ width: 28 }} />
+          </View>
 
-      {/* Set rows */}
-      {exercise.sets.map((set, setIdx) => (
-        <SetRow
-          key={set.id}
-          set={set}
-          index={setIdx}
-          canDelete={exercise.sets.length > 1}
-          onChangeWeight={v => onUpdateSet(set.id, 'weight', v)}
-          onChangeReps={v => onUpdateSet(set.id, 'reps', v)}
-          onDelete={() => onRemoveSet(set.id)}
-        />
-      ))}
+          {exercise.sets.map((set, setIdx) => (
+            <SetRow
+              key={set.id}
+              set={set}
+              index={setIdx}
+              canDelete={exercise.sets.length > 1}
+              onChangeWeight={v => onUpdateSet(set.id, 'weight', v)}
+              onChangeReps={v => onUpdateSet(set.id, 'reps', v)}
+              onDelete={() => onRemoveSet(set.id)}
+            />
+          ))}
 
-      {/* Add set */}
-      <TouchableOpacity style={styles.addSetBtn} onPress={onAddSet}>
-        <Ionicons name="add" size={15} color={Colors.primary} />
-        <Text style={styles.addSetText}>Add Set</Text>
-      </TouchableOpacity>
+          <TouchableOpacity style={styles.addSetBtn} onPress={onAddSet}>
+            <Ionicons name="add" size={15} color={Colors.primary} />
+            <Text style={styles.addSetText}>Add Set</Text>
+          </TouchableOpacity>
+        </>
+      ) : (
+        <View style={styles.cardioFields}>
+          <View style={styles.cardioField}>
+            <Text style={styles.cardioLabel}>MINUTES *</Text>
+            <TextInput
+              style={styles.cardioInput}
+              value={exercise.cardioDurationMinutes}
+              onChangeText={value => onUpdateCardio('cardioDurationMinutes', value)}
+              placeholder="30"
+              placeholderTextColor={Colors.textMuted}
+              keyboardType="number-pad"
+            />
+          </View>
+          <View style={styles.cardioField}>
+            <Text style={styles.cardioLabel}>MILES</Text>
+            <TextInput
+              style={styles.cardioInput}
+              value={exercise.distanceMiles}
+              onChangeText={value => onUpdateCardio('distanceMiles', value)}
+              placeholder="Optional"
+              placeholderTextColor={Colors.textMuted}
+              keyboardType="decimal-pad"
+            />
+          </View>
+          <View style={styles.cardioField}>
+            <Text style={styles.cardioLabel}>RESISTANCE</Text>
+            <TextInput
+              style={styles.cardioInput}
+              value={exercise.resistanceLevel}
+              onChangeText={value => onUpdateCardio('resistanceLevel', value)}
+              placeholder="Optional"
+              placeholderTextColor={Colors.textMuted}
+              keyboardType="decimal-pad"
+            />
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -232,6 +290,23 @@ function SuccessView({ onReset, insightLoading, insight }: SuccessViewProps) {
 
 export default function LogScreen() {
   const { addSession, refresh } = useWorkouts();
+  const { nutritionEntries, loading: healthLoading } = useHealth();
+  const router = useRouter();
+
+  const now = new Date();
+  const dateKey = localDateKey(now);
+  const loggedMeals = new Set(
+    nutritionEntries
+      .filter(entry => entry.date.startsWith(dateKey))
+      .map(entry => entry.meal.toLowerCase()),
+  );
+  const missingDueMeals = [
+    { meal: 'breakfast', dueHour: 9 },
+    { meal: 'lunch', dueHour: 13 },
+    { meal: 'dinner', dueHour: 19 },
+  ]
+    .filter(item => now.getHours() >= item.dueHour && !loggedMeals.has(item.meal))
+    .map(item => item.meal);
 
   const [exercises, setExercises] = useState<DraftExercise[]>([]);
   const [duration, setDuration] = useState('');
@@ -245,8 +320,8 @@ export default function LogScreen() {
 
   // -- Exercise mutations ---------------------------------------------------
 
-  const addExercise = useCallback(() => {
-    setExercises(prev => [...prev, newExercise()]);
+  const addExercise = useCallback((kind: ExerciseKind) => {
+    setExercises(prev => [...prev, newExercise(kind)]);
   }, []);
 
   const removeExercise = useCallback((id: string) => {
@@ -295,6 +370,19 @@ export default function LogScreen() {
     [],
   );
 
+  const updateCardio = useCallback(
+    (
+      exerciseId: string,
+      field: 'cardioDurationMinutes' | 'distanceMiles' | 'resistanceLevel',
+      value: string,
+    ) => {
+      setExercises(prev =>
+        prev.map(e => (e.id === exerciseId ? { ...e, [field]: value } : e)),
+      );
+    },
+    [],
+  );
+
   // -- Save -----------------------------------------------------------------
 
   const handleSave = useCallback(async () => {
@@ -303,14 +391,18 @@ export default function LogScreen() {
       return;
     }
 
-    const validExercises = exercises.filter(
-      e => e.name.trim() && e.sets.some(s => s.reps.trim()),
+    const validExercises = exercises.filter(e =>
+      e.name.trim() && (
+        e.kind === 'cardio'
+          ? parseInt(e.cardioDurationMinutes, 10) > 0
+          : e.sets.some(s => s.reps.trim())
+      ),
     );
 
     if (validExercises.length === 0) {
       Alert.alert(
         'Incomplete',
-        'Each exercise needs a name and at least one set with reps entered.',
+        'Strength exercises need reps. Cardio activities need a name and duration.',
       );
       return;
     }
@@ -324,7 +416,7 @@ export default function LogScreen() {
     setSaving(true);
     try {
       const session = await addSession({
-        date: new Date().toISOString(),
+        date: localIsoTimestamp(),
         durationMinutes: parsedDuration,
         avgHeartRate: heartRate.trim() ? parseInt(heartRate, 10) : undefined,
         activeCalories: calories.trim() ? parseInt(calories, 10) : undefined,
@@ -332,13 +424,25 @@ export default function LogScreen() {
         exercises: validExercises.map(e => ({
           id: e.id,
           name: e.name.trim(),
-          sets: e.sets
-            .filter(s => s.reps.trim())
-            .map(s => ({
-              id: s.id,
-              weight: parseFloat(s.weight) || 0,
-              reps: parseInt(s.reps, 10) || 0,
-            })),
+          kind: e.kind,
+          sets: e.kind === 'strength'
+            ? e.sets
+                .filter(s => s.reps.trim())
+                .map(s => ({
+                  id: s.id,
+                  weight: parseFloat(s.weight) || 0,
+                  reps: parseInt(s.reps, 10) || 0,
+                }))
+            : [],
+          cardioDurationMinutes: e.kind === 'cardio'
+            ? parseInt(e.cardioDurationMinutes, 10)
+            : undefined,
+          distanceMiles: e.kind === 'cardio' && e.distanceMiles.trim()
+            ? parseFloat(e.distanceMiles)
+            : undefined,
+          resistanceLevel: e.kind === 'cardio' && e.resistanceLevel.trim()
+            ? parseFloat(e.resistanceLevel)
+            : undefined,
         })),
       });
       setSaved(true);
@@ -407,6 +511,26 @@ export default function LogScreen() {
             <Text style={styles.dateText}>{today}</Text>
           </View>
 
+          {!healthLoading && missingDueMeals.length > 0 && (
+            <TouchableOpacity
+              style={styles.mealReminder}
+              onPress={() => router.push('/nutrition' as Href)}
+              accessibilityLabel="Log missing meals"
+            >
+              <View style={styles.mealReminderIcon}>
+                <Ionicons name="restaurant-outline" size={18} color={Colors.warning} />
+              </View>
+              <View style={styles.mealReminderBody}>
+                <Text style={styles.mealReminderTitle}>Meal log check</Text>
+                <Text style={styles.mealReminderText}>
+                  Still due: {missingDueMeals.join(', ')}
+                </Text>
+              </View>
+              <Text style={styles.mealReminderAction}>Log food</Text>
+              <Ionicons name="chevron-forward" size={16} color={Colors.warning} />
+            </TouchableOpacity>
+          )}
+
           {/* Exercise cards */}
           {exercises.length === 0 ? (
             <View style={styles.emptyExercises}>
@@ -428,16 +552,28 @@ export default function LogScreen() {
                 onUpdateSet={(setId, field, value) =>
                   updateSet(ex.id, setId, field, value)
                 }
+                onUpdateCardio={(field, value) => updateCardio(ex.id, field, value)}
                 onRemove={() => removeExercise(ex.id)}
               />
             ))
           )}
 
-          {/* Add exercise button */}
-          <TouchableOpacity style={styles.addExerciseBtn} onPress={addExercise}>
-            <Ionicons name="add-circle-outline" size={20} color={Colors.primary} />
-            <Text style={styles.addExerciseText}>Add Exercise</Text>
-          </TouchableOpacity>
+          <View style={styles.addExerciseRow}>
+            <TouchableOpacity
+              style={styles.addExerciseBtn}
+              onPress={() => addExercise('strength')}
+            >
+              <Ionicons name="barbell-outline" size={18} color={Colors.primary} />
+              <Text style={styles.addExerciseText}>Add Strength</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.addExerciseBtn}
+              onPress={() => addExercise('cardio')}
+            >
+              <Ionicons name="heart-outline" size={18} color={Colors.primary} />
+              <Text style={styles.addExerciseText}>Add Cardio</Text>
+            </TouchableOpacity>
+          </View>
 
           {/* Session metadata */}
           <View style={styles.sectionCard}>
@@ -556,6 +692,41 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
+  mealReminder: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    backgroundColor: Colors.warningDim,
+    borderColor: Colors.warning,
+    borderWidth: 1,
+    borderRadius: Radius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.lg,
+  },
+  mealReminderIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: Radius.sm,
+    backgroundColor: Colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mealReminderBody: { flex: 1, gap: 2 },
+  mealReminderTitle: {
+    color: Colors.text,
+    fontSize: FontSize.sm,
+    fontWeight: '800',
+  },
+  mealReminderText: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.xs,
+    textTransform: 'capitalize',
+  },
+  mealReminderAction: {
+    color: Colors.warning,
+    fontSize: FontSize.xs,
+    fontWeight: '800',
+  },
 
   // Empty state
   emptyExercises: {
@@ -612,6 +783,35 @@ const styles = StyleSheet.create({
     fontSize: FontSize.base,
     fontWeight: '600',
     color: Colors.text,
+  },
+  cardioFields: {
+    padding: Spacing.base,
+    gap: Spacing.md,
+  },
+  cardioField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.md,
+  },
+  cardioLabel: {
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    color: Colors.textMuted,
+    letterSpacing: 0.8,
+  },
+  cardioInput: {
+    minWidth: 110,
+    backgroundColor: Colors.card,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    color: Colors.text,
+    fontSize: FontSize.base,
+    fontWeight: '600',
+    textAlign: 'right',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
   },
 
   // Sets header
@@ -696,7 +896,13 @@ const styles = StyleSheet.create({
   },
 
   // Add exercise
+  addExerciseRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginBottom: Spacing.lg,
+  },
   addExerciseBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -705,7 +911,6 @@ const styles = StyleSheet.create({
     borderColor: Colors.primary,
     borderStyle: 'dashed',
     paddingVertical: Spacing.base,
-    marginBottom: Spacing.lg,
     gap: Spacing.sm,
   },
   addExerciseText: {

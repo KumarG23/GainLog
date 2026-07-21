@@ -25,3 +25,21 @@ export function formatShortDate(isoString: string): string {
     day: 'numeric',
   });
 }
+
+function pad(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+export function localDateKey(value = new Date()): string {
+  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
+}
+
+export function localIsoTimestamp(value = new Date()): string {
+  const offsetMinutes = -value.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? '+' : '-';
+  const absoluteOffset = Math.abs(offsetMinutes);
+  const offsetHours = pad(Math.floor(absoluteOffset / 60));
+  const offsetRemainder = pad(absoluteOffset % 60);
+
+  return `${localDateKey(value)}T${pad(value.getHours())}:${pad(value.getMinutes())}:${pad(value.getSeconds())}${sign}${offsetHours}:${offsetRemainder}`;
+}

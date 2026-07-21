@@ -19,6 +19,7 @@ export function computeExerciseStats(sessions: WorkoutSession[]): ExerciseStats[
 
   for (const session of sessions) {
     for (const exercise of session.exercises) {
+      if (exercise.kind === 'cardio') continue;
       const raw = exercise.name.trim();
       if (!raw) continue;
       const key = raw.toLowerCase();

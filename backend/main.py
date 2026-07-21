@@ -1,9 +1,9 @@
 import os
 import uuid
 from contextlib import asynccontextmanager
-from datetime import date as date_cls
+from datetime import date as date_cls, datetime, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
@@ -44,6 +44,10 @@ class ExerciseDB(SQLModel, table=True):
     __tablename__ = "exercise"
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
     name: str
+    kind: str = "strength"
+    cardio_duration_minutes: Optional[int] = None
+    distance_miles: Optional[float] = None
+    resistance_level: Optional[float] = None
     session_id: str = Field(foreign_key="workout_session.id")
     sets: List[WorkoutSetDB] = Relationship(back_populates="exercise")
     session: Optional["WorkoutSessionDB"] = Relationship(back_populates="exercises")
@@ -95,6 +99,13 @@ class NutritionEntryDB(SQLModel, table=True):
     notes: Optional[str] = None
 
 
+class DailyReviewDB(SQLModel, table=True):
+    __tablename__ = "daily_review"
+    date: str = Field(primary_key=True)
+    review: str
+    generated_at: str
+
+
 def get_db():
     with Session(engine) as session:
         yield session
@@ -121,13 +132,21 @@ class WorkoutSetIn(CamelModel):
 class ExerciseOut(CamelModel):
     id: str
     name: str
+    kind: Literal["strength", "cardio"] = "strength"
     sets: List[WorkoutSetOut]
+    cardio_duration_minutes: Optional[int] = None
+    distance_miles: Optional[float] = None
+    resistance_level: Optional[float] = None
 
 
 class ExerciseIn(CamelModel):
     id: Optional[str] = None
     name: str
-    sets: List[WorkoutSetIn]
+    kind: Literal["strength", "cardio"] = "strength"
+    sets: List[WorkoutSetIn] = Field(default_factory=list)
+    cardio_duration_minutes: Optional[int] = None
+    distance_miles: Optional[float] = None
+    resistance_level: Optional[float] = None
 
 
 class WorkoutSessionOut(CamelModel):
@@ -249,18 +268,32 @@ class InsightResponse(BaseModel):
     insight: str
 
 
+class DailyReviewOut(CamelModel):
+    date: str
+    review: str
+    generated_at: str
+
+
 # ── App ────────────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     SQLModel.metadata.create_all(engine)
-    # Add insight column to existing databases that predate this field
+    # Add fields to existing SQLite databases that predate them.
     with engine.connect() as conn:
-        try:
-            conn.execute(text("ALTER TABLE workout_session ADD COLUMN insight TEXT"))
-            conn.commit()
-        except Exception:
-            pass  # Column already exists
+        migrations = [
+            "ALTER TABLE workout_session ADD COLUMN insight TEXT",
+            "ALTER TABLE exercise ADD COLUMN kind TEXT DEFAULT 'strength'",
+            "ALTER TABLE exercise ADD COLUMN cardio_duration_minutes INTEGER",
+            "ALTER TABLE exercise ADD COLUMN distance_miles REAL",
+            "ALTER TABLE exercise ADD COLUMN resistance_level REAL",
+        ]
+        for statement in migrations:
+            try:
+                conn.execute(text(statement))
+                conn.commit()
+            except Exception:
+                pass  # Column already exists
     yield
 
 
@@ -287,6 +320,10 @@ def _to_out(s: WorkoutSessionDB) -> WorkoutSessionOut:
             ExerciseOut(
                 id=e.id,
                 name=e.name,
+                kind="cardio" if e.kind == "cardio" else "strength",
+                cardio_duration_minutes=e.cardio_duration_minutes,
+                distance_miles=e.distance_miles,
+                resistance_level=e.resistance_level,
                 sets=[WorkoutSetOut(id=ws.id, reps=ws.reps, weight=ws.weight) for ws in e.sets],
             )
             for e in s.exercises
@@ -380,6 +417,16 @@ def _session_volume(s: WorkoutSessionDB) -> int:
 def _format_session(s: WorkoutSessionDB, label: str) -> str:
     lines = [f"{label} ({s.date[:10]}, {s.duration_minutes} min):"]
     for ex in s.exercises:
+        if ex.kind == "cardio":
+            details = []
+            if ex.cardio_duration_minutes is not None:
+                details.append(f"{ex.cardio_duration_minutes} min")
+            if ex.distance_miles is not None:
+                details.append(f"{ex.distance_miles:g} miles")
+            if ex.resistance_level is not None:
+                details.append(f"resistance {ex.resistance_level:g}")
+            lines.append(f"  {ex.name} (cardio): {', '.join(details) or 'completed'}")
+            continue
         sets_str = "  ".join(f"{ws.weight}×{ws.reps}" for ws in ex.sets)
         vol = int(sum(ws.weight * ws.reps for ws in ex.sets))
         lines.append(f"  {ex.name}: {sets_str}  [{vol} lbs volume]")
@@ -457,11 +504,109 @@ def _build_prompt(
 {context}{broader_context_block}
 
 Write a coaching insight of exactly 2-3 sentences that covers:
-1. How today's total volume compares to the recent average (use specific numbers and a percentage if history exists).
-2. Call out any personal record — a set with more weight or more reps than anything seen in the recent history for that exercise. If none, skip this point.
-3. One concrete, specific suggestion for the next session (e.g. add a set, increase weight on a particular exercise, try a new movement).
+1. Compare today's relevant strength or cardio metrics to recent history using specific numbers when comparable history exists.
+2. Call out any strength or cardio personal record when the data supports one. If none, skip this point.
+3. Give one concrete, specific suggestion for the next session.
 
 Rules: be encouraging but direct. Use exact numbers from the data. No bullet points, no headers, no markdown. Output plain prose only."""
+
+
+def _build_daily_review_prompt(
+    review_date: str,
+    weight: Optional[BodyWeightEntryDB],
+    recent_weights: list[BodyWeightEntryDB],
+    nutrition_entries: list[NutritionEntryDB],
+    nutrition_totals: NutritionTotals,
+    workouts: list[WorkoutSessionDB],
+    active_goals: list[GoalDB],
+) -> str:
+    weight_lines = (
+        [f"Today's weight: {weight.weight_lbs:g} lbs."]
+        if weight
+        else ["Today's weight: not logged."]
+    )
+    if recent_weights:
+        weight_lines.append(
+            "Recent weights: "
+            + ", ".join(
+                f"{entry.date[:10]} {entry.weight_lbs:g} lbs" for entry in recent_weights
+            )
+            + "."
+        )
+
+    meals = sorted({entry.meal for entry in nutrition_entries})
+    if nutrition_entries:
+        nutrition_lines = [
+            f"Totals: {nutrition_totals.calories} kcal, "
+            f"{nutrition_totals.protein_g:g}g protein, "
+            f"{nutrition_totals.carbs_g:g}g carbs, "
+            f"{nutrition_totals.fat_g:g}g fat.",
+            f"Meals logged: {', '.join(meals)}.",
+            "Foods: "
+            + "; ".join(
+                f"{entry.meal} — {entry.name} ({entry.calories} kcal, "
+                f"{entry.protein_g:g}g protein)"
+                for entry in nutrition_entries
+            )
+            + ".",
+        ]
+    else:
+        nutrition_lines = ["No nutrition entries logged."]
+
+    goal_lines = []
+    for goal in active_goals:
+        target = ""
+        if goal.target_value is not None:
+            unit = f" {goal.unit}" if goal.unit else ""
+            target = f": {goal.target_value:g}{unit}"
+        goal_lines.append(f"{goal.title}{target}")
+    if not goal_lines:
+        goal_lines = ["No active goals logged."]
+
+    workout_block = (
+        "\n\n".join(
+            _format_session(workout, f"WORKOUT {index + 1}")
+            for index, workout in enumerate(workouts)
+        )
+        if workouts
+        else "No workout logged."
+    )
+
+    missing = []
+    if not weight:
+        missing.append("weight")
+    if not nutrition_entries:
+        missing.append("nutrition")
+    if not workouts:
+        missing.append("workout")
+    missing_line = ", ".join(missing) if missing else "none"
+
+    return f"""You are a fitness and nutrition coach reviewing one complete day, not just a workout.
+
+DATE: {review_date}
+
+WEIGHT:
+{chr(10).join(weight_lines)}
+
+NUTRITION:
+{chr(10).join(nutrition_lines)}
+
+ACTIVE GOALS:
+{chr(10).join(goal_lines)}
+
+TRAINING:
+{workout_block}
+
+MISSING DATA: {missing_line}
+
+Write a concise daily review of 3-5 sentences that:
+1. Assesses the day overall using weight, nutrition, training, and goals together.
+2. Compares calories and protein with logged targets when those targets exist.
+3. Comments on training or recovery using only recorded data.
+4. Mentions weight trend only when enough recent weights exist to support one.
+5. Ends with one concrete priority for tomorrow.
+
+Do not diagnose medical conditions. Do not invent meals, activity, targets, or trends. Never label calories or macros as low, high, adequate, or inadequate without a matching numeric goal; if no target exists, report the total neutrally. Do not infer calorie or macro needs from a weight goal. If data is missing, say that plainly. No bullets, headers, or markdown; output plain prose only."""
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -474,6 +619,93 @@ def health():
 @app.get("/coach/status", response_model=CoachStatusOut, response_model_by_alias=True)
 def get_coach_status():
     return _get_coach_status()
+
+
+@app.get(
+    "/coach/daily-review",
+    response_model=DailyReviewOut,
+    response_model_by_alias=True,
+)
+def get_daily_review(date: str, db: Session = Depends(get_db)):
+    row = db.get(DailyReviewDB, date)
+    if not row:
+        raise HTTPException(status_code=404, detail="Daily review not found")
+    return DailyReviewOut(
+        date=row.date,
+        review=row.review,
+        generated_at=row.generated_at,
+    )
+
+
+@app.post(
+    "/coach/daily-review",
+    response_model=DailyReviewOut,
+    response_model_by_alias=True,
+)
+def generate_daily_review(date: str, db: Session = Depends(get_db)):
+    weight = db.exec(
+        select(BodyWeightEntryDB)
+        .where(BodyWeightEntryDB.date.startswith(date))
+        .order_by(BodyWeightEntryDB.date.desc())
+        .limit(1)
+    ).first()
+    recent_weights = db.exec(
+        select(BodyWeightEntryDB)
+        .where(BodyWeightEntryDB.date < date)
+        .order_by(BodyWeightEntryDB.date.desc())
+        .limit(5)
+    ).all()
+    nutrition_entries = db.exec(
+        select(NutritionEntryDB)
+        .where(NutritionEntryDB.date.startswith(date))
+        .order_by(NutritionEntryDB.date)
+    ).all()
+    workouts = db.exec(
+        select(WorkoutSessionDB)
+        .where(WorkoutSessionDB.date.startswith(date))
+        .order_by(WorkoutSessionDB.date)
+    ).all()
+    active_goals = db.exec(
+        select(GoalDB)
+        .where(GoalDB.status == "active")
+        .order_by(GoalDB.start_date.desc())
+    ).all()
+    nutrition_totals = _nutrition_totals_for_date(db, date)
+    prompt = _build_daily_review_prompt(
+        review_date=date,
+        weight=weight,
+        recent_weights=list(recent_weights),
+        nutrition_entries=list(nutrition_entries),
+        nutrition_totals=nutrition_totals,
+        workouts=list(workouts),
+        active_goals=list(active_goals),
+    )
+
+    try:
+        provider = get_coach_provider()
+        review_text = provider.generate(prompt)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Daily review unavailable: {exc}") from exc
+
+    generated_at = datetime.now(timezone.utc).isoformat()
+    row = db.get(DailyReviewDB, date)
+    if row:
+        row.review = review_text
+        row.generated_at = generated_at
+    else:
+        row = DailyReviewDB(
+            date=date,
+            review=review_text,
+            generated_at=generated_at,
+        )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return DailyReviewOut(
+        date=row.date,
+        review=row.review,
+        generated_at=row.generated_at,
+    )
 
 
 @app.get("/body-weight/", response_model=List[BodyWeightEntryOut], response_model_by_alias=True)
@@ -611,8 +843,8 @@ def delete_nutrition(entry_id: str, db: Session = Depends(get_db)):
 
 
 @app.get("/dashboard/summary", response_model=DashboardSummaryOut, response_model_by_alias=True)
-def get_dashboard_summary(db: Session = Depends(get_db)):
-    today = date_cls.today().isoformat()
+def get_dashboard_summary(date: Optional[str] = None, db: Session = Depends(get_db)):
+    today = date or date_cls.today().isoformat()
     latest_weight = db.exec(
         select(BodyWeightEntryDB).order_by(BodyWeightEntryDB.date.desc()).limit(1)
     ).first()
@@ -656,7 +888,15 @@ def create_workout(payload: WorkoutSessionIn, db: Session = Depends(get_db)):
     db.add(row)
     for ex in payload.exercises:
         eid = ex.id or str(uuid.uuid4())
-        db_ex = ExerciseDB(id=eid, name=ex.name, session_id=sid)
+        db_ex = ExerciseDB(
+            id=eid,
+            name=ex.name,
+            kind=ex.kind,
+            cardio_duration_minutes=ex.cardio_duration_minutes,
+            distance_miles=ex.distance_miles,
+            resistance_level=ex.resistance_level,
+            session_id=sid,
+        )
         db.add(db_ex)
         for s in ex.sets:
             db.add(WorkoutSetDB(
