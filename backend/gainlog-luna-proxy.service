@@ -1,0 +1,25 @@
+[Unit]
+Description=GainLog Luna Coach Proxy via Hermes subscription OAuth
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=neal
+Group=neal
+WorkingDirectory=/home/neal/services/gainlog-luna-proxy
+Environment=HERMES_HOME=/home/neal/.hermes
+Environment=PYTHONPATH=/home/neal/.hermes/hermes-agent:/home/neal/services/gainlog-luna-proxy
+EnvironmentFile=/home/neal/.config/gainlog-luna-proxy/env
+ExecStart=/home/neal/.hermes/hermes-agent/venv/bin/python3 -m uvicorn luna_proxy:app --host 100.118.80.5 --port 8646 --no-access-log
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=30
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

@@ -392,6 +392,16 @@ def _get_coach_status() -> CoachStatusOut:
             model=os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514"),
             configured=bool(os.environ.get("ANTHROPIC_API_KEY")),
         )
+    if provider == "luna":
+        return CoachStatusOut(
+            provider=provider,
+            model=os.environ.get("GAINLOG_COACH_MODEL", "gpt-5.6-luna"),
+            base_url=os.environ.get("GAINLOG_COACH_BASE_URL"),
+            configured=bool(
+                os.environ.get("GAINLOG_COACH_BASE_URL")
+                and os.environ.get("GAINLOG_COACH_API_KEY")
+            ),
+        )
     return CoachStatusOut(provider=provider, configured=False)
 
 
