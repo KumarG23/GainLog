@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize, Radius, Spacing } from '../../constants/theme';
+import { NotificationTestButton } from '../../components/NotificationTestButton';
 import { useHealth } from '../../context/HealthContext';
 import { localDateKey, localIsoTimestamp } from '../../utils/date';
 
@@ -134,6 +135,8 @@ export default function NutritionScreen() {
               <Text style={styles.macroText}>{totals.fatG}g fat</Text>
             </View>
           </View>
+
+          <NotificationTestButton />
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Add Food</Text>

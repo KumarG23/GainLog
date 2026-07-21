@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   buildLoggedMealKeys,
   buildMealReminderPlan,
+  buildTestMealReminder,
 } from '../utils/mealReminderPlan.ts';
 
 test('plans future meal reminders and skips meals already logged', () => {
@@ -49,4 +50,13 @@ test('builds logged keys for tracked meals and ignores snacks', () => {
     '2026-07-21:breakfast',
     '2026-07-22:lunch',
   ]);
+});
+
+test('builds a test reminder five seconds in the future', () => {
+  const now = new Date(2026, 6, 21, 18, 0, 0);
+  const reminder = buildTestMealReminder(now, 5);
+
+  assert.equal(reminder.trigger.getTime(), now.getTime() + 5_000);
+  assert.equal(reminder.title, 'GainLog test reminder');
+  assert.match(reminder.body, /notifications are working/i);
 });

@@ -5,6 +5,7 @@ import { NutritionEntry } from '../types/health';
 import {
   buildLoggedMealKeys,
   buildMealReminderPlan,
+  buildTestMealReminder,
 } from './mealReminderPlan';
 
 const STORAGE_KEY = 'gainlog.mealReminderIds.v1';
@@ -95,4 +96,26 @@ export function reconcileMealNotifications(entries: NutritionEntry[]): Promise<v
     .catch(() => undefined)
     .then(() => reconcile(entries));
   return reconciliationQueue;
+}
+
+export async function scheduleTestMealNotification(delaySeconds = 5): Promise<boolean> {
+  if (!(await ensureNotificationPermission())) return false;
+
+  const reminder = buildTestMealReminder(new Date(), delaySeconds);
+  const trigger: Notifications.DateTriggerInput = {
+    type: Notifications.SchedulableTriggerInputTypes.DATE,
+    date: reminder.trigger,
+    ...(Platform.OS === 'android' ? { channelId: CHANNEL_ID } : {}),
+  };
+
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title: reminder.title,
+      body: reminder.body,
+      sound: 'default',
+      data: { url: '/nutrition', test: true },
+    },
+    trigger,
+  });
+  return true;
 }
