@@ -4,6 +4,7 @@ import 'react-native-reanimated';
 import { WorkoutsProvider } from '../context/WorkoutsContext';
 import { HealthProvider } from '../context/HealthContext';
 import { Colors } from '../constants/theme';
+import { MealNotificationCoordinator } from '../components/MealNotificationCoordinator';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -13,6 +14,7 @@ export default function RootLayout() {
   return (
     <WorkoutsProvider>
       <HealthProvider>
+        <MealNotificationCoordinator />
         <StatusBar style="light" />
         <Stack
           screenOptions={{
