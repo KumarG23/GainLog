@@ -347,7 +347,7 @@ def _get_coach_status() -> CoachStatusOut:
             provider=provider,
             model=os.environ.get("OLLAMA_MODEL", "qwen2.5:7b"),
             base_url=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
-            configured=True,
+            configured=bool(os.environ.get("OLLAMA_BASE_URL")),
         )
     if provider == "anthropic":
         return CoachStatusOut(

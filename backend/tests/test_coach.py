@@ -76,7 +76,7 @@ def test_ollama_generate(monkeypatch):
     assert calls["timeout"] == 30
 
 
-def test_coach_status_defaults_to_ollama(client, monkeypatch):
+def test_coach_status_does_not_claim_default_ollama_is_configured(client, monkeypatch):
     monkeypatch.delenv("GAINLOG_COACH_PROVIDER", raising=False)
     monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
     monkeypatch.delenv("OLLAMA_MODEL", raising=False)
@@ -88,5 +88,21 @@ def test_coach_status_defaults_to_ollama(client, monkeypatch):
         "provider": "ollama",
         "model": "qwen2.5:7b",
         "baseUrl": "http://localhost:11434",
+        "configured": False,
+    }
+
+
+def test_coach_status_reports_explicit_ollama_configuration(client, monkeypatch):
+    monkeypatch.setenv("GAINLOG_COACH_PROVIDER", "ollama")
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://ai-box:11434")
+    monkeypatch.setenv("OLLAMA_MODEL", "gemma3:12b")
+
+    response = client.get("/coach/status")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "provider": "ollama",
+        "model": "gemma3:12b",
+        "baseUrl": "http://ai-box:11434",
         "configured": True,
     }

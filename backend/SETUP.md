@@ -32,13 +32,16 @@ sudo -u gainlog /opt/gainlog/venv/bin/pip install -r /opt/gainlog/backend/requir
 
 GainLog defaults to a local Ollama-compatible coach provider.
 
-Environment variables:
+Environment variables are loaded by systemd from `/etc/gainlog.env`:
 
 ```bash
+sudo install -m 600 -o root -g root /dev/null /etc/gainlog.env
+sudo tee /etc/gainlog.env >/dev/null <<'EOF'
 GAINLOG_COACH_PROVIDER=ollama
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen2.5:7b
 OLLAMA_TIMEOUT_SECONDS=60
+EOF
 ```
 
 If Ollama runs on another machine, set `OLLAMA_BASE_URL` to that host, for example:
