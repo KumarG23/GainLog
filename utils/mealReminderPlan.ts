@@ -48,14 +48,6 @@ export function buildLoggedMealKeys(entries: NutritionMealRecord[]): Set<string>
   return keys;
 }
 
-export function buildTestMealReminder(now: Date, delaySeconds = 5) {
-  return {
-    trigger: new Date(now.getTime() + delaySeconds * 1_000),
-    title: 'GainLog test reminder',
-    body: 'Meal notifications are working. Log it, feed Luna, profit.',
-  };
-}
-
 export function buildMealReminderPlan({
   now,
   days,

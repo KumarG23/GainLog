@@ -1,4 +1,1 @@
-export {
-  reconcileMealNotifications,
-  scheduleTestMealNotification,
-} from './mealNotifications.native';
+export { reconcileMealNotifications } from './mealNotifications.native';
