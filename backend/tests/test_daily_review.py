@@ -51,8 +51,23 @@ def test_daily_review_combines_weight_nutrition_workout_and_goals(client, monkey
         "/workouts/",
         json={
             "date": "2026-07-21T18:00:00Z",
-            "durationMinutes": 12,
+            "durationMinutes": 42,
+            "strengthSummary": {
+                "durationMinutes": 30,
+                "avgHeartRate": 108,
+                "activeCalories": 180,
+            },
+            "cardioSummary": {
+                "durationMinutes": 12,
+                "avgHeartRate": 142,
+                "activeCalories": 130,
+            },
             "exercises": [
+                {
+                    "name": "Bench Press",
+                    "kind": "strength",
+                    "sets": [{"reps": 10, "weight": 135}],
+                },
                 {
                     "name": "Elliptical",
                     "kind": "cardio",
@@ -92,6 +107,8 @@ def test_daily_review_combines_weight_nutrition_workout_and_goals(client, monkey
     assert "Elliptical" in prompt
     assert "12 min" in prompt
     assert "1.1 miles" in prompt
+    assert "Strength session: 30 min, Avg HR 108 bpm, 180 kcal" in prompt
+    assert "Cardio session: 12 min, Avg HR 142 bpm, 130 kcal" in prompt
     assert "Never label calories or macros as low, high, adequate, or inadequate without a matching numeric goal" in prompt
 
     persisted = client.get("/coach/daily-review?date=2026-07-21")

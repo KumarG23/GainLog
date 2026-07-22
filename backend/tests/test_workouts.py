@@ -100,3 +100,58 @@ def test_cardio_exercise_round_trip():
         assert fetched.status_code == 200
         assert fetched.json()["exercises"][0]["kind"] == "cardio"
         assert fetched.json()["exercises"][0]["cardioDurationMinutes"] == 30
+
+
+def test_mixed_workout_keeps_strength_and_cardio_session_metrics_separate():
+    reset_db()
+    with TestClient(app) as client:
+        payload = {
+            "date": "2026-07-22T18:00:00-04:00",
+            "durationMinutes": 65,
+            "avgHeartRate": 121,
+            "activeCalories": 470,
+            "strengthSummary": {
+                "durationMinutes": 45,
+                "avgHeartRate": 110,
+                "activeCalories": 250,
+            },
+            "cardioSummary": {
+                "durationMinutes": 20,
+                "avgHeartRate": 145,
+                "activeCalories": 220,
+            },
+            "exercises": [
+                {
+                    "name": "Bench Press",
+                    "kind": "strength",
+                    "sets": [{"reps": 10, "weight": 135}],
+                },
+                {
+                    "name": "Elliptical",
+                    "kind": "cardio",
+                    "sets": [],
+                    "cardioDurationMinutes": 20,
+                    "distanceMiles": 1.8,
+                },
+            ],
+        }
+
+        created = client.post("/workouts/", json=payload)
+
+        assert created.status_code == 201
+        body = created.json()
+        assert body["strengthSummary"] == {
+            "durationMinutes": 45,
+            "avgHeartRate": 110,
+            "activeCalories": 250,
+        }
+        assert body["cardioSummary"] == {
+            "durationMinutes": 20,
+            "avgHeartRate": 145,
+            "activeCalories": 220,
+        }
+
+        fetched = client.get(f"/workouts/{body['id']}")
+        assert fetched.status_code == 200
+        assert fetched.json()["strengthSummary"] == body["strengthSummary"]
+        assert fetched.json()["cardioSummary"] == body["cardioSummary"]

@@ -16,6 +16,12 @@ export interface Exercise {
   resistanceLevel?: number;
 }
 
+export interface WorkoutActivitySummary {
+  durationMinutes: number;
+  avgHeartRate?: number;
+  activeCalories?: number;
+}
+
 export interface WorkoutSession {
   id: string;
   date: string; // ISO 8601
@@ -23,6 +29,8 @@ export interface WorkoutSession {
   durationMinutes: number;
   avgHeartRate?: number; // bpm
   activeCalories?: number;
+  strengthSummary?: WorkoutActivitySummary;
+  cardioSummary?: WorkoutActivitySummary;
   notes?: string;
   insight?: string;
 }

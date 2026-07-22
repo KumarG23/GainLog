@@ -247,6 +247,45 @@ export default function SessionDetailScreen() {
           </View>
         </View>
 
+        {(session.strengthSummary != null || session.cardioSummary != null) && (
+          <View style={styles.activitySummaries}>
+            {session.strengthSummary != null && (
+              <View style={styles.activitySummaryCard}>
+                <View style={styles.activitySummaryHeader}>
+                  <Ionicons name="barbell-outline" size={16} color={Colors.success} />
+                  <Text style={styles.activitySummaryTitle}>Strength</Text>
+                </View>
+                <Text style={styles.activitySummaryMetrics}>
+                  {session.strengthSummary.durationMinutes} min
+                  {session.strengthSummary.avgHeartRate != null
+                    ? ` · ${session.strengthSummary.avgHeartRate} avg bpm`
+                    : ''}
+                  {session.strengthSummary.activeCalories != null
+                    ? ` · ${session.strengthSummary.activeCalories} kcal`
+                    : ''}
+                </Text>
+              </View>
+            )}
+            {session.cardioSummary != null && (
+              <View style={styles.activitySummaryCard}>
+                <View style={styles.activitySummaryHeader}>
+                  <Ionicons name="heart-outline" size={16} color={Colors.danger} />
+                  <Text style={styles.activitySummaryTitle}>Cardio</Text>
+                </View>
+                <Text style={styles.activitySummaryMetrics}>
+                  {session.cardioSummary.durationMinutes} min
+                  {session.cardioSummary.avgHeartRate != null
+                    ? ` · ${session.cardioSummary.avgHeartRate} avg bpm`
+                    : ''}
+                  {session.cardioSummary.activeCalories != null
+                    ? ` · ${session.cardioSummary.activeCalories} kcal`
+                    : ''}
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
+
         {/* Volume chip */}
         {totalVolume > 0 && (
           <View style={styles.volumeChip}>
@@ -354,6 +393,33 @@ const styles = StyleSheet.create({
     width: 1,
     backgroundColor: Colors.border,
     alignSelf: 'stretch',
+  },
+  activitySummaries: {
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  activitySummaryCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: Spacing.md,
+    gap: Spacing.xs,
+  },
+  activitySummaryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  activitySummaryTitle: {
+    color: Colors.text,
+    fontSize: FontSize.base,
+    fontWeight: '800',
+  },
+  activitySummaryMetrics: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.sm,
+    fontWeight: '600',
   },
 
   // Volume chip

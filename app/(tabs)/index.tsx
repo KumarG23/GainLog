@@ -309,9 +309,11 @@ export default function LogScreen() {
     .map(item => item.meal);
 
   const [exercises, setExercises] = useState<DraftExercise[]>([]);
-  const [duration, setDuration] = useState('');
-  const [heartRate, setHeartRate] = useState('');
-  const [calories, setCalories] = useState('');
+  const [strengthDuration, setStrengthDuration] = useState('');
+  const [strengthHeartRate, setStrengthHeartRate] = useState('');
+  const [strengthCalories, setStrengthCalories] = useState('');
+  const [cardioHeartRate, setCardioHeartRate] = useState('');
+  const [cardioCalories, setCardioCalories] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -407,19 +409,81 @@ export default function LogScreen() {
       return;
     }
 
-    const parsedDuration = parseInt(duration.trim(), 10);
-    if (!duration.trim() || isNaN(parsedDuration) || parsedDuration <= 0) {
-      Alert.alert('Duration Required', 'Enter how many minutes the workout lasted.');
+    const hasStrength = validExercises.some(e => e.kind === 'strength');
+    const hasCardio = validExercises.some(e => e.kind === 'cardio');
+    const parsedStrengthDuration = parseInt(strengthDuration.trim(), 10);
+    if (
+      hasStrength &&
+      (!strengthDuration.trim() || isNaN(parsedStrengthDuration) || parsedStrengthDuration <= 0)
+    ) {
+      Alert.alert('Strength Duration Required', 'Enter how many minutes strength training lasted.');
       return;
     }
+
+    const cardioDuration = validExercises.reduce(
+      (sum, exercise) =>
+        exercise.kind === 'cardio'
+          ? sum + (parseInt(exercise.cardioDurationMinutes, 10) || 0)
+          : sum,
+      0,
+    );
+    const totalDuration = (hasStrength ? parsedStrengthDuration : 0) + cardioDuration;
+    const parsedStrengthHeartRate = strengthHeartRate.trim()
+      ? parseInt(strengthHeartRate, 10)
+      : undefined;
+    const parsedCardioHeartRate = cardioHeartRate.trim()
+      ? parseInt(cardioHeartRate, 10)
+      : undefined;
+    const parsedStrengthCalories = strengthCalories.trim()
+      ? parseInt(strengthCalories, 10)
+      : undefined;
+    const parsedCardioCalories = cardioCalories.trim()
+      ? parseInt(cardioCalories, 10)
+      : undefined;
+    const heartRateSegments = [
+      hasStrength && parsedStrengthHeartRate != null
+        ? { duration: parsedStrengthDuration, heartRate: parsedStrengthHeartRate }
+        : null,
+      hasCardio && parsedCardioHeartRate != null
+        ? { duration: cardioDuration, heartRate: parsedCardioHeartRate }
+        : null,
+    ].filter((segment): segment is { duration: number; heartRate: number } => segment !== null);
+    const heartRateDuration = heartRateSegments.reduce((sum, segment) => sum + segment.duration, 0);
+    const combinedHeartRate = heartRateDuration > 0
+      ? Math.round(
+          heartRateSegments.reduce(
+            (sum, segment) => sum + segment.duration * segment.heartRate,
+            0,
+          ) / heartRateDuration,
+        )
+      : undefined;
+    const calorieValues = [parsedStrengthCalories, parsedCardioCalories].filter(
+      (value): value is number => value != null,
+    );
 
     setSaving(true);
     try {
       const session = await addSession({
         date: localIsoTimestamp(),
-        durationMinutes: parsedDuration,
-        avgHeartRate: heartRate.trim() ? parseInt(heartRate, 10) : undefined,
-        activeCalories: calories.trim() ? parseInt(calories, 10) : undefined,
+        durationMinutes: totalDuration,
+        avgHeartRate: combinedHeartRate,
+        activeCalories: calorieValues.length > 0
+          ? calorieValues.reduce((sum, value) => sum + value, 0)
+          : undefined,
+        strengthSummary: hasStrength
+          ? {
+              durationMinutes: parsedStrengthDuration,
+              avgHeartRate: parsedStrengthHeartRate,
+              activeCalories: parsedStrengthCalories,
+            }
+          : undefined,
+        cardioSummary: hasCardio
+          ? {
+              durationMinutes: cardioDuration,
+              avgHeartRate: parsedCardioHeartRate,
+              activeCalories: parsedCardioCalories,
+            }
+          : undefined,
         notes: notes.trim() || undefined,
         exercises: validExercises.map(e => ({
           id: e.id,
@@ -462,13 +526,25 @@ export default function LogScreen() {
     } finally {
       setSaving(false);
     }
-  }, [exercises, duration, heartRate, calories, notes, addSession, refresh]);
+  }, [
+    exercises,
+    strengthDuration,
+    strengthHeartRate,
+    strengthCalories,
+    cardioHeartRate,
+    cardioCalories,
+    notes,
+    addSession,
+    refresh,
+  ]);
 
   const resetForm = useCallback(() => {
     setExercises([]);
-    setDuration('');
-    setHeartRate('');
-    setCalories('');
+    setStrengthDuration('');
+    setStrengthHeartRate('');
+    setStrengthCalories('');
+    setCardioHeartRate('');
+    setCardioCalories('');
     setNotes('');
     setSaved(false);
     setInsight(null);
@@ -492,6 +568,15 @@ export default function LogScreen() {
     month: 'long',
     day: 'numeric',
   });
+  const hasStrengthExercises = exercises.some(exercise => exercise.kind === 'strength');
+  const hasCardioExercises = exercises.some(exercise => exercise.kind === 'cardio');
+  const draftCardioDuration = exercises.reduce(
+    (sum, exercise) =>
+      exercise.kind === 'cardio'
+        ? sum + (parseInt(exercise.cardioDurationMinutes, 10) || 0)
+        : sum,
+    0,
+  );
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
@@ -575,65 +660,125 @@ export default function LogScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Session metadata */}
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>Session Info</Text>
+          {/* Separate activity summaries; one combined workout is saved below. */}
+          {hasStrengthExercises && (
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionTitle}>Strength Session Info</Text>
 
-            <View style={styles.metaRow}>
-              <View style={[styles.metaIconWrap, { backgroundColor: Colors.primaryDim }]}>
-                <Ionicons name="time-outline" size={16} color={Colors.primary} />
+              <View style={styles.metaRow}>
+                <View style={[styles.metaIconWrap, { backgroundColor: Colors.primaryDim }]}>
+                  <Ionicons name="time-outline" size={16} color={Colors.primary} />
+                </View>
+                <View style={styles.metaContent}>
+                  <Text style={styles.metaLabel}>Duration (min) *</Text>
+                  <TextInput
+                    style={styles.metaInput}
+                    value={strengthDuration}
+                    onChangeText={setStrengthDuration}
+                    placeholder="e.g. 45"
+                    placeholderTextColor={Colors.textMuted}
+                    keyboardType="number-pad"
+                  />
+                </View>
               </View>
-              <View style={styles.metaContent}>
-                <Text style={styles.metaLabel}>Duration (min) *</Text>
-                <TextInput
-                  style={styles.metaInput}
-                  value={duration}
-                  onChangeText={setDuration}
-                  placeholder="e.g. 60"
-                  placeholderTextColor={Colors.textMuted}
-                  keyboardType="number-pad"
-                />
+
+              <View style={styles.metaDivider} />
+
+              <View style={styles.metaRow}>
+                <View style={[styles.metaIconWrap, { backgroundColor: Colors.dangerDim }]}>
+                  <Ionicons name="heart-outline" size={16} color={Colors.danger} />
+                </View>
+                <View style={styles.metaContent}>
+                  <Text style={styles.metaLabel}>Avg Heart Rate (bpm)</Text>
+                  <TextInput
+                    style={styles.metaInput}
+                    value={strengthHeartRate}
+                    onChangeText={setStrengthHeartRate}
+                    placeholder="Optional"
+                    placeholderTextColor={Colors.textMuted}
+                    keyboardType="number-pad"
+                  />
+                </View>
+              </View>
+
+              <View style={styles.metaDivider} />
+
+              <View style={styles.metaRow}>
+                <View style={[styles.metaIconWrap, { backgroundColor: Colors.warningDim }]}>
+                  <Ionicons name="flame-outline" size={16} color={Colors.warning} />
+                </View>
+                <View style={styles.metaContent}>
+                  <Text style={styles.metaLabel}>Active Calories</Text>
+                  <TextInput
+                    style={styles.metaInput}
+                    value={strengthCalories}
+                    onChangeText={setStrengthCalories}
+                    placeholder="Optional"
+                    placeholderTextColor={Colors.textMuted}
+                    keyboardType="number-pad"
+                  />
+                </View>
               </View>
             </View>
+          )}
 
-            <View style={styles.metaDivider} />
+          {hasCardioExercises && (
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionTitle}>Cardio Session Info</Text>
 
-            <View style={styles.metaRow}>
-              <View style={[styles.metaIconWrap, { backgroundColor: Colors.dangerDim }]}>
-                <Ionicons name="heart-outline" size={16} color={Colors.danger} />
+              <View style={styles.metaRow}>
+                <View style={[styles.metaIconWrap, { backgroundColor: Colors.primaryDim }]}>
+                  <Ionicons name="time-outline" size={16} color={Colors.primary} />
+                </View>
+                <View style={styles.metaContent}>
+                  <Text style={styles.metaLabel}>Duration</Text>
+                  <Text style={styles.metaReadout}>
+                    {draftCardioDuration > 0
+                      ? `${draftCardioDuration} min from cardio activities`
+                      : 'Enter minutes on the cardio activity'}
+                  </Text>
+                </View>
               </View>
-              <View style={styles.metaContent}>
-                <Text style={styles.metaLabel}>Avg Heart Rate (bpm)</Text>
-                <TextInput
-                  style={styles.metaInput}
-                  value={heartRate}
-                  onChangeText={setHeartRate}
-                  placeholder="Optional"
-                  placeholderTextColor={Colors.textMuted}
-                  keyboardType="number-pad"
-                />
+
+              <View style={styles.metaDivider} />
+
+              <View style={styles.metaRow}>
+                <View style={[styles.metaIconWrap, { backgroundColor: Colors.dangerDim }]}>
+                  <Ionicons name="heart-outline" size={16} color={Colors.danger} />
+                </View>
+                <View style={styles.metaContent}>
+                  <Text style={styles.metaLabel}>Avg Heart Rate (bpm)</Text>
+                  <TextInput
+                    style={styles.metaInput}
+                    value={cardioHeartRate}
+                    onChangeText={setCardioHeartRate}
+                    placeholder="Optional"
+                    placeholderTextColor={Colors.textMuted}
+                    keyboardType="number-pad"
+                  />
+                </View>
+              </View>
+
+              <View style={styles.metaDivider} />
+
+              <View style={styles.metaRow}>
+                <View style={[styles.metaIconWrap, { backgroundColor: Colors.warningDim }]}>
+                  <Ionicons name="flame-outline" size={16} color={Colors.warning} />
+                </View>
+                <View style={styles.metaContent}>
+                  <Text style={styles.metaLabel}>Active Calories</Text>
+                  <TextInput
+                    style={styles.metaInput}
+                    value={cardioCalories}
+                    onChangeText={setCardioCalories}
+                    placeholder="Optional"
+                    placeholderTextColor={Colors.textMuted}
+                    keyboardType="number-pad"
+                  />
+                </View>
               </View>
             </View>
-
-            <View style={styles.metaDivider} />
-
-            <View style={styles.metaRow}>
-              <View style={[styles.metaIconWrap, { backgroundColor: Colors.warningDim }]}>
-                <Ionicons name="flame-outline" size={16} color={Colors.warning} />
-              </View>
-              <View style={styles.metaContent}>
-                <Text style={styles.metaLabel}>Active Calories</Text>
-                <TextInput
-                  style={styles.metaInput}
-                  value={calories}
-                  onChangeText={setCalories}
-                  placeholder="Optional"
-                  placeholderTextColor={Colors.textMuted}
-                  keyboardType="number-pad"
-                />
-              </View>
-            </View>
-          </View>
+          )}
 
           {/* Notes */}
           <View style={styles.sectionCard}>
@@ -968,6 +1113,13 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     minWidth: 80,
     paddingVertical: Spacing.xs,
+  },
+  metaReadout: {
+    flexShrink: 1,
+    fontSize: FontSize.sm,
+    color: Colors.primary,
+    fontWeight: '600',
+    textAlign: 'right',
   },
   metaDivider: {
     height: 1,

@@ -60,6 +60,12 @@ class WorkoutSessionDB(SQLModel, table=True):
     duration_minutes: int
     avg_heart_rate: Optional[int] = None
     active_calories: Optional[int] = None
+    strength_duration_minutes: Optional[int] = None
+    strength_avg_heart_rate: Optional[int] = None
+    strength_active_calories: Optional[int] = None
+    cardio_duration_minutes: Optional[int] = None
+    cardio_avg_heart_rate: Optional[int] = None
+    cardio_active_calories: Optional[int] = None
     notes: Optional[str] = None
     insight: Optional[str] = None
     exercises: List[ExerciseDB] = Relationship(back_populates="session")
@@ -149,6 +155,12 @@ class ExerciseIn(CamelModel):
     resistance_level: Optional[float] = None
 
 
+class ActivitySummary(CamelModel):
+    duration_minutes: int
+    avg_heart_rate: Optional[int] = None
+    active_calories: Optional[int] = None
+
+
 class WorkoutSessionOut(CamelModel):
     id: str
     date: str
@@ -156,6 +168,8 @@ class WorkoutSessionOut(CamelModel):
     duration_minutes: int
     avg_heart_rate: Optional[int] = None
     active_calories: Optional[int] = None
+    strength_summary: Optional[ActivitySummary] = None
+    cardio_summary: Optional[ActivitySummary] = None
     notes: Optional[str] = None
     insight: Optional[str] = None
 
@@ -167,6 +181,8 @@ class WorkoutSessionIn(CamelModel):
     duration_minutes: int
     avg_heart_rate: Optional[int] = None
     active_calories: Optional[int] = None
+    strength_summary: Optional[ActivitySummary] = None
+    cardio_summary: Optional[ActivitySummary] = None
     notes: Optional[str] = None
 
 
@@ -287,6 +303,12 @@ async def lifespan(_: FastAPI):
             "ALTER TABLE exercise ADD COLUMN cardio_duration_minutes INTEGER",
             "ALTER TABLE exercise ADD COLUMN distance_miles REAL",
             "ALTER TABLE exercise ADD COLUMN resistance_level REAL",
+            "ALTER TABLE workout_session ADD COLUMN strength_duration_minutes INTEGER",
+            "ALTER TABLE workout_session ADD COLUMN strength_avg_heart_rate INTEGER",
+            "ALTER TABLE workout_session ADD COLUMN strength_active_calories INTEGER",
+            "ALTER TABLE workout_session ADD COLUMN cardio_duration_minutes INTEGER",
+            "ALTER TABLE workout_session ADD COLUMN cardio_avg_heart_rate INTEGER",
+            "ALTER TABLE workout_session ADD COLUMN cardio_active_calories INTEGER",
         ]
         for statement in migrations:
             try:
@@ -308,12 +330,32 @@ app.add_middleware(
 
 
 def _to_out(s: WorkoutSessionDB) -> WorkoutSessionOut:
+    strength_summary = (
+        ActivitySummary(
+            duration_minutes=s.strength_duration_minutes,
+            avg_heart_rate=s.strength_avg_heart_rate,
+            active_calories=s.strength_active_calories,
+        )
+        if s.strength_duration_minutes is not None
+        else None
+    )
+    cardio_summary = (
+        ActivitySummary(
+            duration_minutes=s.cardio_duration_minutes,
+            avg_heart_rate=s.cardio_avg_heart_rate,
+            active_calories=s.cardio_active_calories,
+        )
+        if s.cardio_duration_minutes is not None
+        else None
+    )
     return WorkoutSessionOut(
         id=s.id,
         date=s.date,
         duration_minutes=s.duration_minutes,
         avg_heart_rate=s.avg_heart_rate,
         active_calories=s.active_calories,
+        strength_summary=strength_summary,
+        cardio_summary=cardio_summary,
         notes=s.notes,
         insight=s.insight,
         exercises=[
@@ -440,6 +482,20 @@ def _format_session(s: WorkoutSessionDB, label: str) -> str:
         sets_str = "  ".join(f"{ws.weight}×{ws.reps}" for ws in ex.sets)
         vol = int(sum(ws.weight * ws.reps for ws in ex.sets))
         lines.append(f"  {ex.name}: {sets_str}  [{vol} lbs volume]")
+    if s.strength_duration_minutes is not None:
+        details = [f"{s.strength_duration_minutes} min"]
+        if s.strength_avg_heart_rate is not None:
+            details.append(f"Avg HR {s.strength_avg_heart_rate} bpm")
+        if s.strength_active_calories is not None:
+            details.append(f"{s.strength_active_calories} kcal")
+        lines.append(f"  Strength session: {', '.join(details)}")
+    if s.cardio_duration_minutes is not None:
+        details = [f"{s.cardio_duration_minutes} min"]
+        if s.cardio_avg_heart_rate is not None:
+            details.append(f"Avg HR {s.cardio_avg_heart_rate} bpm")
+        if s.cardio_active_calories is not None:
+            details.append(f"{s.cardio_active_calories} kcal")
+        lines.append(f"  Cardio session: {', '.join(details)}")
     if s.avg_heart_rate:
         lines.append(f"  Avg HR: {s.avg_heart_rate} bpm")
     if s.active_calories:
@@ -893,6 +949,24 @@ def create_workout(payload: WorkoutSessionIn, db: Session = Depends(get_db)):
         duration_minutes=payload.duration_minutes,
         avg_heart_rate=payload.avg_heart_rate,
         active_calories=payload.active_calories,
+        strength_duration_minutes=(
+            payload.strength_summary.duration_minutes if payload.strength_summary else None
+        ),
+        strength_avg_heart_rate=(
+            payload.strength_summary.avg_heart_rate if payload.strength_summary else None
+        ),
+        strength_active_calories=(
+            payload.strength_summary.active_calories if payload.strength_summary else None
+        ),
+        cardio_duration_minutes=(
+            payload.cardio_summary.duration_minutes if payload.cardio_summary else None
+        ),
+        cardio_avg_heart_rate=(
+            payload.cardio_summary.avg_heart_rate if payload.cardio_summary else None
+        ),
+        cardio_active_calories=(
+            payload.cardio_summary.active_calories if payload.cardio_summary else None
+        ),
         notes=payload.notes,
     )
     db.add(row)
