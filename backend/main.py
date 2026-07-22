@@ -574,7 +574,7 @@ Write a coaching insight of exactly 2-3 sentences that covers:
 2. Call out any strength or cardio personal record when the data supports one. If none, skip this point.
 3. Give one concrete, specific suggestion for the next session.
 
-Rules: be encouraging but direct. Use exact numbers from the data. No bullet points, no headers, no markdown. Output plain prose only."""
+Rules: Treat strength and cardio summaries as distinct segments. When both are recorded, discuss both within one combined response instead of merging their heart rate or calorie metrics. Be encouraging but direct. Use exact numbers from the data. No bullet points, no headers, no markdown. Output plain prose only."""
 
 
 def _build_daily_review_prompt(

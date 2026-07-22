@@ -102,7 +102,7 @@ def test_cardio_exercise_round_trip():
         assert fetched.json()["exercises"][0]["cardioDurationMinutes"] == 30
 
 
-def test_mixed_workout_keeps_strength_and_cardio_session_metrics_separate():
+def test_mixed_workout_keeps_strength_and_cardio_session_metrics_separate(monkeypatch):
     reset_db()
     with TestClient(app) as client:
         payload = {
@@ -155,3 +155,17 @@ def test_mixed_workout_keeps_strength_and_cardio_session_metrics_separate():
         assert fetched.status_code == 200
         assert fetched.json()["strengthSummary"] == body["strengthSummary"]
         assert fetched.json()["cardioSummary"] == body["cardioSummary"]
+
+        calls = {}
+
+        class FakeProvider:
+            def generate(self, prompt: str) -> str:
+                calls["prompt"] = prompt
+                return "One combined response covering strength and cardio."
+
+        monkeypatch.setattr("backend.main.get_coach_provider", lambda: FakeProvider())
+        insight = client.post(f"/workouts/{body['id']}/insight")
+
+        assert insight.status_code == 200
+        assert "Treat strength and cardio summaries as distinct segments" in calls["prompt"]
+        assert "one combined response" in calls["prompt"]
