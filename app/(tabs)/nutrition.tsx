@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -16,12 +16,26 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize, Radius, Spacing } from '../../constants/theme';
 import { useHealth } from '../../context/HealthContext';
 import { localDateKey, localIsoTimestamp } from '../../utils/date';
+import {
+  buildDailyMacroHistory,
+  buildQuickAddFoods,
+  type QuickAddFood,
+} from '../../utils/nutritionMemory';
 
 const MEALS = ['breakfast', 'lunch', 'dinner', 'snack'];
 
 function toNumber(value: string) {
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatHistoryDate(dateKey: string) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  return new Date(year, month - 1, day, 12).toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
 }
 
 export default function NutritionScreen() {
@@ -42,6 +56,8 @@ export default function NutritionScreen() {
   const [fat, setFat] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  const [quickAdding, setQuickAdding] = useState<string | null>(null);
+  const quickAddLock = useRef(false);
 
   const today = localDateKey();
   const todayEntries = useMemo(
@@ -54,6 +70,60 @@ export default function NutritionScreen() {
     proteinG: todayEntries.reduce((sum, entry) => sum + entry.proteinG, 0),
     carbsG: todayEntries.reduce((sum, entry) => sum + entry.carbsG, 0),
     fatG: todayEntries.reduce((sum, entry) => sum + entry.fatG, 0),
+  };
+
+  const quickAdds = useMemo(
+    () => buildQuickAddFoods(nutritionEntries, 6),
+    [nutritionEntries],
+  );
+  const macroHistory = useMemo(
+    () => buildDailyMacroHistory(nutritionEntries, today, 7),
+    [nutritionEntries, today],
+  );
+  const macroAverages = useMemo(
+    () => ({
+      calories: Math.round(
+        macroHistory.reduce((sum, day) => sum + day.calories, 0) / macroHistory.length,
+      ),
+      proteinG: Math.round(
+        macroHistory.reduce((sum, day) => sum + day.proteinG, 0) / macroHistory.length,
+      ),
+      carbsG: Math.round(
+        macroHistory.reduce((sum, day) => sum + day.carbsG, 0) / macroHistory.length,
+      ),
+      fatG: Math.round(
+        macroHistory.reduce((sum, day) => sum + day.fatG, 0) / macroHistory.length,
+      ),
+    }),
+    [macroHistory],
+  );
+  const maxHistoryCalories = Math.max(1, ...macroHistory.map(day => day.calories));
+
+  const handleQuickAdd = async (food: QuickAddFood) => {
+    if (quickAddLock.current) return;
+    quickAddLock.current = true;
+    const key = `${food.meal}:${food.name}`;
+    setQuickAdding(key);
+    try {
+      await addNutritionEntry({
+        date: localIsoTimestamp(),
+        meal: food.meal,
+        name: food.name,
+        calories: food.calories,
+        proteinG: food.proteinG,
+        carbsG: food.carbsG,
+        fatG: food.fatG,
+        notes: food.notes,
+      });
+    } catch (err) {
+      Alert.alert(
+        'Quick add failed',
+        err instanceof Error ? err.message : 'Unable to add that meal.',
+      );
+    } finally {
+      quickAddLock.current = false;
+      setQuickAdding(null);
+    }
   };
 
   const handleSave = async () => {
@@ -134,6 +204,50 @@ export default function NutritionScreen() {
               <Text style={styles.macroText}>{totals.fatG}g fat</Text>
             </View>
           </View>
+
+          {quickAdds.length > 0 && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeadingRow}>
+                <View style={styles.sectionHeadingCopy}>
+                  <Text style={styles.sectionTitle}>Quick Add</Text>
+                  <Text style={styles.sectionSubtitle}>
+                    GainLog remembers what you log most often.
+                  </Text>
+                </View>
+                <Ionicons name="flash-outline" size={20} color={Colors.primary} />
+              </View>
+              <View style={styles.quickAddList}>
+                {quickAdds.map(food => {
+                  const key = `${food.meal}:${food.name}`;
+                  const isAdding = quickAdding === key;
+                  return (
+                    <TouchableOpacity
+                      key={key}
+                      style={[
+                        styles.quickAddButton,
+                        quickAdding !== null && styles.buttonDisabled,
+                      ]}
+                      onPress={() => handleQuickAdd(food)}
+                      disabled={quickAdding !== null}
+                      accessibilityLabel={`Add ${food.name}`}
+                    >
+                      <View style={styles.quickAddCopy}>
+                        <Text style={styles.quickAddName}>{food.name}</Text>
+                        <Text style={styles.quickAddMeta}>
+                          {food.meal} · {food.calories} kcal · {food.proteinG}g protein
+                        </Text>
+                      </View>
+                      {isAdding ? (
+                        <ActivityIndicator size="small" color={Colors.primary} />
+                      ) : (
+                        <Ionicons name="add-circle" size={24} color={Colors.primary} />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          )}
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Add Food</Text>
@@ -243,6 +357,59 @@ export default function NutritionScreen() {
               ))
             )}
           </View>
+
+          <View style={styles.section}>
+            <View style={styles.sectionHeadingRow}>
+              <View style={styles.sectionHeadingCopy}>
+                <Text style={styles.sectionTitle}>Macro History</Text>
+                <Text style={styles.sectionSubtitle}>Rolling seven-day memory.</Text>
+              </View>
+              <Ionicons name="calendar-outline" size={20} color={Colors.primary} />
+            </View>
+            <View style={styles.averageGrid}>
+              <View style={styles.averageTile}>
+                <Text style={styles.averageValue}>{macroAverages.calories}</Text>
+                <Text style={styles.averageLabel}>avg kcal</Text>
+              </View>
+              <View style={styles.averageTile}>
+                <Text style={styles.averageValue}>{macroAverages.proteinG}g</Text>
+                <Text style={styles.averageLabel}>avg protein</Text>
+              </View>
+              <View style={styles.averageTile}>
+                <Text style={styles.averageValue}>{macroAverages.carbsG}g</Text>
+                <Text style={styles.averageLabel}>avg carbs</Text>
+              </View>
+              <View style={styles.averageTile}>
+                <Text style={styles.averageValue}>{macroAverages.fatG}g</Text>
+                <Text style={styles.averageLabel}>avg fat</Text>
+              </View>
+            </View>
+            <View style={styles.historyList}>
+              {macroHistory.map(day => (
+                <View key={day.date} style={styles.historyRow}>
+                  <View style={styles.historyHeading}>
+                    <Text style={styles.historyDate}>
+                      {day.date === today ? 'Today' : formatHistoryDate(day.date)}
+                    </Text>
+                    <Text style={styles.historyCalories}>{day.calories} kcal</Text>
+                  </View>
+                  <View style={styles.historyTrack}>
+                    <View
+                      style={[
+                        styles.historyBar,
+                        { width: `${(day.calories / maxHistoryCalories) * 100}%` },
+                      ]}
+                    />
+                  </View>
+                  <Text style={styles.historyMacros}>
+                    P {Math.round(day.proteinG)}g · C {Math.round(day.carbsG)}g · F{' '}
+                    {Math.round(day.fatG)}g
+                    {day.entryCount === 0 ? ' · nothing logged' : ''}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -312,6 +479,41 @@ const styles = StyleSheet.create({
     color: Colors.text,
     fontSize: FontSize.md,
     fontWeight: '800',
+  },
+  sectionHeadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.md,
+  },
+  sectionHeadingCopy: { flex: 1, gap: 2 },
+  sectionSubtitle: {
+    color: Colors.textMuted,
+    fontSize: FontSize.sm,
+  },
+  quickAddList: { gap: Spacing.sm },
+  quickAddButton: {
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    backgroundColor: Colors.inputBg,
+    borderColor: Colors.border,
+    borderWidth: 1,
+    borderRadius: Radius.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+  },
+  quickAddCopy: { flex: 1, gap: 3 },
+  quickAddName: {
+    color: Colors.text,
+    fontSize: FontSize.base,
+    fontWeight: '800',
+  },
+  quickAddMeta: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.sm,
+    textTransform: 'capitalize',
   },
   segmented: {
     flexDirection: 'row',
@@ -408,5 +610,62 @@ const styles = StyleSheet.create({
     height: 34,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  averageGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+  },
+  averageTile: {
+    minWidth: '47%',
+    flex: 1,
+    backgroundColor: Colors.inputBg,
+    borderRadius: Radius.sm,
+    padding: Spacing.md,
+    gap: 2,
+  },
+  averageValue: {
+    color: Colors.text,
+    fontSize: FontSize.lg,
+    fontWeight: '900',
+  },
+  averageLabel: {
+    color: Colors.textMuted,
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  historyList: { gap: Spacing.md },
+  historyRow: { gap: Spacing.xs },
+  historyHeading: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  historyDate: {
+    color: Colors.text,
+    fontSize: FontSize.sm,
+    fontWeight: '800',
+  },
+  historyCalories: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+  },
+  historyTrack: {
+    height: 7,
+    backgroundColor: Colors.inputBg,
+    borderRadius: Radius.sm,
+    overflow: 'hidden',
+  },
+  historyBar: {
+    height: '100%',
+    minWidth: 2,
+    backgroundColor: Colors.primary,
+    borderRadius: Radius.sm,
+  },
+  historyMacros: {
+    color: Colors.textMuted,
+    fontSize: FontSize.xs,
   },
 });
