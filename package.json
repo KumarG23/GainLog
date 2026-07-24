@@ -11,7 +11,8 @@
     "lint": "expo lint",
     "test:notifications": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/mealReminderPlan.test.mjs",
     "test:nutrition-memory": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/nutritionMemory.test.mjs",
-    "test": "npm run test:notifications && npm run test:nutrition-memory"
+    "test:workout-templates": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/workoutTemplates.test.mjs",
+    "test": "npm run test:notifications && npm run test:nutrition-memory && npm run test:workout-templates"
   },
   "dependencies": {
     "@expo/ngrok": "^4.1.3",

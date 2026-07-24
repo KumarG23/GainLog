@@ -21,6 +21,12 @@ import { generateId } from '../../utils/id';
 import { API_URL } from '../../constants/api';
 import { ExerciseKind } from '../../types/workout';
 import { localDateKey, localIsoTimestamp } from '../../utils/date';
+import {
+  PLANET_FITNESS_TEMPLATES,
+  buildWorkoutTemplateDraft,
+  getSuggestedTemplateId,
+  WorkoutTemplateId,
+} from '../../utils/workoutTemplates';
 
 // ---------------------------------------------------------------------------
 // Draft types (strings for inputs, converted on save)
@@ -40,6 +46,7 @@ interface DraftExercise {
   cardioDurationMinutes: string;
   distanceMiles: string;
   resistanceLevel: string;
+  prescription?: string;
 }
 
 function newSet(): DraftSet {
@@ -149,14 +156,19 @@ function ExerciseCard({
         <View style={styles.exerciseNumberBadge}>
           <Text style={styles.exerciseNumberText}>{index + 1}</Text>
         </View>
-        <TextInput
-          style={styles.exerciseNameInput}
-          value={exercise.name}
-          onChangeText={onUpdateName}
-          placeholder={exercise.kind === 'cardio' ? 'Cardio activity' : 'Exercise name'}
-          placeholderTextColor={Colors.textMuted}
-          returnKeyType="done"
-        />
+        <View style={styles.exerciseHeading}>
+          <TextInput
+            style={styles.exerciseNameInput}
+            value={exercise.name}
+            onChangeText={onUpdateName}
+            placeholder={exercise.kind === 'cardio' ? 'Cardio activity' : 'Exercise name'}
+            placeholderTextColor={Colors.textMuted}
+            returnKeyType="done"
+          />
+          {exercise.prescription && (
+            <Text style={styles.exercisePrescription}>{exercise.prescription}</Text>
+          )}
+        </View>
         <TouchableOpacity
           onPress={onRemove}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -319,6 +331,9 @@ export default function LogScreen() {
   const [saved, setSaved] = useState(false);
   const [insight, setInsight] = useState<string | null>(null);
   const [insightLoading, setInsightLoading] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<WorkoutTemplateId | null>(null);
+
+  const suggestedTemplateId = getSuggestedTemplateId(now.getDay());
 
   // -- Exercise mutations ---------------------------------------------------
 
@@ -384,6 +399,33 @@ export default function LogScreen() {
     },
     [],
   );
+
+  const loadTemplate = useCallback((templateId: WorkoutTemplateId) => {
+    const applyTemplate = () => {
+      const draft = buildWorkoutTemplateDraft(templateId, generateId);
+      setExercises(draft.exercises);
+      setSelectedTemplateId(draft.template.id);
+      setStrengthDuration('');
+      setStrengthHeartRate('');
+      setStrengthCalories('');
+      setCardioHeartRate('');
+      setCardioCalories('');
+    };
+
+    if (exercises.length === 0) {
+      applyTemplate();
+      return;
+    }
+
+    Alert.alert(
+      'Replace current draft?',
+      'Loading a workout plan will replace the exercises currently on this screen.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Replace', style: 'destructive', onPress: applyTemplate },
+      ],
+    );
+  }, [exercises.length]);
 
   // -- Save -----------------------------------------------------------------
 
@@ -549,6 +591,7 @@ export default function LogScreen() {
     setSaved(false);
     setInsight(null);
     setInsightLoading(false);
+    setSelectedTemplateId(null);
   }, []);
 
   // -------------------------------------------------------------------------
@@ -615,6 +658,52 @@ export default function LogScreen() {
               <Ionicons name="chevron-forward" size={16} color={Colors.warning} />
             </TouchableOpacity>
           )}
+
+          <View style={styles.planSection}>
+            <View style={styles.planHeader}>
+              <View>
+                <Text style={styles.planEyebrow}>PLANET FITNESS PLAN</Text>
+                <Text style={styles.planTitle}>Choose today&apos;s workout</Text>
+              </View>
+              <Ionicons name="calendar-outline" size={22} color={Colors.primary} />
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.planCards}
+            >
+              {PLANET_FITNESS_TEMPLATES.map(template => {
+                const selected = selectedTemplateId === template.id;
+                const suggested = suggestedTemplateId === template.id;
+                return (
+                  <TouchableOpacity
+                    key={template.id}
+                    style={[styles.planCard, selected && styles.planCardSelected]}
+                    onPress={() => loadTemplate(template.id)}
+                    activeOpacity={0.8}
+                    accessibilityLabel={`Load ${template.weekday} ${template.title} workout`}
+                  >
+                    <View style={styles.planCardTopRow}>
+                      <Text style={[styles.planDay, selected && styles.planTextSelected]}>
+                        {template.weekday}
+                      </Text>
+                      {suggested && <Text style={styles.todayBadge}>TODAY</Text>}
+                    </View>
+                    <Text style={[styles.planCardTitle, selected && styles.planTextSelected]}>
+                      {template.title}
+                    </Text>
+                    <Text style={styles.planFocus}>{template.focus}</Text>
+                    <Text style={styles.planMeta}>
+                      {template.exercises.length} lifts · ~{template.estimatedMinutes} min
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <Text style={styles.planHint}>
+              Templates preload blank sets. Log the reps you actually complete; optional cardio only saves when you enter minutes.
+            </Text>
+          </View>
 
           {/* Exercise cards */}
           {exercises.length === 0 ? (
@@ -873,6 +962,90 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 
+  // Workout plan templates
+  planSection: {
+    marginBottom: Spacing.lg,
+  },
+  planHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: Spacing.md,
+  },
+  planEyebrow: {
+    color: Colors.primary,
+    fontSize: FontSize.xs,
+    fontWeight: '800',
+    letterSpacing: 0.9,
+  },
+  planTitle: {
+    color: Colors.text,
+    fontSize: FontSize.lg,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  planCards: {
+    gap: Spacing.sm,
+    paddingRight: Spacing.base,
+  },
+  planCard: {
+    width: 168,
+    minHeight: 132,
+    backgroundColor: Colors.surface,
+    borderColor: Colors.border,
+    borderWidth: 1,
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+  },
+  planCardSelected: {
+    backgroundColor: Colors.primaryDim,
+    borderColor: Colors.primary,
+  },
+  planCardTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.xs,
+  },
+  planDay: {
+    color: Colors.textMuted,
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  todayBadge: {
+    color: Colors.primary,
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+  },
+  planCardTitle: {
+    color: Colors.text,
+    fontSize: FontSize.md,
+    fontWeight: '800',
+    marginTop: Spacing.sm,
+  },
+  planTextSelected: { color: Colors.primary },
+  planFocus: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.xs,
+    lineHeight: 16,
+    marginTop: Spacing.xs,
+  },
+  planMeta: {
+    color: Colors.textMuted,
+    fontSize: FontSize.xs,
+    marginTop: 'auto',
+    paddingTop: Spacing.sm,
+  },
+  planHint: {
+    color: Colors.textMuted,
+    fontSize: FontSize.xs,
+    lineHeight: 16,
+    marginTop: Spacing.sm,
+  },
+
   // Empty state
   emptyExercises: {
     alignItems: 'center',
@@ -910,6 +1083,10 @@ const styles = StyleSheet.create({
     borderBottomColor: Colors.border,
     gap: Spacing.sm,
   },
+  exerciseHeading: {
+    flex: 1,
+    gap: 2,
+  },
   exerciseNumberBadge: {
     width: 24,
     height: 24,
@@ -924,10 +1101,14 @@ const styles = StyleSheet.create({
     color: Colors.primary,
   },
   exerciseNameInput: {
-    flex: 1,
     fontSize: FontSize.base,
     fontWeight: '600',
     color: Colors.text,
+  },
+  exercisePrescription: {
+    color: Colors.primary,
+    fontSize: FontSize.xs,
+    fontWeight: '600',
   },
   cardioFields: {
     padding: Spacing.base,
