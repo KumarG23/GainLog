@@ -30,6 +30,7 @@ def test_nutrition_create_list_filter_delete(client):
 
     created_dinner = client.post("/nutrition/", json=dinner)
     assert created_dinner.status_code == 201
+    assert created_dinner.json()["fiberG"] == 0
 
     listed = client.get("/nutrition/")
     assert listed.status_code == 200
