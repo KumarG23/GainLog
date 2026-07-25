@@ -102,6 +102,7 @@ class NutritionEntryDB(SQLModel, table=True):
     protein_g: float = 0
     carbs_g: float = 0
     fat_g: float = 0
+    fiber_g: float = 0
     notes: Optional[str] = None
 
 
@@ -242,6 +243,7 @@ class NutritionEntryOut(CamelModel):
     protein_g: float
     carbs_g: float
     fat_g: float
+    fiber_g: float
     notes: Optional[str] = None
 
 
@@ -254,6 +256,7 @@ class NutritionEntryIn(CamelModel):
     protein_g: float = 0
     carbs_g: float = 0
     fat_g: float = 0
+    fiber_g: float = 0
     notes: Optional[str] = None
 
 
@@ -262,6 +265,7 @@ class NutritionTotals(CamelModel):
     protein_g: float
     carbs_g: float
     fat_g: float
+    fiber_g: float
 
 
 class DashboardSummaryOut(CamelModel):
@@ -309,6 +313,7 @@ async def lifespan(_: FastAPI):
             "ALTER TABLE workout_session ADD COLUMN cardio_duration_minutes INTEGER",
             "ALTER TABLE workout_session ADD COLUMN cardio_avg_heart_rate INTEGER",
             "ALTER TABLE workout_session ADD COLUMN cardio_active_calories INTEGER",
+            "ALTER TABLE nutrition_entry ADD COLUMN fiber_g REAL DEFAULT 0",
         ]
         for statement in migrations:
             try:
@@ -406,11 +411,12 @@ def _nutrition_to_out(entry: NutritionEntryDB) -> NutritionEntryOut:
         protein_g=entry.protein_g,
         carbs_g=entry.carbs_g,
         fat_g=entry.fat_g,
+        fiber_g=entry.fiber_g,
         notes=entry.notes,
     )
 
 
-GOAL_KINDS = {"weight", "calories", "protein", "workout_frequency"}
+GOAL_KINDS = {"weight", "calories", "protein", "fiber", "workout_frequency"}
 
 
 def _validate_goal_kind(kind: str) -> None:
@@ -457,6 +463,7 @@ def _nutrition_totals_for_date(db: Session, date_prefix: str) -> NutritionTotals
         protein_g=sum(entry.protein_g for entry in rows),
         carbs_g=sum(entry.carbs_g for entry in rows),
         fat_g=sum(entry.fat_g for entry in rows),
+        fiber_g=sum(entry.fiber_g for entry in rows),
     )
 
 
@@ -532,7 +539,7 @@ def _format_broader_context(
         lines.append(
             f"Nutrition on {nutrition_date}: {nutrition_totals.calories} kcal, "
             f"{nutrition_totals.protein_g:g}g protein, {nutrition_totals.carbs_g:g}g carbs, "
-            f"{nutrition_totals.fat_g:g}g fat."
+            f"{nutrition_totals.fat_g:g}g fat, {nutrition_totals.fiber_g:g}g fiber."
         )
     return "\n".join(lines)
 
@@ -606,7 +613,8 @@ def _build_daily_review_prompt(
             f"Totals: {nutrition_totals.calories} kcal, "
             f"{nutrition_totals.protein_g:g}g protein, "
             f"{nutrition_totals.carbs_g:g}g carbs, "
-            f"{nutrition_totals.fat_g:g}g fat.",
+            f"{nutrition_totals.fat_g:g}g fat, "
+            f"{nutrition_totals.fiber_g:g}g fiber.",
             f"Meals logged: {', '.join(meals)}.",
             "Foods: "
             + "; ".join(
@@ -883,6 +891,7 @@ def create_nutrition(payload: NutritionEntryIn, db: Session = Depends(get_db)):
         protein_g=payload.protein_g,
         carbs_g=payload.carbs_g,
         fat_g=payload.fat_g,
+        fiber_g=payload.fiber_g,
         notes=payload.notes,
     )
     db.add(row)

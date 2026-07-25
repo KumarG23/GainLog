@@ -16,6 +16,7 @@ const entries = [
     proteinG: 32,
     carbsG: 8,
     fatG: 3,
+    fiberG: 6,
   },
   {
     id: 'lunch',
@@ -26,6 +27,7 @@ const entries = [
     proteinG: 50,
     carbsG: 65,
     fatG: 17,
+    fiberG: 11,
   },
   {
     id: 'old-breakfast',
@@ -36,6 +38,7 @@ const entries = [
     proteinG: 30,
     carbsG: 7,
     fatG: 2,
+    fiberG: 4,
   },
 ];
 
@@ -47,6 +50,7 @@ test('quick add remembers repeated meals once and keeps the latest macros', () =
   assert.equal(quickAdds[0].timesLogged, 2);
   assert.equal(quickAdds[0].calories, 180);
   assert.equal(quickAdds[0].proteinG, 32);
+  assert.equal(quickAdds[0].fiberG, 6);
 });
 
 test('quick add compares offset timestamps by their actual instant', () => {
@@ -60,6 +64,7 @@ test('quick add compares offset timestamps by their actual instant', () => {
       proteinG: 30,
       carbsG: 40,
       fatG: 12,
+      fiberG: 5,
     },
     {
       id: 'later',
@@ -70,6 +75,7 @@ test('quick add compares offset timestamps by their actual instant', () => {
       proteinG: 38,
       carbsG: 42,
       fatG: 13,
+      fiberG: 7,
     },
   ]);
 
@@ -90,6 +96,7 @@ test('macro history includes every calendar day and totals multiple entries', ()
         proteinG: 45,
         carbsG: 60,
         fatG: 30,
+        fiberG: 9,
       },
     ],
     '2026-07-22',
@@ -107,6 +114,7 @@ test('macro history includes every calendar day and totals multiple entries', ()
     proteinG: 77,
     carbsG: 68,
     fatG: 33,
+    fiberG: 15,
     entryCount: 2,
   });
   assert.equal(history[1].calories, 610);
@@ -117,5 +125,7 @@ test('macro history keeps unlogged days visible as zeroes', () => {
   const history = buildDailyMacroHistory([], '2026-07-22', 3);
 
   assert.equal(history.length, 3);
-  assert.ok(history.every(day => day.entryCount === 0 && day.calories === 0));
+  assert.ok(
+    history.every(day => day.entryCount === 0 && day.calories === 0 && day.fiberG === 0),
+  );
 });

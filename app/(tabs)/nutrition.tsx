@@ -54,6 +54,7 @@ export default function NutritionScreen() {
   const [protein, setProtein] = useState('');
   const [carbs, setCarbs] = useState('');
   const [fat, setFat] = useState('');
+  const [fiber, setFiber] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [quickAdding, setQuickAdding] = useState<string | null>(null);
@@ -70,6 +71,7 @@ export default function NutritionScreen() {
     proteinG: todayEntries.reduce((sum, entry) => sum + entry.proteinG, 0),
     carbsG: todayEntries.reduce((sum, entry) => sum + entry.carbsG, 0),
     fatG: todayEntries.reduce((sum, entry) => sum + entry.fatG, 0),
+    fiberG: todayEntries.reduce((sum, entry) => sum + entry.fiberG, 0),
   };
 
   const quickAdds = useMemo(
@@ -94,6 +96,9 @@ export default function NutritionScreen() {
       fatG: Math.round(
         macroHistory.reduce((sum, day) => sum + day.fatG, 0) / macroHistory.length,
       ),
+      fiberG: Math.round(
+        macroHistory.reduce((sum, day) => sum + day.fiberG, 0) / macroHistory.length,
+      ),
     }),
     [macroHistory],
   );
@@ -113,6 +118,7 @@ export default function NutritionScreen() {
         proteinG: food.proteinG,
         carbsG: food.carbsG,
         fatG: food.fatG,
+        fiberG: food.fiberG,
         notes: food.notes,
       });
     } catch (err) {
@@ -147,6 +153,7 @@ export default function NutritionScreen() {
         proteinG: toNumber(protein),
         carbsG: toNumber(carbs),
         fatG: toNumber(fat),
+        fiberG: toNumber(fiber),
         notes: notes.trim() || undefined,
       });
       setName('');
@@ -154,6 +161,7 @@ export default function NutritionScreen() {
       setProtein('');
       setCarbs('');
       setFat('');
+      setFiber('');
       setNotes('');
     } catch (err) {
       Alert.alert(
@@ -202,6 +210,7 @@ export default function NutritionScreen() {
               <Text style={styles.macroText}>{totals.proteinG}g protein</Text>
               <Text style={styles.macroText}>{totals.carbsG}g carbs</Text>
               <Text style={styles.macroText}>{totals.fatG}g fat</Text>
+              <Text style={styles.macroText}>{totals.fiberG}g fiber</Text>
             </View>
           </View>
 
@@ -309,6 +318,14 @@ export default function NutritionScreen() {
                 placeholderTextColor={Colors.textMuted}
                 keyboardType="decimal-pad"
               />
+              <TextInput
+                style={[styles.input, styles.rowInput]}
+                value={fiber}
+                onChangeText={setFiber}
+                placeholder="Fiber"
+                placeholderTextColor={Colors.textMuted}
+                keyboardType="decimal-pad"
+              />
             </View>
             <TextInput
               style={[styles.input, styles.multilineInput]}
@@ -343,7 +360,8 @@ export default function NutritionScreen() {
                   <View style={styles.foodBody}>
                     <Text style={styles.foodName}>{entry.name}</Text>
                     <Text style={styles.foodMeta}>
-                      {entry.meal} · {entry.calories} kcal · {entry.proteinG}g protein
+                      {entry.meal} · {entry.calories} kcal · {entry.proteinG}g protein ·{' '}
+                      {entry.fiberG}g fiber
                     </Text>
                   </View>
                   <TouchableOpacity
@@ -383,6 +401,10 @@ export default function NutritionScreen() {
                 <Text style={styles.averageValue}>{macroAverages.fatG}g</Text>
                 <Text style={styles.averageLabel}>avg fat</Text>
               </View>
+              <View style={styles.averageTile}>
+                <Text style={styles.averageValue}>{macroAverages.fiberG}g</Text>
+                <Text style={styles.averageLabel}>avg fiber</Text>
+              </View>
             </View>
             <View style={styles.historyList}>
               {macroHistory.map(day => (
@@ -403,7 +425,7 @@ export default function NutritionScreen() {
                   </View>
                   <Text style={styles.historyMacros}>
                     P {Math.round(day.proteinG)}g · C {Math.round(day.carbsG)}g · F{' '}
-                    {Math.round(day.fatG)}g
+                    {Math.round(day.fatG)}g · Fiber {Math.round(day.fiberG)}g
                     {day.entryCount === 0 ? ' · nothing logged' : ''}
                   </Text>
                 </View>

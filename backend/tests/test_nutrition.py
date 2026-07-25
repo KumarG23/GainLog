@@ -7,6 +7,7 @@ def test_nutrition_create_list_filter_delete(client):
         "proteinG": 35,
         "carbsG": 42,
         "fatG": 10,
+        "fiberG": 8,
         "notes": "Blueberries and oats",
     }
     dinner = {
@@ -25,6 +26,7 @@ def test_nutrition_create_list_filter_delete(client):
     assert breakfast_body["proteinG"] == 35
     assert breakfast_body["carbsG"] == 42
     assert breakfast_body["fatG"] == 10
+    assert breakfast_body["fiberG"] == 8
 
     created_dinner = client.post("/nutrition/", json=dinner)
     assert created_dinner.status_code == 201

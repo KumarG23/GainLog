@@ -7,6 +7,7 @@ export interface QuickAddFood {
   proteinG: number;
   carbsG: number;
   fatG: number;
+  fiberG: number;
   notes?: string;
   lastLoggedAt: string;
   timesLogged: number;
@@ -18,6 +19,7 @@ export interface DailyMacroSummary {
   proteinG: number;
   carbsG: number;
   fatG: number;
+  fiberG: number;
   entryCount: number;
 }
 
@@ -51,6 +53,7 @@ export function buildQuickAddFoods(
       proteinG: isNewer ? entry.proteinG : existing.proteinG,
       carbsG: isNewer ? entry.carbsG : existing.carbsG,
       fatG: isNewer ? entry.fatG : existing.fatG,
+      fiberG: isNewer ? entry.fiberG : existing.fiberG,
       notes: isNewer ? entry.notes : existing.notes,
       lastLoggedAt: isNewer ? entry.date : existing.lastLoggedAt,
       timesLogged: (existing?.timesLogged ?? 0) + 1,
@@ -90,12 +93,14 @@ export function buildDailyMacroHistory(
       proteinG: 0,
       carbsG: 0,
       fatG: 0,
+      fiberG: 0,
       entryCount: 0,
     };
     summary.calories += entry.calories;
     summary.proteinG += entry.proteinG;
     summary.carbsG += entry.carbsG;
     summary.fatG += entry.fatG;
+    summary.fiberG += entry.fiberG;
     summary.entryCount += 1;
     totals.set(date, summary);
   }
@@ -108,6 +113,7 @@ export function buildDailyMacroHistory(
       proteinG: 0,
       carbsG: 0,
       fatG: 0,
+      fiberG: 0,
       entryCount: 0,
     };
   });

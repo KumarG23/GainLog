@@ -35,6 +35,7 @@ def test_dashboard_summary_uses_real_logged_data(client):
             "proteinG": 38,
             "carbsG": 55,
             "fatG": 14,
+            "fiberG": 9,
         },
     )
     assert nutrition.status_code == 201
@@ -67,6 +68,7 @@ def test_dashboard_summary_uses_real_logged_data(client):
         "proteinG": 38,
         "carbsG": 55,
         "fatG": 14,
+        "fiberG": 9,
     }
     assert body["workoutCount"] == 1
     assert body["totalWorkoutVolume"] == 1400

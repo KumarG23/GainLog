@@ -19,12 +19,13 @@ import { useHealth } from '../../context/HealthContext';
 import { formatVolume } from '../../utils/stats';
 import { localDateKey, localIsoTimestamp } from '../../utils/date';
 
-type GoalKind = 'weight' | 'calories' | 'protein' | 'workout_frequency';
+type GoalKind = 'weight' | 'calories' | 'protein' | 'fiber' | 'workout_frequency';
 
 const GOAL_KINDS: { value: GoalKind; label: string; unit: string }[] = [
   { value: 'weight', label: 'Weight', unit: 'lbs' },
   { value: 'calories', label: 'Calories', unit: 'kcal' },
   { value: 'protein', label: 'Protein', unit: 'g' },
+  { value: 'fiber', label: 'Fiber', unit: 'g' },
   { value: 'workout_frequency', label: 'Workouts', unit: 'per week' },
 ];
 
@@ -88,6 +89,7 @@ export default function HealthScreen() {
     proteinG: 0,
     carbsG: 0,
     fatG: 0,
+    fiberG: 0,
   };
 
   const coachProviderName = coachStatus?.provider
@@ -315,6 +317,7 @@ export default function HealthScreen() {
               <Text style={styles.macroText}>{nutrition.proteinG}g protein</Text>
               <Text style={styles.macroText}>{nutrition.carbsG}g carbs</Text>
               <Text style={styles.macroText}>{nutrition.fatG}g fat</Text>
+              <Text style={styles.macroText}>{nutrition.fiberG}g fiber</Text>
             </View>
           </View>
 

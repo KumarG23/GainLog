@@ -7,7 +7,7 @@ export interface BodyWeightEntry {
 
 export interface Goal {
   id: string;
-  kind: 'weight' | 'calories' | 'protein' | 'workout_frequency' | string;
+  kind: 'weight' | 'calories' | 'protein' | 'fiber' | 'workout_frequency' | string;
   title: string;
   targetValue?: number;
   unit?: string;
@@ -26,6 +26,7 @@ export interface NutritionEntry {
   proteinG: number;
   carbsG: number;
   fatG: number;
+  fiberG: number;
   notes?: string;
 }
 
@@ -37,6 +38,7 @@ export interface DashboardSummary {
     proteinG: number;
     carbsG: number;
     fatG: number;
+    fiberG: number;
   };
   workoutCount: number;
   totalWorkoutVolume: number;
