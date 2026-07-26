@@ -110,6 +110,14 @@ def test_daily_review_combines_weight_nutrition_workout_and_goals(client, monkey
     assert "Strength session: 30 min, Avg HR 108 bpm, 180 kcal" in prompt
     assert "Cardio session: 12 min, Avg HR 142 bpm, 130 kcal" in prompt
     assert "Never label calories or macros as low, high, adequate, or inadequate without a matching numeric goal" in prompt
+    assert "supportive but candid fitness coach texting a client" in prompt
+    assert "Interpret the data rather than merely reciting it" in prompt
+    assert "Recognize one specific win" in prompt
+    assert "one realistic action for tomorrow with an example of how to execute it" in prompt
+    assert "Be encouraging without empty praise or guilt" in prompt
+    assert "Treat a numeric calorie goal as an upper daily budget" in prompt
+    assert "Do not characterize an unlogged workout as missed or skipped" in prompt
+    assert "5-7 natural sentences" in prompt
 
     persisted = client.get("/coach/daily-review?date=2026-07-21")
     assert persisted.status_code == 200
