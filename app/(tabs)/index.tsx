@@ -19,8 +19,14 @@ import { useWorkouts } from '../../context/WorkoutsContext';
 import { useHealth } from '../../context/HealthContext';
 import { generateId } from '../../utils/id';
 import { API_URL } from '../../constants/api';
-import { ExerciseKind } from '../../types/workout';
+import { Exercise, ExerciseKind } from '../../types/workout';
 import { localDateKey, localIsoTimestamp } from '../../utils/date';
+import {
+  findPreviousExercise,
+  formatPreviousExerciseSummary,
+  getPreviousSetHint,
+  PreviousSetHint,
+} from '../../utils/workoutHistoryHints';
 import {
   PLANET_FITNESS_TEMPLATES,
   buildWorkoutTemplateDraft,
@@ -72,13 +78,22 @@ function newExercise(kind: ExerciseKind): DraftExercise {
 interface SetRowProps {
   set: DraftSet;
   index: number;
+  previousHint: PreviousSetHint;
   canDelete: boolean;
   onChangeWeight: (v: string) => void;
   onChangeReps: (v: string) => void;
   onDelete: () => void;
 }
 
-function SetRow({ set, index, canDelete, onChangeWeight, onChangeReps, onDelete }: SetRowProps) {
+function SetRow({
+  set,
+  index,
+  previousHint,
+  canDelete,
+  onChangeWeight,
+  onChangeReps,
+  onDelete,
+}: SetRowProps) {
   return (
     <View style={styles.setRow}>
       <View style={styles.setBadge}>
@@ -89,7 +104,7 @@ function SetRow({ set, index, canDelete, onChangeWeight, onChangeReps, onDelete 
         style={[styles.setInput, styles.weightInput]}
         value={set.weight}
         onChangeText={onChangeWeight}
-        placeholder="0"
+        placeholder={previousHint.weight ?? '0'}
         placeholderTextColor={Colors.textMuted}
         keyboardType="decimal-pad"
         returnKeyType="next"
@@ -102,7 +117,7 @@ function SetRow({ set, index, canDelete, onChangeWeight, onChangeReps, onDelete 
         style={[styles.setInput, styles.repsInput]}
         value={set.reps}
         onChangeText={onChangeReps}
-        placeholder="0"
+        placeholder={previousHint.reps ?? '0'}
         placeholderTextColor={Colors.textMuted}
         keyboardType="number-pad"
         returnKeyType="done"
@@ -127,6 +142,7 @@ function SetRow({ set, index, canDelete, onChangeWeight, onChangeReps, onDelete 
 
 interface ExerciseCardProps {
   exercise: DraftExercise;
+  previousExercise?: Exercise;
   index: number;
   onUpdateName: (name: string) => void;
   onAddSet: () => void;
@@ -141,6 +157,7 @@ interface ExerciseCardProps {
 
 function ExerciseCard({
   exercise,
+  previousExercise,
   index,
   onUpdateName,
   onAddSet,
@@ -149,6 +166,8 @@ function ExerciseCard({
   onUpdateCardio,
   onRemove,
 }: ExerciseCardProps) {
+  const previousSummary = formatPreviousExerciseSummary(previousExercise);
+
   return (
     <View style={styles.exerciseCard}>
       {/* Card header */}
@@ -167,6 +186,9 @@ function ExerciseCard({
           />
           {exercise.prescription && (
             <Text style={styles.exercisePrescription}>{exercise.prescription}</Text>
+          )}
+          {previousSummary && (
+            <Text style={styles.exerciseHistory}>{previousSummary}</Text>
           )}
         </View>
         <TouchableOpacity
@@ -192,6 +214,7 @@ function ExerciseCard({
               key={set.id}
               set={set}
               index={setIdx}
+              previousHint={getPreviousSetHint(previousExercise, setIdx)}
               canDelete={exercise.sets.length > 1}
               onChangeWeight={v => onUpdateSet(set.id, 'weight', v)}
               onChangeReps={v => onUpdateSet(set.id, 'reps', v)}
@@ -301,7 +324,7 @@ function SuccessView({ onReset, insightLoading, insight }: SuccessViewProps) {
 // ---------------------------------------------------------------------------
 
 export default function LogScreen() {
-  const { addSession, refresh } = useWorkouts();
+  const { sessions, addSession, refresh } = useWorkouts();
   const { nutritionEntries, loading: healthLoading } = useHealth();
   const router = useRouter();
 
@@ -701,7 +724,7 @@ export default function LogScreen() {
               })}
             </ScrollView>
             <Text style={styles.planHint}>
-              Templates preload blank sets. Log the reps you actually complete; optional cardio only saves when you enter minutes.
+              Templates show your last set-by-set weights and reps as hints. Enter what you actually complete; optional cardio only saves when you enter minutes.
             </Text>
           </View>
 
@@ -719,6 +742,7 @@ export default function LogScreen() {
               <ExerciseCard
                 key={ex.id}
                 exercise={ex}
+                previousExercise={findPreviousExercise(sessions, ex.name, ex.kind)}
                 index={idx}
                 onUpdateName={name => updateExerciseName(ex.id, name)}
                 onAddSet={() => addSet(ex.id)}
@@ -1109,6 +1133,11 @@ const styles = StyleSheet.create({
     color: Colors.primary,
     fontSize: FontSize.xs,
     fontWeight: '600',
+  },
+  exerciseHistory: {
+    color: Colors.textMuted,
+    fontSize: FontSize.xs,
+    fontWeight: '500',
   },
   cardioFields: {
     padding: Spacing.base,
