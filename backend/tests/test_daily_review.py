@@ -4,7 +4,14 @@ from backend import main
 def test_daily_review_combines_weight_nutrition_workout_and_goals(client, monkeypatch):
     client.post(
         "/body-weight/",
-        json={"date": "2026-07-21T07:00:00Z", "weightLbs": 184.2},
+        json={
+            "date": "2026-07-21T07:00:00Z",
+            "weightLbs": 184.2,
+            "bodyFatPercent": 21.5,
+            "leanBodyMassLbs": 144.7,
+            "bmi": 25.7,
+            "source": "apple-health",
+        },
     )
     client.post(
         "/goals/",
@@ -99,6 +106,9 @@ def test_daily_review_combines_weight_nutrition_workout_and_goals(client, monkey
 
     prompt = calls["prompt"]
     assert "184.2 lbs" in prompt
+    assert "21.5% body fat" in prompt
+    assert "144.7 lbs lean body mass" in prompt
+    assert "BMI 25.7" in prompt
     assert "900 kcal" in prompt
     assert "90g protein" in prompt
     assert "Meals logged: breakfast, lunch" in prompt

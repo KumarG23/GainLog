@@ -2,6 +2,11 @@ export interface BodyWeightEntry {
   id: string;
   date: string;
   weightLbs: number;
+  bodyFatPercent?: number;
+  leanBodyMassLbs?: number;
+  bmi?: number;
+  source?: string;
+  sourceRecordId?: string;
   notes?: string;
 }
 

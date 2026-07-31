@@ -91,6 +91,13 @@ export default function HealthScreen() {
     fatG: 0,
     fiberG: 0,
   };
+  const latestMeasurement = dashboardSummary?.latestWeight;
+  const hasComposition = Boolean(
+    latestMeasurement &&
+      (latestMeasurement.bodyFatPercent != null ||
+        latestMeasurement.leanBodyMassLbs != null ||
+        latestMeasurement.bmi != null),
+  );
 
   const coachProviderName = coachStatus?.provider
     ? coachStatus.provider.charAt(0).toUpperCase() + coachStatus.provider.slice(1)
@@ -239,6 +246,48 @@ export default function HealthScreen() {
               color={Colors.textSecondary}
             />
           </View>
+
+          {hasComposition && latestMeasurement && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Latest Body Composition</Text>
+                <Text style={styles.measurementSource}>
+                  {latestMeasurement.source === 'apple-health'
+                    ? 'Apple Health'
+                    : latestMeasurement.source ?? 'Manual'}
+                </Text>
+              </View>
+              <View style={styles.compositionRow}>
+                {latestMeasurement.bodyFatPercent != null && (
+                  <View style={styles.compositionMetric}>
+                    <Text style={styles.compositionValue}>
+                      {latestMeasurement.bodyFatPercent.toFixed(1)}%
+                    </Text>
+                    <Text style={styles.compositionLabel}>Body fat</Text>
+                  </View>
+                )}
+                {latestMeasurement.leanBodyMassLbs != null && (
+                  <View style={styles.compositionMetric}>
+                    <Text style={styles.compositionValue}>
+                      {latestMeasurement.leanBodyMassLbs.toFixed(1)} lb
+                    </Text>
+                    <Text style={styles.compositionLabel}>Lean mass</Text>
+                  </View>
+                )}
+                {latestMeasurement.bmi != null && (
+                  <View style={styles.compositionMetric}>
+                    <Text style={styles.compositionValue}>
+                      {latestMeasurement.bmi.toFixed(1)}
+                    </Text>
+                    <Text style={styles.compositionLabel}>BMI</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={styles.compositionHint}>
+                Smart-scale composition is most useful as a long-term trend, not a single reading.
+              </Text>
+            </View>
+          )}
 
           <View style={styles.section}>
             <View style={styles.coachRow}>
@@ -527,6 +576,41 @@ const styles = StyleSheet.create({
     color: Colors.text,
     fontSize: FontSize.md,
     fontWeight: '800',
+  },
+  measurementSource: {
+    color: Colors.primary,
+    fontSize: FontSize.xs,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  compositionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+  },
+  compositionMetric: {
+    flexGrow: 1,
+    minWidth: 88,
+    backgroundColor: Colors.inputBg,
+    borderRadius: Radius.sm,
+    padding: Spacing.md,
+    gap: 3,
+  },
+  compositionValue: {
+    color: Colors.text,
+    fontSize: FontSize.lg,
+    fontWeight: '800',
+  },
+  compositionLabel: {
+    color: Colors.textMuted,
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  compositionHint: {
+    color: Colors.textMuted,
+    fontSize: FontSize.xs,
+    lineHeight: 17,
   },
   coachRow: {
     flexDirection: 'row',

@@ -6,11 +6,12 @@ from pathlib import Path
 from typing import List, Literal, Optional
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
-from sqlalchemy import text
+from sqlalchemy import func, text
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Field, Relationship, Session, SQLModel, create_engine, select
 
 try:
@@ -76,6 +77,11 @@ class BodyWeightEntryDB(SQLModel, table=True):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
     date: str
     weight_lbs: float
+    body_fat_percent: Optional[float] = None
+    lean_body_mass_lbs: Optional[float] = None
+    bmi: Optional[float] = None
+    source: Optional[str] = None
+    source_record_id: Optional[str] = None
     notes: Optional[str] = None
 
 
@@ -191,13 +197,23 @@ class BodyWeightEntryOut(CamelModel):
     id: str
     date: str
     weight_lbs: float
+    body_fat_percent: Optional[float] = None
+    lean_body_mass_lbs: Optional[float] = None
+    bmi: Optional[float] = None
+    source: Optional[str] = None
+    source_record_id: Optional[str] = None
     notes: Optional[str] = None
 
 
 class BodyWeightEntryIn(CamelModel):
     id: Optional[str] = None
     date: str
-    weight_lbs: float
+    weight_lbs: float = Field(gt=0, le=1500)
+    body_fat_percent: Optional[float] = Field(default=None, ge=0, le=100)
+    lean_body_mass_lbs: Optional[float] = Field(default=None, gt=0, le=1500)
+    bmi: Optional[float] = Field(default=None, ge=5, le=100)
+    source: Optional[Literal["apple-health", "renpho-csv", "manual"]] = None
+    source_record_id: Optional[str] = Field(default=None, max_length=500)
     notes: Optional[str] = None
 
 
@@ -314,6 +330,11 @@ async def lifespan(_: FastAPI):
             "ALTER TABLE workout_session ADD COLUMN cardio_avg_heart_rate INTEGER",
             "ALTER TABLE workout_session ADD COLUMN cardio_active_calories INTEGER",
             "ALTER TABLE nutrition_entry ADD COLUMN fiber_g REAL DEFAULT 0",
+            "ALTER TABLE body_weight_entry ADD COLUMN body_fat_percent REAL",
+            "ALTER TABLE body_weight_entry ADD COLUMN lean_body_mass_lbs REAL",
+            "ALTER TABLE body_weight_entry ADD COLUMN bmi REAL",
+            "ALTER TABLE body_weight_entry ADD COLUMN source TEXT",
+            "ALTER TABLE body_weight_entry ADD COLUMN source_record_id TEXT",
         ]
         for statement in migrations:
             try:
@@ -321,6 +342,13 @@ async def lifespan(_: FastAPI):
                 conn.commit()
             except Exception:
                 pass  # Column already exists
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_body_weight_source_record "
+                "ON body_weight_entry (source, source_record_id)"
+            )
+        )
+        conn.commit()
     yield
 
 
@@ -383,6 +411,11 @@ def _body_weight_to_out(entry: BodyWeightEntryDB) -> BodyWeightEntryOut:
         id=entry.id,
         date=entry.date,
         weight_lbs=entry.weight_lbs,
+        body_fat_percent=entry.body_fat_percent,
+        lean_body_mass_lbs=entry.lean_body_mass_lbs,
+        bmi=entry.bmi,
+        source=entry.source,
+        source_record_id=entry.source_record_id,
         notes=entry.notes,
     )
 
@@ -511,6 +544,19 @@ def _format_session(s: WorkoutSessionDB, label: str) -> str:
     return "\n".join(lines)
 
 
+def _format_weight_measurement(weight: BodyWeightEntryDB, prefix: str) -> str:
+    details = [f"{weight.weight_lbs:g} lbs"]
+    if weight.body_fat_percent is not None:
+        details.append(f"{weight.body_fat_percent:g}% body fat")
+    if weight.lean_body_mass_lbs is not None:
+        details.append(f"{weight.lean_body_mass_lbs:g} lbs lean body mass")
+    if weight.bmi is not None:
+        details.append(f"BMI {weight.bmi:g}")
+    if weight.source:
+        details.append(f"source {weight.source}")
+    return f"{prefix}: {', '.join(details)}"
+
+
 def _format_broader_context(
     latest_weight: Optional[BodyWeightEntryDB],
     active_weight_goal: Optional[GoalDB],
@@ -520,7 +566,8 @@ def _format_broader_context(
     lines = []
     if latest_weight:
         lines.append(
-            f"Latest body weight: {latest_weight.weight_lbs:g} lbs on {latest_weight.date[:10]}."
+            _format_weight_measurement(latest_weight, "Latest body measurement")
+            + f" on {latest_weight.date[:10]}."
         )
     if active_weight_goal:
         goal = f"Active weight goal: {active_weight_goal.title}"
@@ -594,7 +641,7 @@ def _build_daily_review_prompt(
     active_goals: list[GoalDB],
 ) -> str:
     weight_lines = (
-        [f"Today's weight: {weight.weight_lbs:g} lbs."]
+        [_format_weight_measurement(weight, "Today's body measurement") + "."]
         if weight
         else ["Today's weight: not logged."]
     )
@@ -795,11 +842,103 @@ def create_body_weight(payload: BodyWeightEntryIn, db: Session = Depends(get_db)
         id=entry_id,
         date=payload.date,
         weight_lbs=payload.weight_lbs,
+        body_fat_percent=payload.body_fat_percent,
+        lean_body_mass_lbs=payload.lean_body_mass_lbs,
+        bmi=payload.bmi,
+        source=payload.source,
+        source_record_id=payload.source_record_id,
         notes=payload.notes,
     )
     db.add(row)
     db.commit()
     row = db.get(BodyWeightEntryDB, entry_id)
+    return _body_weight_to_out(row)
+
+
+@app.post("/body-weight/import", response_model=BodyWeightEntryOut, response_model_by_alias=True)
+def import_body_weight(
+    payload: BodyWeightEntryIn,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    if not payload.source:
+        raise HTTPException(status_code=422, detail="Import source is required")
+
+    source_record_id = payload.source_record_id or payload.date
+    existing = db.exec(
+        select(BodyWeightEntryDB).where(
+            BodyWeightEntryDB.source == payload.source,
+            BodyWeightEntryDB.source_record_id == source_record_id,
+        )
+    ).first()
+
+    if payload.id and not existing:
+        manual_row = db.get(BodyWeightEntryDB, payload.id)
+        if manual_row:
+            if manual_row.date != payload.date or manual_row.source is not None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Import id belongs to a different body-weight measurement",
+                )
+            manual_row.weight_lbs = payload.weight_lbs
+            if payload.body_fat_percent is not None:
+                manual_row.body_fat_percent = payload.body_fat_percent
+            if payload.lean_body_mass_lbs is not None:
+                manual_row.lean_body_mass_lbs = payload.lean_body_mass_lbs
+            if payload.bmi is not None:
+                manual_row.bmi = payload.bmi
+            manual_row.source = payload.source
+            manual_row.source_record_id = source_record_id
+            if payload.notes is not None:
+                manual_row.notes = payload.notes
+            db.add(manual_row)
+            db.commit()
+            db.refresh(manual_row)
+            response.status_code = 200
+            return _body_weight_to_out(manual_row)
+
+    entry_id = payload.id or str(uuid.uuid4())
+    insert_statement = sqlite_insert(BodyWeightEntryDB).values(
+        id=entry_id,
+        date=payload.date,
+        weight_lbs=payload.weight_lbs,
+        body_fat_percent=payload.body_fat_percent,
+        lean_body_mass_lbs=payload.lean_body_mass_lbs,
+        bmi=payload.bmi,
+        source=payload.source,
+        source_record_id=source_record_id,
+        notes=payload.notes,
+    )
+    upsert_statement = insert_statement.on_conflict_do_update(
+        index_elements=["source", "source_record_id"],
+        set_={
+            "date": insert_statement.excluded.date,
+            "weight_lbs": insert_statement.excluded.weight_lbs,
+            "body_fat_percent": func.coalesce(
+                insert_statement.excluded.body_fat_percent,
+                BodyWeightEntryDB.body_fat_percent,
+            ),
+            "lean_body_mass_lbs": func.coalesce(
+                insert_statement.excluded.lean_body_mass_lbs,
+                BodyWeightEntryDB.lean_body_mass_lbs,
+            ),
+            "bmi": func.coalesce(insert_statement.excluded.bmi, BodyWeightEntryDB.bmi),
+            "notes": func.coalesce(insert_statement.excluded.notes, BodyWeightEntryDB.notes),
+        },
+    )
+    db.exec(upsert_statement)
+    db.commit()
+    row = db.exec(
+        select(BodyWeightEntryDB).where(
+            BodyWeightEntryDB.source == payload.source,
+            BodyWeightEntryDB.source_record_id == source_record_id,
+        )
+    ).one()
+
+    if existing or row.id != entry_id:
+        response.status_code = 200
+    else:
+        response.status_code = 201
     return _body_weight_to_out(row)
 
 
