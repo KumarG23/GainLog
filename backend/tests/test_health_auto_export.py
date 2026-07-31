@@ -1,3 +1,6 @@
+import pytest
+
+
 def _health_auto_export_payload():
     return {
         "data": {
@@ -52,7 +55,7 @@ def _health_auto_export_payload():
                     "data": [{"qty": 47, "date": "2026-07-31 23:55:00 -0400"}],
                 },
                 {
-                    "name": "body_mass",
+                    "name": "weight_&_body_mass",
                     "units": "lb",
                     "data": [{"qty": 207.6, "date": "2026-07-31 07:04:00 -0400"}],
                 },
@@ -127,6 +130,45 @@ def test_health_auto_export_retry_updates_without_duplicates(client):
     assert len(client.get("/body-weight/").json()) == 1
 
 
+def test_health_auto_export_converts_official_metric_units_and_keeps_local_date(client):
+    payload = {
+        "data": {
+            "metrics": [
+                {
+                    "name": "weight_&_body_mass",
+                    "units": "kg",
+                    "data": [
+                        {"qty": 90, "date": "2026-07-31 00:05:00 -0400"}
+                    ],
+                },
+                {
+                    "name": "active_energy",
+                    "units": "kJ",
+                    "data": [
+                        {"qty": 418.4, "date": "2026-07-31 23:55:00 -0400"}
+                    ],
+                },
+                {
+                    "name": "walking_running_distance",
+                    "units": "m",
+                    "data": [
+                        {"qty": 1609.344, "date": "2026-07-31 23:55:00 -0400"}
+                    ],
+                },
+            ]
+        }
+    }
+
+    assert client.post("/apple-health/auto-export", json=payload).status_code == 200
+
+    daily = client.get("/apple-health/daily?date=2026-07-31").json()
+    assert daily["activeCalories"] == pytest.approx(100)
+    assert daily["walkingRunningMiles"] == pytest.approx(1)
+    weight = client.get("/body-weight/").json()[0]
+    assert weight["weightLbs"] == pytest.approx(198.42, abs=0.01)
+    assert weight["sourceRecordId"] == "health-auto-export:2026-07-31"
+
+
 def test_health_auto_export_sleep_fallback_does_not_double_count_asleep_and_stages(client):
     payload = _health_auto_export_payload()
     sleep_sample = payload["data"]["metrics"][0]["data"][0]
@@ -179,5 +221,22 @@ def test_health_auto_export_validates_every_record_before_writing(client):
     response = client.post("/apple-health/auto-export", json=payload)
 
     assert response.status_code == 422
+    assert client.get("/apple-health/daily?date=2026-07-31").status_code == 404
+    assert client.get("/body-weight/").json() == []
+
+
+def test_health_auto_export_rolls_back_all_records_when_a_later_write_fails(
+    client, monkeypatch
+):
+    from backend import main
+
+    def fail_body_upsert(*_args, **_kwargs):
+        raise RuntimeError("forced body write failure")
+
+    monkeypatch.setattr(main, "_upsert_sourced_body_weight", fail_body_upsert)
+
+    with pytest.raises(RuntimeError, match="forced body write failure"):
+        client.post("/apple-health/auto-export", json=_health_auto_export_payload())
+
     assert client.get("/apple-health/daily?date=2026-07-31").status_code == 404
     assert client.get("/body-weight/").json() == []

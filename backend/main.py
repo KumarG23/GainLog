@@ -1057,6 +1057,67 @@ def create_body_weight(payload: BodyWeightEntryIn, db: Session = Depends(get_db)
     return _body_weight_to_out(row)
 
 
+def _upsert_sourced_body_weight(
+    payload: BodyWeightEntryIn,
+    db: Session,
+) -> tuple[BodyWeightEntryDB, bool]:
+    if not payload.source:
+        raise HTTPException(status_code=422, detail="Import source is required")
+
+    source_record_id = payload.source_record_id or payload.date
+    body_fat_percent = payload.body_fat_percent
+    if (
+        payload.source == "apple-health"
+        and body_fat_percent is not None
+        and 0 < body_fat_percent <= 1
+    ):
+        body_fat_percent *= 100
+
+    existing = db.exec(
+        select(BodyWeightEntryDB).where(
+            BodyWeightEntryDB.source == payload.source,
+            BodyWeightEntryDB.source_record_id == source_record_id,
+        )
+    ).first()
+    entry_id = payload.id or str(uuid.uuid4())
+    insert_statement = sqlite_insert(BodyWeightEntryDB).values(
+        id=entry_id,
+        date=payload.date,
+        weight_lbs=payload.weight_lbs,
+        body_fat_percent=body_fat_percent,
+        lean_body_mass_lbs=payload.lean_body_mass_lbs,
+        bmi=payload.bmi,
+        source=payload.source,
+        source_record_id=source_record_id,
+        notes=payload.notes,
+    )
+    upsert_statement = insert_statement.on_conflict_do_update(
+        index_elements=["source", "source_record_id"],
+        set_={
+            "date": insert_statement.excluded.date,
+            "weight_lbs": insert_statement.excluded.weight_lbs,
+            "body_fat_percent": func.coalesce(
+                insert_statement.excluded.body_fat_percent,
+                BodyWeightEntryDB.body_fat_percent,
+            ),
+            "lean_body_mass_lbs": func.coalesce(
+                insert_statement.excluded.lean_body_mass_lbs,
+                BodyWeightEntryDB.lean_body_mass_lbs,
+            ),
+            "bmi": func.coalesce(insert_statement.excluded.bmi, BodyWeightEntryDB.bmi),
+            "notes": func.coalesce(insert_statement.excluded.notes, BodyWeightEntryDB.notes),
+        },
+    )
+    db.exec(upsert_statement)
+    row = db.exec(
+        select(BodyWeightEntryDB).where(
+            BodyWeightEntryDB.source == payload.source,
+            BodyWeightEntryDB.source_record_id == source_record_id,
+        )
+    ).one()
+    return row, existing is None and row.id == entry_id
+
+
 @app.post(
     "/body-weight/import",
     response_model=BodyWeightEntryOut,
@@ -1112,48 +1173,9 @@ def import_body_weight(
             response.status_code = 200
             return _body_weight_to_out(manual_row)
 
-    entry_id = payload.id or str(uuid.uuid4())
-    insert_statement = sqlite_insert(BodyWeightEntryDB).values(
-        id=entry_id,
-        date=payload.date,
-        weight_lbs=payload.weight_lbs,
-        body_fat_percent=body_fat_percent,
-        lean_body_mass_lbs=payload.lean_body_mass_lbs,
-        bmi=payload.bmi,
-        source=payload.source,
-        source_record_id=source_record_id,
-        notes=payload.notes,
-    )
-    upsert_statement = insert_statement.on_conflict_do_update(
-        index_elements=["source", "source_record_id"],
-        set_={
-            "date": insert_statement.excluded.date,
-            "weight_lbs": insert_statement.excluded.weight_lbs,
-            "body_fat_percent": func.coalesce(
-                insert_statement.excluded.body_fat_percent,
-                BodyWeightEntryDB.body_fat_percent,
-            ),
-            "lean_body_mass_lbs": func.coalesce(
-                insert_statement.excluded.lean_body_mass_lbs,
-                BodyWeightEntryDB.lean_body_mass_lbs,
-            ),
-            "bmi": func.coalesce(insert_statement.excluded.bmi, BodyWeightEntryDB.bmi),
-            "notes": func.coalesce(insert_statement.excluded.notes, BodyWeightEntryDB.notes),
-        },
-    )
-    db.exec(upsert_statement)
+    row, created = _upsert_sourced_body_weight(payload, db)
     db.commit()
-    row = db.exec(
-        select(BodyWeightEntryDB).where(
-            BodyWeightEntryDB.source == payload.source,
-            BodyWeightEntryDB.source_record_id == source_record_id,
-        )
-    ).one()
-
-    if existing or row.id != entry_id:
-        response.status_code = 200
-    else:
-        response.status_code = 201
+    response.status_code = 201 if created else 200
     return _body_weight_to_out(row)
 
 
@@ -1169,18 +1191,10 @@ def get_apple_health_daily(date: str, db: Session = Depends(get_db)):
     return _apple_health_daily_to_out(row)
 
 
-@app.post(
-    "/apple-health/daily/import",
-    response_model=AppleHealthDailyOut,
-    response_model_by_alias=True,
-    dependencies=[Depends(require_native_health_import)],
-    responses={201: {"model": AppleHealthDailyOut, "description": "Daily summary created"}},
-)
-def import_apple_health_daily(
+def _upsert_apple_health_daily(
     payload: AppleHealthDailyIn,
-    response: Response,
-    db: Session = Depends(get_db),
-):
+    db: Session,
+) -> tuple[AppleHealthDailyDB, bool]:
     metrics = payload.model_dump(exclude={"date", "source"}, exclude_none=True)
     if not metrics:
         raise HTTPException(status_code=422, detail="At least one health metric is required")
@@ -1249,9 +1263,25 @@ def import_apple_health_daily(
         },
     )
     db.exec(upsert_statement)
-    db.commit()
     row = db.get(AppleHealthDailyDB, payload.date)
-    response.status_code = 200 if existing else 201
+    return row, existing is None
+
+
+@app.post(
+    "/apple-health/daily/import",
+    response_model=AppleHealthDailyOut,
+    response_model_by_alias=True,
+    dependencies=[Depends(require_native_health_import)],
+    responses={201: {"model": AppleHealthDailyOut, "description": "Daily summary created"}},
+)
+def import_apple_health_daily(
+    payload: AppleHealthDailyIn,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    row, created = _upsert_apple_health_daily(payload, db)
+    db.commit()
+    response.status_code = 201 if created else 200
     return _apple_health_daily_to_out(row)
 
 
@@ -1284,6 +1314,7 @@ def import_health_auto_export(payload: dict[str, Any], db: Session = Depends(get
         "heartratevariability",
         "bodymass",
         "bodyweight",
+        "weightbodymass",
         "bodyfatpercentage",
         "leanbodymass",
         "bodymassindex",
@@ -1348,9 +1379,16 @@ def import_health_auto_export(payload: dict[str, Any], db: Session = Depends(get
                 continue
             quantity = float(quantity)
 
-            if key in {"bodymass", "bodyweight", "bodyfatpercentage", "leanbodymass", "bodymassindex"}:
+            if key in {
+                "bodymass",
+                "bodyweight",
+                "weightbodymass",
+                "bodyfatpercentage",
+                "leanbodymass",
+                "bodymassindex",
+            }:
                 record = body_records.setdefault(sample_date, {})
-                if key in {"bodymass", "bodyweight"}:
+                if key in {"bodymass", "bodyweight", "weightbodymass"}:
                     record["weight_lbs"] = _health_auto_export_pounds(quantity, units)
                     record["timestamp"] = _health_auto_export_timestamp(
                         sample.get("date"), sample_date
@@ -1404,11 +1442,17 @@ def import_health_auto_export(payload: dict[str, Any], db: Session = Depends(get
             detail=exc.errors(include_context=False),
         ) from exc
 
-    for daily_payload in daily_payloads:
-        import_apple_health_daily(daily_payload, Response(), db)
+    try:
+        for daily_payload in daily_payloads:
+            _upsert_apple_health_daily(daily_payload, db)
 
-    for body_payload in body_payloads:
-        import_body_weight(body_payload, Response(), db)
+        for body_payload in body_payloads:
+            _upsert_sourced_body_weight(body_payload, db)
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
     return HealthAutoExportImportOut(
         daily_summaries=len(daily_payloads),
