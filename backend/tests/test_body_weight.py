@@ -78,6 +78,21 @@ def test_apple_health_import_persists_composition_and_is_idempotent(client):
     assert listed[0]["source"] == "apple-health"
 
 
+def test_apple_health_fractional_body_fat_is_normalized(client):
+    imported = client.post(
+        "/body-weight/import",
+        json={
+            "date": "2026-07-31T06:05:00-04:00",
+            "weightLbs": 206.8,
+            "bodyFatPercent": 0.246,
+            "source": "apple-health",
+        },
+    )
+
+    assert imported.status_code == 201
+    assert imported.json()["bodyFatPercent"] == 24.6
+
+
 def test_apple_health_import_rejects_impossible_composition_values(client):
     invalid_composition = client.post(
         "/body-weight/import",

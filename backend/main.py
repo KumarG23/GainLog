@@ -870,6 +870,13 @@ def import_body_weight(
         raise HTTPException(status_code=422, detail="Import source is required")
 
     source_record_id = payload.source_record_id or payload.date
+    body_fat_percent = payload.body_fat_percent
+    if (
+        payload.source == "apple-health"
+        and body_fat_percent is not None
+        and 0 < body_fat_percent <= 1
+    ):
+        body_fat_percent *= 100
     existing = db.exec(
         select(BodyWeightEntryDB).where(
             BodyWeightEntryDB.source == payload.source,
@@ -886,8 +893,8 @@ def import_body_weight(
                     detail="Import id belongs to a different body-weight measurement",
                 )
             manual_row.weight_lbs = payload.weight_lbs
-            if payload.body_fat_percent is not None:
-                manual_row.body_fat_percent = payload.body_fat_percent
+            if body_fat_percent is not None:
+                manual_row.body_fat_percent = body_fat_percent
             if payload.lean_body_mass_lbs is not None:
                 manual_row.lean_body_mass_lbs = payload.lean_body_mass_lbs
             if payload.bmi is not None:
@@ -907,7 +914,7 @@ def import_body_weight(
         id=entry_id,
         date=payload.date,
         weight_lbs=payload.weight_lbs,
-        body_fat_percent=payload.body_fat_percent,
+        body_fat_percent=body_fat_percent,
         lean_body_mass_lbs=payload.lean_body_mass_lbs,
         bmi=payload.bmi,
         source=payload.source,

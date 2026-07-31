@@ -135,5 +135,5 @@ A new measurement returns HTTP `201`. Re-sending the same `sourceRecordId` retur
 
 - **Could not connect:** Open Tailscale and confirm it is connected, then test the `/health` URL in Safari.
 - **Weight imports but composition does not:** Check Apple Health → Browse → Body Measurements and confirm RENPHO wrote those specific sample types.
-- **Body-fat value becomes `0.246` instead of `24.6`:** Add a **Calculate** action multiplying the extracted Body Fat Percentage number by `100` before setting `bodyFatPercent`. Apple Health/Shortcuts formatting can vary by iOS version.
+- **Body-fat value appears as `0.246` in the Shortcut:** That is Apple Health's fractional representation of 24.6%. Send it as-is; GainLog normalizes Apple Health values from `0–1` into percentages during import.
 - **Duplicate entries:** Confirm `sourceRecordId` uses the formatted `Measurement ISO`, not the current time when the Shortcut runs.
