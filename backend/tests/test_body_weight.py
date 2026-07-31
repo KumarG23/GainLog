@@ -1,3 +1,11 @@
+def test_body_weight_import_documents_create_and_update_responses(client):
+    responses = client.get("/openapi.json").json()["paths"]["/body-weight/import"]["post"]["responses"]
+
+    assert "200" in responses
+    assert "201" in responses
+    assert "422" in responses
+
+
 def test_body_weight_crud_round_trip(client):
     payload = {
         "date": "2026-06-15T08:00:00Z",

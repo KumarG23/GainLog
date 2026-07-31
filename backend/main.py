@@ -855,7 +855,12 @@ def create_body_weight(payload: BodyWeightEntryIn, db: Session = Depends(get_db)
     return _body_weight_to_out(row)
 
 
-@app.post("/body-weight/import", response_model=BodyWeightEntryOut, response_model_by_alias=True)
+@app.post(
+    "/body-weight/import",
+    response_model=BodyWeightEntryOut,
+    response_model_by_alias=True,
+    responses={201: {"model": BodyWeightEntryOut, "description": "Measurement created"}},
+)
 def import_body_weight(
     payload: BodyWeightEntryIn,
     response: Response,
