@@ -1,139 +1,239 @@
-# RENPHO → Apple Health → GainLog
+# Apple Health → GainLog
 
-This Shortcut reads the latest RENPHO-synced Apple Health measurement and sends it to GainLog over Tailscale.
+## Recommended route: Health Auto Export
 
-## What syncs automatically
+For body composition alone, an Apple Shortcut is manageable. Once sleep stages, HRV, activity rings, and daily totals are included, the Shortcut becomes long and fragile. The practical route is **Health Auto Export**:
 
-Apple Health exposes the RENPHO values that map to HealthKit quantity types:
+```text
+RENPHO / Apple Watch / iPhone
+            ↓
+       Apple Health
+            ↓
+   Health Auto Export
+            ↓ private Tailscale HTTPS
+          GainLog
+```
 
-- Weight
+No GainLog or RENPHO credentials are stored in the exporter. GainLog accepts only the metrics listed below and discards other metric categories instead of storing the raw payload.
+
+Health Auto Export currently offers a seven-day Premium trial and automated REST exports through its Premium tier. Pricing is controlled by the App Store and may change.
+
+App Store: <https://apps.apple.com/us/app/health-auto-export-json-csv/id1115567069>
+
+## What GainLog imports
+
+Body composition:
+
+- Body Mass
 - Body Fat Percentage
 - Lean Body Mass
-- Body Mass Index (BMI)
+- Body Mass Index
 
-RENPHO-only estimates such as visceral fat, subcutaneous fat, body water, metabolic age, and protein percentage do not reliably map into Apple Health. Those can be backfilled later from a RENPHO export.
+Recovery and activity:
 
-## Prerequisites
+- Sleep Analysis, including Core, Deep, and REM stages
+- Resting Heart Rate
+- Heart Rate Variability
+- Step Count
+- Active Energy Burned
+- Apple Exercise Time
+- Apple Stand Hour
+- Walking + Running Distance
 
-1. RENPHO Health is already writing data to Apple Health.
-2. Tailscale is installed and connected on the iPhone.
-3. Opening `https://gainlog-api.tailc88c35.ts.net/health` in Safari returns `{"status":"ok"}`.
+GainLog intentionally ignores unrelated categories such as medications, symptoms, reproductive health, blood pressure, and nutrition. Add them only through a deliberate schema change—not by turning on every Health permission like a loot goblin.
 
-## Build the Shortcut
+## Setup
 
-Create a new Shortcut named **Sync RENPHO to GainLog**.
+### 1. Confirm private network access
 
-### 1. Wait for RENPHO to finish syncing
+1. Connect the iPhone to Tailscale.
+2. In Safari, open:
 
-Add:
+```text
+https://gainlog-api.tailc88c35.ts.net/health
+```
 
-- **Wait** — `5 seconds`
+Expected result:
 
-### 2. Read the latest weight
+```json
+{"status":"ok"}
+```
 
-Add **Find Health Samples**:
+Do not continue until this works.
 
-- Type: `Weight`
-- Sort by: `Start Date`
-- Order: `Latest First`
-- Limit: `1`
+### 2. Install Health Auto Export
 
-Rename its result variable to `Weight Sample`.
+1. Install **Health Auto Export - JSON+CSV** from the App Store.
+2. Open it and start the Premium trial if prompted.
+3. Grant read access only to the metrics in **What GainLog imports** above.
 
-Add **If** `Weight Sample` **does not have any value**:
+RENPHO must already be writing Body Mass, Body Fat Percentage, Lean Body Mass, and BMI into Apple Health. Apple Watch/iPhone supplies the sleep, heart, and activity data that it records.
 
-- **Stop This Shortcut** with output `No weight sample found`
+### 3. Create the REST automation
 
-Then add:
+In Health Auto Export:
 
-- **Get Details of Health Samples** → `Value` from `Weight Sample`; rename to `Weight Value`
-- **Get Numbers from Input** → `Weight Value`; rename to `Weight Number`
-- **Get Details of Health Samples** → `Start Date` from `Weight Sample`; rename to `Measurement Date`
-- **Format Date** → `Measurement Date`, Custom format: `yyyy-MM-dd'T'HH:mm:ssZZZZZ`; rename to `Measurement ISO`
+1. Open **Automated Exports**.
+2. Tap **New Automation**.
+3. Choose **REST API**.
+4. Name it:
 
-### 3. Create a ±5-minute measurement window
+```text
+GainLog
+```
 
-Add:
+5. Use this URL:
 
-- **Adjust Date** → Subtract `5 minutes` from `Measurement Date`; rename to `Window Start`
-- **Adjust Date** → Add `5 minutes` to `Measurement Date`; rename to `Window End`
+```text
+https://gainlog-api.tailc88c35.ts.net/apple-health/auto-export
+```
 
-This prevents a fresh weight from being paired with a stale body-fat value.
+6. Set the request timeout to **30 seconds**.
+7. No custom authorization header is required. Tailscale device membership is the network authentication boundary; GainLog also allowlists browser origins and rejects browser-originated writes on Apple Health import routes. Native Health Auto Export and Shortcuts send no browser `Origin` header.
 
-### 4. Create the base payload
+### 4. Select the data
 
-Add a **Dictionary** with:
+Choose **Health Metrics**, then select only:
 
-- `date` → `Measurement ISO`
-- `weightLbs` → `Weight Number`
-- `source` → text `apple-health`
-- `sourceRecordId` → `Measurement ISO`
+```text
+Active Energy Burned
+Apple Exercise Time
+Apple Stand Hour
+Body Fat Percentage
+Body Mass
+Body Mass Index
+Heart Rate Variability
+Lean Body Mass
+Resting Heart Rate
+Sleep Analysis
+Step Count
+Walking + Running Distance
+```
 
-Rename it to `Payload`.
+Use these export settings:
 
-### 5. Add optional composition values
-
-Repeat the following pattern for each Health type below:
-
-1. **Find Health Samples** of the specified type.
-2. Filter `Start Date` is between `Window Start` and `Window End`.
-3. Sort by `Start Date`, latest first; limit `1`.
-4. **If** the result has any value:
-   - Get its `Value` detail.
-   - Run **Get Numbers from Input** on the value.
-   - Use **Set Dictionary Value** on `Payload` with the matching JSON key.
-
-| Apple Health type | JSON key |
+| Setting | Value |
 |---|---|
-| Body Fat Percentage | `bodyFatPercent` |
-| Lean Body Mass | `leanBodyMassLbs` |
-| Body Mass Index | `bmi` |
+| Format | JSON |
+| Export version | Current / Version 2 |
+| Date range | Today |
+| Summarize data | On |
+| Time grouping | Day |
+| Batch requests | Off |
+| Sync cadence | Every 4 hours |
 
-Important: every **Set Dictionary Value** action should update the `Payload` variable for the next action.
+`Today` keeps each background request small and avoids re-importing older body measurements that may already exist in GainLog. Repeated data is safe: GainLog upserts by calendar date and preserves optional values that are absent from a later request.
 
-### 6. Send to GainLog
+### 5. Run the first export
 
-Add **Get Contents of URL**:
-
-- URL: `https://gainlog-api.tailc88c35.ts.net/body-weight/import`
-- Method: `POST`
-- Request Body: `JSON`
-- JSON: choose the `Payload` dictionary variable
-
-Add **Show Result** using the response from **Get Contents of URL** for the first test. Once verified, remove **Show Result** so automation stays quiet.
-
-## Automate it
-
-In Shortcuts → Automation:
-
-1. Create a Personal Automation.
-2. Trigger: **App**.
-3. Choose **RENPHO Health**.
-4. Select **Is Closed**.
-5. Run **Sync RENPHO to GainLog**.
-6. Set it to run immediately without confirmation if iOS offers that option.
-
-The Shortcut waits five seconds after RENPHO closes, reads the Health samples RENPHO just wrote, and upserts the measurement by source plus timestamp.
-
-## API payload example
+1. Tap **Manual Export** inside the automation.
+2. Select **Today** for the initial import.
+3. Tap **Export**.
+4. A successful response resembles:
 
 ```json
 {
-  "date": "2026-07-30T06:07:06-04:00",
-  "weightLbs": 207.6,
-  "bodyFatPercent": 24.6,
-  "leanBodyMassLbs": 156.6,
-  "bmi": 29.0,
-  "source": "apple-health",
-  "sourceRecordId": "2026-07-30T06:07:06-04:00"
+  "dailySummaries": 1,
+  "bodyMeasurements": 1,
+  "ignoredMetrics": []
 }
 ```
 
-A new measurement returns HTTP `201`. Re-sending the same `sourceRecordId` returns HTTP `200` and updates the existing record instead of creating a duplicate.
+The counts depend on which records exist today. An empty `ignoredMetrics` list means only the intended categories were sent. Historical recovery data can be backfilled later after checking for existing GainLog body records.
+
+### 6. Help iOS run it reliably
+
+Apple controls background execution; no iOS app can promise an exact cron schedule.
+
+- Keep Tailscale connected.
+- Add the Health Auto Export **Automations** widget to the iPhone Home Screen. Its documentation recommends this to improve background execution.
+- Leave background app refresh enabled.
+- Enable failure notifications for the GainLog automation.
+- Charging the phone gives iOS background work more breathing room.
+
+GainLog does not need to be open. Expo Go does not need to be open. The export app sends directly to the backend.
+
+## How GainLog uses the data
+
+The Health screen displays a **Recovery & Activity** card with sleep, resting heart rate, HRV, steps, active calories, exercise time, available sleep stages, stand hours, and walking/running distance. GainLog does not mislabel `inBed - totalSleep` as Apple's actual Awake stage; true awake minutes are shown only when explicitly supplied.
+
+The daily coach receives the same summary. Sleep, resting heart rate, HRV, and smart-scale composition remain trend signals; one odd night or one hydrated scale reading should not trigger a dramatic plan change.
+
+## API contracts
+
+Native Health Auto Export payloads:
+
+```http
+POST /apple-health/auto-export
+Content-Type: application/json
+```
+
+The endpoint accepts Health Auto Export's documented `{ "data": { "metrics": [...] } }` format, converts supported units, ignores unrelated metrics, and performs idempotent daily/body-composition upserts.
+
+Simple daily summaries can also be sent directly:
+
+```http
+POST /apple-health/daily/import
+Content-Type: application/json
+```
+
+```json
+{
+  "date": "2026-07-31",
+  "sleepMinutes": 465,
+  "deepSleepMinutes": 72,
+  "coreSleepMinutes": 276,
+  "remSleepMinutes": 117,
+  "awakeMinutes": 30,
+  "restingHeartRateBpm": 58,
+  "hrvMs": 47,
+  "steps": 8123,
+  "activeCalories": 645.5,
+  "exerciseMinutes": 52,
+  "standHours": 12,
+  "walkingRunningMiles": 4.6,
+  "source": "apple-health"
+}
+```
+
+Body composition remains available at:
+
+```http
+POST /body-weight/import
+```
+
+## Free Shortcut fallback
+
+The free route is still possible:
+
+1. Build a Shortcut that reads the latest RENPHO body metrics.
+2. Build loops that aggregate each sleep stage.
+3. Read and aggregate the activity and recovery metrics.
+4. POST body composition to `/body-weight/import`.
+5. POST the daily summary to `/apple-health/daily/import`.
+6. Run it after weighing and again near bedtime.
+
+That avoids a paid app but requires dozens of Shortcut actions and ongoing maintenance when Apple changes Health actions. It is supported by the API, but it is no longer the recommended “easy” setup.
 
 ## Troubleshooting
 
-- **Could not connect:** Open Tailscale and confirm it is connected, then test the `/health` URL in Safari.
-- **Weight imports but composition does not:** Check Apple Health → Browse → Body Measurements and confirm RENPHO wrote those specific sample types.
-- **Body-fat value appears as `0.246` in the Shortcut:** That is Apple Health's fractional representation of 24.6%. Send it as-is; GainLog normalizes Apple Health values from `0–1` into percentages during import.
-- **Duplicate entries:** Confirm `sourceRecordId` uses the formatted `Measurement ISO`, not the current time when the Shortcut runs.
+### Safari cannot open the API health URL
+
+- Confirm Tailscale is connected.
+- Confirm the phone is in the correct tailnet.
+- Retry `https://gainlog-api.tailc88c35.ts.net/health`.
+
+### Export succeeds but a metric is missing
+
+- Open Health Auto Export permissions and enable that metric.
+- Confirm Apple Health itself contains the metric.
+- Confirm RENPHO is allowed to write the specific body metric.
+- Confirm **Summarize Data** is enabled with **Day** grouping.
+
+### Sleep stages are missing
+
+Apple Health only exports stages it actually has. Without compatible Apple Watch sleep-stage records, total sleep may exist while Core/Deep/REM remain absent.
+
+### Background exports are inconsistent
+
+iOS treats schedules as best effort. Add the Automations widget, keep Background App Refresh and Tailscale enabled, and inspect Health Auto Export's Activity Logs for HTTP or HealthKit errors.

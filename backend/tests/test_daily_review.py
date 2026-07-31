@@ -14,6 +14,24 @@ def test_daily_review_combines_weight_nutrition_workout_and_goals(client, monkey
         },
     )
     client.post(
+        "/apple-health/daily/import",
+        json={
+            "date": "2026-07-21",
+            "sleepMinutes": 455,
+            "deepSleepMinutes": 72,
+            "coreSleepMinutes": 282,
+            "remSleepMinutes": 101,
+            "awakeMinutes": 38,
+            "restingHeartRateBpm": 57,
+            "hrvMs": 49,
+            "steps": 9342,
+            "activeCalories": 684,
+            "exerciseMinutes": 54,
+            "standHours": 13,
+            "walkingRunningMiles": 4.6,
+        },
+    )
+    client.post(
         "/goals/",
         json={
             "kind": "calories",
@@ -109,6 +127,15 @@ def test_daily_review_combines_weight_nutrition_workout_and_goals(client, monkey
     assert "21.5% body fat" in prompt
     assert "144.7 lbs lean body mass" in prompt
     assert "BMI 25.7" in prompt
+    assert "Sleep: 7h 35m" in prompt
+    assert "Deep 1h 12m, Core 4h 42m, REM 1h 41m, Awake 38m" in prompt
+    assert "Resting heart rate: 57 bpm" in prompt
+    assert "HRV: 49 ms" in prompt
+    assert "Steps: 9,342" in prompt
+    assert "Active energy: 684 kcal" in prompt
+    assert "Exercise: 54 min" in prompt
+    assert "Stand: 13 hr" in prompt
+    assert "Walking/running distance: 4.6 miles" in prompt
     assert "900 kcal" in prompt
     assert "90g protein" in prompt
     assert "Meals logged: breakfast, lunch" in prompt

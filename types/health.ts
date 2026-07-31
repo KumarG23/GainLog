@@ -10,6 +10,24 @@ export interface BodyWeightEntry {
   notes?: string;
 }
 
+export interface AppleHealthDaily {
+  date: string;
+  sleepMinutes?: number;
+  deepSleepMinutes?: number;
+  coreSleepMinutes?: number;
+  remSleepMinutes?: number;
+  awakeMinutes?: number;
+  restingHeartRateBpm?: number;
+  hrvMs?: number;
+  steps?: number;
+  activeCalories?: number;
+  exerciseMinutes?: number;
+  standHours?: number;
+  walkingRunningMiles?: number;
+  source: 'apple-health';
+  updatedAt: string;
+}
+
 export interface Goal {
   id: string;
   kind: 'weight' | 'calories' | 'protein' | 'fiber' | 'workout_frequency' | string;
@@ -37,6 +55,7 @@ export interface NutritionEntry {
 
 export interface DashboardSummary {
   latestWeight: BodyWeightEntry | null;
+  todayHealth: AppleHealthDaily | null;
   activeGoals: Goal[];
   todayNutrition: {
     calories: number;

@@ -3,12 +3,12 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import date as date_cls, datetime, timezone
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import Any, List, Literal, Optional
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 from pydantic.alias_generators import to_camel
 from sqlalchemy import func, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -83,6 +83,25 @@ class BodyWeightEntryDB(SQLModel, table=True):
     source: Optional[str] = None
     source_record_id: Optional[str] = None
     notes: Optional[str] = None
+
+
+class AppleHealthDailyDB(SQLModel, table=True):
+    __tablename__ = "apple_health_daily"
+    date: str = Field(primary_key=True)
+    sleep_minutes: Optional[int] = None
+    deep_sleep_minutes: Optional[int] = None
+    core_sleep_minutes: Optional[int] = None
+    rem_sleep_minutes: Optional[int] = None
+    awake_minutes: Optional[int] = None
+    resting_heart_rate_bpm: Optional[float] = None
+    hrv_ms: Optional[float] = None
+    steps: Optional[int] = None
+    active_calories: Optional[float] = None
+    exercise_minutes: Optional[int] = None
+    stand_hours: Optional[int] = None
+    walking_running_miles: Optional[float] = None
+    source: str = "apple-health"
+    updated_at: str
 
 
 class GoalDB(SQLModel, table=True):
@@ -217,6 +236,58 @@ class BodyWeightEntryIn(CamelModel):
     notes: Optional[str] = None
 
 
+class AppleHealthDailyOut(CamelModel):
+    date: str
+    sleep_minutes: Optional[int] = None
+    deep_sleep_minutes: Optional[int] = None
+    core_sleep_minutes: Optional[int] = None
+    rem_sleep_minutes: Optional[int] = None
+    awake_minutes: Optional[int] = None
+    resting_heart_rate_bpm: Optional[float] = None
+    hrv_ms: Optional[float] = None
+    steps: Optional[int] = None
+    active_calories: Optional[float] = None
+    exercise_minutes: Optional[int] = None
+    stand_hours: Optional[int] = None
+    walking_running_miles: Optional[float] = None
+    source: Literal["apple-health"] = "apple-health"
+    updated_at: str
+
+
+class AppleHealthDailyIn(CamelModel):
+    date: str
+    sleep_minutes: Optional[int] = Field(default=None, ge=0, le=1440)
+    deep_sleep_minutes: Optional[int] = Field(default=None, ge=0, le=1440)
+    core_sleep_minutes: Optional[int] = Field(default=None, ge=0, le=1440)
+    rem_sleep_minutes: Optional[int] = Field(default=None, ge=0, le=1440)
+    awake_minutes: Optional[int] = Field(default=None, ge=0, le=1440)
+    resting_heart_rate_bpm: Optional[float] = Field(default=None, ge=20, le=250)
+    hrv_ms: Optional[float] = Field(default=None, ge=0, le=1000)
+    steps: Optional[int] = Field(default=None, ge=0, le=200000)
+    active_calories: Optional[float] = Field(default=None, ge=0, le=20000)
+    exercise_minutes: Optional[int] = Field(default=None, ge=0, le=1440)
+    stand_hours: Optional[int] = Field(default=None, ge=0, le=24)
+    walking_running_miles: Optional[float] = Field(default=None, ge=0, le=200)
+    source: Literal["apple-health"] = "apple-health"
+
+    @field_validator("date")
+    @classmethod
+    def validate_date(cls, value: str) -> str:
+        try:
+            parsed = date_cls.fromisoformat(value)
+        except ValueError as exc:
+            raise ValueError("date must use YYYY-MM-DD") from exc
+        if parsed.isoformat() != value:
+            raise ValueError("date must use YYYY-MM-DD")
+        return value
+
+
+class HealthAutoExportImportOut(CamelModel):
+    daily_summaries: int
+    body_measurements: int
+    ignored_metrics: list[str]
+
+
 class GoalOut(CamelModel):
     id: str
     kind: str
@@ -286,6 +357,7 @@ class NutritionTotals(CamelModel):
 
 class DashboardSummaryOut(CamelModel):
     latest_weight: Optional[BodyWeightEntryOut]
+    today_health: Optional[AppleHealthDailyOut]
     active_goals: List[GoalOut]
     today_nutrition: NutritionTotals
     workout_count: int
@@ -354,12 +426,30 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="GainLog API", lifespan=lifespan)
 
+DEFAULT_CORS_ORIGINS = (
+    "https://gainlog-frontend.tailc88c35.ts.net,"
+    "http://100.97.25.76:8081"
+)
+CORS_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get("GAINLOG_CORS_ORIGINS", DEFAULT_CORS_ORIGINS).split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def require_native_health_import(request: Request) -> None:
+    if request.headers.get("origin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Apple Health imports are accepted only from native clients",
+        )
 
 
 def _to_out(s: WorkoutSessionDB) -> WorkoutSessionOut:
@@ -418,6 +508,66 @@ def _body_weight_to_out(entry: BodyWeightEntryDB) -> BodyWeightEntryOut:
         source_record_id=entry.source_record_id,
         notes=entry.notes,
     )
+
+
+def _apple_health_daily_to_out(entry: AppleHealthDailyDB) -> AppleHealthDailyOut:
+    return AppleHealthDailyOut.model_validate(entry, from_attributes=True)
+
+
+def _health_auto_export_key(name: str) -> str:
+    return "".join(character for character in name.lower() if character.isalnum())
+
+
+def _health_auto_export_date(value: Any) -> Optional[str]:
+    if not isinstance(value, str) or len(value) < 10:
+        return None
+    candidate = value[:10]
+    try:
+        return date_cls.fromisoformat(candidate).isoformat()
+    except ValueError:
+        return None
+
+
+def _health_auto_export_timestamp(value: Any, fallback_date: str) -> str:
+    if isinstance(value, str):
+        for format_string in ("%Y-%m-%d %H:%M:%S %z", "%Y-%m-%dT%H:%M:%S%z"):
+            try:
+                return datetime.strptime(value, format_string).isoformat()
+            except ValueError:
+                pass
+        if len(value) >= 10 and _health_auto_export_date(value):
+            return value if "T" in value else value.replace(" ", "T", 1)
+    return f"{fallback_date}T12:00:00"
+
+
+def _health_auto_export_minutes(value: float, units: str) -> int:
+    normalized = units.lower()
+    if normalized in {"h", "hr", "hrs", "hour", "hours"}:
+        value *= 60
+    elif normalized in {"s", "sec", "secs", "second", "seconds"}:
+        value /= 60
+    return int(round(value))
+
+
+def _health_auto_export_pounds(value: float, units: str) -> float:
+    if units.lower() in {"kg", "kilogram", "kilograms"}:
+        value *= 2.2046226218
+    return round(value, 3)
+
+
+def _health_auto_export_kcal(value: float, units: str) -> float:
+    if units.lower() in {"kj", "kilojoule", "kilojoules"}:
+        value /= 4.184
+    return round(value, 2)
+
+
+def _health_auto_export_miles(value: float, units: str) -> float:
+    normalized = units.lower()
+    if normalized in {"km", "kilometer", "kilometers"}:
+        value *= 0.6213711922
+    elif normalized in {"m", "meter", "meters"}:
+        value *= 0.0006213711922
+    return round(value, 2)
 
 
 def _goal_to_out(goal: GoalDB) -> GoalOut:
@@ -557,6 +707,50 @@ def _format_weight_measurement(weight: BodyWeightEntryDB, prefix: str) -> str:
     return f"{prefix}: {', '.join(details)}"
 
 
+def _format_minutes(minutes: int) -> str:
+    hours, remaining = divmod(minutes, 60)
+    if hours and remaining:
+        return f"{hours}h {remaining}m"
+    if hours:
+        return f"{hours}h"
+    return f"{remaining}m"
+
+
+def _format_apple_health_daily(summary: Optional[AppleHealthDailyDB]) -> str:
+    if not summary:
+        return "No Apple Health recovery or activity summary imported."
+
+    lines = []
+    if summary.sleep_minutes is not None:
+        lines.append(f"Sleep: {_format_minutes(summary.sleep_minutes)}")
+    sleep_stages = []
+    for label, value in (
+        ("Deep", summary.deep_sleep_minutes),
+        ("Core", summary.core_sleep_minutes),
+        ("REM", summary.rem_sleep_minutes),
+        ("Awake", summary.awake_minutes),
+    ):
+        if value is not None:
+            sleep_stages.append(f"{label} {_format_minutes(value)}")
+    if sleep_stages:
+        lines.append("Sleep stages: " + ", ".join(sleep_stages))
+    if summary.resting_heart_rate_bpm is not None:
+        lines.append(f"Resting heart rate: {summary.resting_heart_rate_bpm:g} bpm")
+    if summary.hrv_ms is not None:
+        lines.append(f"HRV: {summary.hrv_ms:g} ms")
+    if summary.steps is not None:
+        lines.append(f"Steps: {summary.steps:,}")
+    if summary.active_calories is not None:
+        lines.append(f"Active energy: {summary.active_calories:g} kcal")
+    if summary.exercise_minutes is not None:
+        lines.append(f"Exercise: {summary.exercise_minutes} min")
+    if summary.stand_hours is not None:
+        lines.append(f"Stand: {summary.stand_hours} hr")
+    if summary.walking_running_miles is not None:
+        lines.append(f"Walking/running distance: {summary.walking_running_miles:g} miles")
+    return "\n".join(lines)
+
+
 def _format_broader_context(
     latest_weight: Optional[BodyWeightEntryDB],
     active_weight_goal: Optional[GoalDB],
@@ -634,6 +828,7 @@ Rules: Treat strength and cardio summaries as distinct segments. When both are r
 def _build_daily_review_prompt(
     review_date: str,
     weight: Optional[BodyWeightEntryDB],
+    health_summary: Optional[AppleHealthDailyDB],
     recent_weights: list[BodyWeightEntryDB],
     nutrition_entries: list[NutritionEntryDB],
     nutrition_totals: NutritionTotals,
@@ -700,6 +895,8 @@ def _build_daily_review_prompt(
         missing.append("nutrition")
     if not workouts:
         missing.append("workout")
+    if not health_summary:
+        missing.append("recovery/activity")
     missing_line = ", ".join(missing) if missing else "none"
 
     return f"""You are a supportive but candid fitness coach texting a client at the end of one complete day.
@@ -718,12 +915,15 @@ ACTIVE GOALS:
 TRAINING:
 {workout_block}
 
+RECOVERY & DAILY ACTIVITY:
+{_format_apple_health_daily(health_summary)}
+
 MISSING DATA: {missing_line}
 
 Write a personal daily coaching message in 5-7 natural sentences. Interpret the data rather than merely reciting it.
 1. Start with a clear, honest overall verdict on the day.
 2. Recognize one specific win worth reinforcing, using a relevant number only when it strengthens the point.
-3. Identify the single highest-leverage concern or opportunity across weight, nutrition, training, and recovery. Do not mechanically summarize every category.
+3. Identify the single highest-leverage concern or opportunity across weight, nutrition, training, and recovery. Treat sleep, resting heart rate, and HRV as trend signals rather than diagnosing or overreacting to one day. Do not mechanically summarize every category.
 4. Give one realistic action for tomorrow with an example of how to execute it using the recorded context when possible.
 5. End with brief, earned encouragement that reinforces consistency and sustainable progress.
 
@@ -770,6 +970,7 @@ def generate_daily_review(date: str, db: Session = Depends(get_db)):
         .order_by(BodyWeightEntryDB.date.desc())
         .limit(1)
     ).first()
+    health_summary = db.get(AppleHealthDailyDB, date)
     recent_weights = db.exec(
         select(BodyWeightEntryDB)
         .where(BodyWeightEntryDB.date < date)
@@ -795,6 +996,7 @@ def generate_daily_review(date: str, db: Session = Depends(get_db)):
     prompt = _build_daily_review_prompt(
         review_date=date,
         weight=weight,
+        health_summary=health_summary,
         recent_weights=list(recent_weights),
         nutrition_entries=list(nutrition_entries),
         nutrition_totals=nutrition_totals,
@@ -859,6 +1061,7 @@ def create_body_weight(payload: BodyWeightEntryIn, db: Session = Depends(get_db)
     "/body-weight/import",
     response_model=BodyWeightEntryOut,
     response_model_by_alias=True,
+    dependencies=[Depends(require_native_health_import)],
     responses={201: {"model": BodyWeightEntryOut, "description": "Measurement created"}},
 )
 def import_body_weight(
@@ -952,6 +1155,266 @@ def import_body_weight(
     else:
         response.status_code = 201
     return _body_weight_to_out(row)
+
+
+@app.get(
+    "/apple-health/daily",
+    response_model=AppleHealthDailyOut,
+    response_model_by_alias=True,
+)
+def get_apple_health_daily(date: str, db: Session = Depends(get_db)):
+    row = db.get(AppleHealthDailyDB, date)
+    if not row:
+        raise HTTPException(status_code=404, detail="Apple Health daily summary not found")
+    return _apple_health_daily_to_out(row)
+
+
+@app.post(
+    "/apple-health/daily/import",
+    response_model=AppleHealthDailyOut,
+    response_model_by_alias=True,
+    dependencies=[Depends(require_native_health_import)],
+    responses={201: {"model": AppleHealthDailyOut, "description": "Daily summary created"}},
+)
+def import_apple_health_daily(
+    payload: AppleHealthDailyIn,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    metrics = payload.model_dump(exclude={"date", "source"}, exclude_none=True)
+    if not metrics:
+        raise HTTPException(status_code=422, detail="At least one health metric is required")
+
+    existing = db.get(AppleHealthDailyDB, payload.date)
+    updated_at = datetime.now(timezone.utc).isoformat()
+    insert_statement = sqlite_insert(AppleHealthDailyDB).values(
+        date=payload.date,
+        source=payload.source,
+        updated_at=updated_at,
+        **metrics,
+    )
+    upsert_statement = insert_statement.on_conflict_do_update(
+        index_elements=["date"],
+        set_={
+            "sleep_minutes": func.coalesce(
+                insert_statement.excluded.sleep_minutes,
+                AppleHealthDailyDB.sleep_minutes,
+            ),
+            "deep_sleep_minutes": func.coalesce(
+                insert_statement.excluded.deep_sleep_minutes,
+                AppleHealthDailyDB.deep_sleep_minutes,
+            ),
+            "core_sleep_minutes": func.coalesce(
+                insert_statement.excluded.core_sleep_minutes,
+                AppleHealthDailyDB.core_sleep_minutes,
+            ),
+            "rem_sleep_minutes": func.coalesce(
+                insert_statement.excluded.rem_sleep_minutes,
+                AppleHealthDailyDB.rem_sleep_minutes,
+            ),
+            "awake_minutes": func.coalesce(
+                insert_statement.excluded.awake_minutes,
+                AppleHealthDailyDB.awake_minutes,
+            ),
+            "resting_heart_rate_bpm": func.coalesce(
+                insert_statement.excluded.resting_heart_rate_bpm,
+                AppleHealthDailyDB.resting_heart_rate_bpm,
+            ),
+            "hrv_ms": func.coalesce(
+                insert_statement.excluded.hrv_ms,
+                AppleHealthDailyDB.hrv_ms,
+            ),
+            "steps": func.coalesce(
+                insert_statement.excluded.steps,
+                AppleHealthDailyDB.steps,
+            ),
+            "active_calories": func.coalesce(
+                insert_statement.excluded.active_calories,
+                AppleHealthDailyDB.active_calories,
+            ),
+            "exercise_minutes": func.coalesce(
+                insert_statement.excluded.exercise_minutes,
+                AppleHealthDailyDB.exercise_minutes,
+            ),
+            "stand_hours": func.coalesce(
+                insert_statement.excluded.stand_hours,
+                AppleHealthDailyDB.stand_hours,
+            ),
+            "walking_running_miles": func.coalesce(
+                insert_statement.excluded.walking_running_miles,
+                AppleHealthDailyDB.walking_running_miles,
+            ),
+            "source": insert_statement.excluded.source,
+            "updated_at": insert_statement.excluded.updated_at,
+        },
+    )
+    db.exec(upsert_statement)
+    db.commit()
+    row = db.get(AppleHealthDailyDB, payload.date)
+    response.status_code = 200 if existing else 201
+    return _apple_health_daily_to_out(row)
+
+
+@app.post(
+    "/apple-health/auto-export",
+    response_model=HealthAutoExportImportOut,
+    response_model_by_alias=True,
+    dependencies=[Depends(require_native_health_import)],
+)
+def import_health_auto_export(payload: dict[str, Any], db: Session = Depends(get_db)):
+    data = payload.get("data")
+    metrics = data.get("metrics") if isinstance(data, dict) else None
+    if not isinstance(metrics, list):
+        raise HTTPException(status_code=422, detail="Health Auto Export metrics are required")
+
+    daily_records: dict[str, dict[str, Any]] = {}
+    body_records: dict[str, dict[str, Any]] = {}
+    ignored_metrics: list[str] = []
+    recognized_keys = {
+        "sleepanalysis",
+        "stepcount",
+        "activeenergy",
+        "activeenergyburned",
+        "appleexercisetime",
+        "exercisetime",
+        "applestandhour",
+        "walkingrunningdistance",
+        "walkingandrunningdistance",
+        "restingheartrate",
+        "heartratevariability",
+        "bodymass",
+        "bodyweight",
+        "bodyfatpercentage",
+        "leanbodymass",
+        "bodymassindex",
+    }
+
+    for metric in metrics:
+        if not isinstance(metric, dict) or not isinstance(metric.get("name"), str):
+            continue
+        name = metric["name"]
+        key = _health_auto_export_key(name)
+        if key not in recognized_keys:
+            if name not in ignored_metrics:
+                ignored_metrics.append(name)
+            continue
+        units = str(metric.get("units") or "")
+        samples = metric.get("data")
+        if not isinstance(samples, list):
+            continue
+
+        for sample in samples:
+            if not isinstance(sample, dict):
+                continue
+            sample_date = _health_auto_export_date(
+                sample.get("date") or sample.get("startDate")
+            )
+            if not sample_date:
+                continue
+
+            if key == "sleepanalysis":
+                record = daily_records.setdefault(sample_date, {})
+                stage_fields = {
+                    "deep": "deep_sleep_minutes",
+                    "core": "core_sleep_minutes",
+                    "rem": "rem_sleep_minutes",
+                }
+                for source_field, target_field in stage_fields.items():
+                    value = sample.get(source_field)
+                    if isinstance(value, (int, float)) and not isinstance(value, bool):
+                        record[target_field] = _health_auto_export_minutes(float(value), units)
+                total_sleep = sample.get("totalSleep")
+                if not isinstance(total_sleep, (int, float)) or isinstance(total_sleep, bool):
+                    staged_sleep = sum(
+                        float(value)
+                        for field in ("core", "deep", "rem")
+                        if isinstance((value := sample.get(field)), (int, float))
+                        and not isinstance(value, bool)
+                    )
+                    asleep = sample.get("asleep")
+                    total_sleep = staged_sleep or (
+                        asleep
+                        if isinstance(asleep, (int, float)) and not isinstance(asleep, bool)
+                        else None
+                    )
+                if isinstance(total_sleep, (int, float)) and not isinstance(total_sleep, bool):
+                    record["sleep_minutes"] = _health_auto_export_minutes(
+                        float(total_sleep), units
+                    )
+                continue
+
+            quantity = sample.get("qty")
+            if not isinstance(quantity, (int, float)) or isinstance(quantity, bool):
+                continue
+            quantity = float(quantity)
+
+            if key in {"bodymass", "bodyweight", "bodyfatpercentage", "leanbodymass", "bodymassindex"}:
+                record = body_records.setdefault(sample_date, {})
+                if key in {"bodymass", "bodyweight"}:
+                    record["weight_lbs"] = _health_auto_export_pounds(quantity, units)
+                    record["timestamp"] = _health_auto_export_timestamp(
+                        sample.get("date"), sample_date
+                    )
+                elif key == "bodyfatpercentage":
+                    record["body_fat_percent"] = quantity
+                elif key == "leanbodymass":
+                    record["lean_body_mass_lbs"] = _health_auto_export_pounds(quantity, units)
+                elif key == "bodymassindex":
+                    record["bmi"] = quantity
+                continue
+
+            record = daily_records.setdefault(sample_date, {})
+            if key == "stepcount":
+                record["steps"] = int(round(quantity))
+            elif key in {"activeenergy", "activeenergyburned"}:
+                record["active_calories"] = _health_auto_export_kcal(quantity, units)
+            elif key in {"appleexercisetime", "exercisetime"}:
+                record["exercise_minutes"] = _health_auto_export_minutes(quantity, units)
+            elif key == "applestandhour":
+                record["stand_hours"] = int(round(quantity))
+            elif key in {"walkingrunningdistance", "walkingandrunningdistance"}:
+                record["walking_running_miles"] = _health_auto_export_miles(quantity, units)
+            elif key == "restingheartrate":
+                record["resting_heart_rate_bpm"] = quantity
+            elif key == "heartratevariability":
+                record["hrv_ms"] = quantity
+
+    try:
+        daily_payloads = [
+            AppleHealthDailyIn(date=summary_date, **values)
+            for summary_date, values in daily_records.items()
+            if values
+        ]
+        body_payloads = [
+            BodyWeightEntryIn(
+                date=values.get("timestamp") or f"{measurement_date}T12:00:00",
+                weight_lbs=values["weight_lbs"],
+                body_fat_percent=values.get("body_fat_percent"),
+                lean_body_mass_lbs=values.get("lean_body_mass_lbs"),
+                bmi=values.get("bmi"),
+                source="apple-health",
+                source_record_id=f"health-auto-export:{measurement_date}",
+            )
+            for measurement_date, values in body_records.items()
+            if values.get("weight_lbs") is not None
+        ]
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=exc.errors(include_context=False),
+        ) from exc
+
+    for daily_payload in daily_payloads:
+        import_apple_health_daily(daily_payload, Response(), db)
+
+    for body_payload in body_payloads:
+        import_body_weight(body_payload, Response(), db)
+
+    return HealthAutoExportImportOut(
+        daily_summaries=len(daily_payloads),
+        body_measurements=len(body_payloads),
+        ignored_metrics=ignored_metrics,
+    )
 
 
 @app.get("/body-weight/{entry_id}", response_model=BodyWeightEntryOut, response_model_by_alias=True)
@@ -1071,6 +1534,7 @@ def delete_nutrition(entry_id: str, db: Session = Depends(get_db)):
 @app.get("/dashboard/summary", response_model=DashboardSummaryOut, response_model_by_alias=True)
 def get_dashboard_summary(date: Optional[str] = None, db: Session = Depends(get_db)):
     today = date or date_cls.today().isoformat()
+    today_health = db.get(AppleHealthDailyDB, today)
     latest_weight = db.exec(
         select(BodyWeightEntryDB).order_by(BodyWeightEntryDB.date.desc()).limit(1)
     ).first()
@@ -1086,6 +1550,7 @@ def get_dashboard_summary(date: Optional[str] = None, db: Session = Depends(get_
 
     return DashboardSummaryOut(
         latest_weight=_body_weight_to_out(latest_weight) if latest_weight else None,
+        today_health=_apple_health_daily_to_out(today_health) if today_health else None,
         active_goals=[_goal_to_out(goal) for goal in active_goals],
         today_nutrition=_nutrition_totals_for_date(db, today),
         workout_count=len(workouts),

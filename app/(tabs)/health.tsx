@@ -92,6 +92,10 @@ export default function HealthScreen() {
     fiberG: 0,
   };
   const latestMeasurement = dashboardSummary?.latestWeight;
+  const todayHealth = dashboardSummary?.todayHealth;
+  const sleepLabel = todayHealth?.sleepMinutes != null
+    ? `${Math.floor(todayHealth.sleepMinutes / 60)}h ${todayHealth.sleepMinutes % 60}m`
+    : null;
   const hasComposition = Boolean(
     latestMeasurement &&
       (latestMeasurement.bodyFatPercent != null ||
@@ -289,6 +293,90 @@ export default function HealthScreen() {
             </View>
           )}
 
+          {todayHealth && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Recovery & Activity</Text>
+                <Text style={styles.measurementSource}>Apple Health</Text>
+              </View>
+              <View style={styles.compositionRow}>
+                {sleepLabel && (
+                  <View style={styles.compositionMetric}>
+                    <Text style={styles.compositionValue}>{sleepLabel}</Text>
+                    <Text style={styles.compositionLabel}>Sleep</Text>
+                  </View>
+                )}
+                {todayHealth.restingHeartRateBpm != null && (
+                  <View style={styles.compositionMetric}>
+                    <Text style={styles.compositionValue}>
+                      {todayHealth.restingHeartRateBpm.toFixed(0)} bpm
+                    </Text>
+                    <Text style={styles.compositionLabel}>Resting HR</Text>
+                  </View>
+                )}
+                {todayHealth.hrvMs != null && (
+                  <View style={styles.compositionMetric}>
+                    <Text style={styles.compositionValue}>{todayHealth.hrvMs.toFixed(0)} ms</Text>
+                    <Text style={styles.compositionLabel}>HRV</Text>
+                  </View>
+                )}
+                {todayHealth.steps != null && (
+                  <View style={styles.compositionMetric}>
+                    <Text style={styles.compositionValue}>{todayHealth.steps.toLocaleString()}</Text>
+                    <Text style={styles.compositionLabel}>Steps</Text>
+                  </View>
+                )}
+                {todayHealth.activeCalories != null && (
+                  <View style={styles.compositionMetric}>
+                    <Text style={styles.compositionValue}>
+                      {todayHealth.activeCalories.toFixed(0)} kcal
+                    </Text>
+                    <Text style={styles.compositionLabel}>Active</Text>
+                  </View>
+                )}
+                {todayHealth.exerciseMinutes != null && (
+                  <View style={styles.compositionMetric}>
+                    <Text style={styles.compositionValue}>{todayHealth.exerciseMinutes} min</Text>
+                    <Text style={styles.compositionLabel}>Exercise</Text>
+                  </View>
+                )}
+              </View>
+              {(todayHealth.deepSleepMinutes != null ||
+                todayHealth.coreSleepMinutes != null ||
+                todayHealth.remSleepMinutes != null ||
+                todayHealth.awakeMinutes != null) && (
+                <Text style={styles.compositionHint}>
+                  Sleep stages: {[
+                    todayHealth.deepSleepMinutes != null
+                      ? `Deep ${todayHealth.deepSleepMinutes}m`
+                      : null,
+                    todayHealth.coreSleepMinutes != null
+                      ? `Core ${todayHealth.coreSleepMinutes}m`
+                      : null,
+                    todayHealth.remSleepMinutes != null
+                      ? `REM ${todayHealth.remSleepMinutes}m`
+                      : null,
+                    todayHealth.awakeMinutes != null
+                      ? `Awake ${todayHealth.awakeMinutes}m`
+                      : null,
+                  ].filter(Boolean).join(' · ')}
+                </Text>
+              )}
+              {(todayHealth.standHours != null || todayHealth.walkingRunningMiles != null) && (
+                <Text style={styles.compositionHint}>
+                  {[
+                    todayHealth.standHours != null
+                      ? `${todayHealth.standHours} stand hours`
+                      : null,
+                    todayHealth.walkingRunningMiles != null
+                      ? `${todayHealth.walkingRunningMiles.toFixed(1)} walking/running miles`
+                      : null,
+                  ].filter(Boolean).join(' · ')}
+                </Text>
+              )}
+            </View>
+          )}
+
           <View style={styles.section}>
             <View style={styles.coachRow}>
               <View style={styles.coachIcon}>
@@ -326,7 +414,7 @@ export default function HealthScreen() {
               )}
             </View>
             <Text style={styles.reviewHint}>
-              Combines today’s weight, meals, macros, goals, and training.
+              Combines today’s weight, meals, macros, training, sleep, recovery, and activity.
             </Text>
             {dailyReview && (
               <Text style={styles.reviewText}>{dailyReview.review}</Text>
