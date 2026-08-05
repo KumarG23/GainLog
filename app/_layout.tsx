@@ -33,6 +33,13 @@ export default function RootLayout() {
               headerBackTitle: 'History',
             }}
           />
+          <Stack.Screen
+            name="trends"
+            options={{
+              title: 'Trends',
+              headerBackTitle: 'Health',
+            }}
+          />
         </Stack>
       </HealthProvider>
     </WorkoutsProvider>

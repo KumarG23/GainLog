@@ -1,0 +1,372 @@
+import React, { useMemo, useState } from 'react';
+import {
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useLocalSearchParams } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { TrendLineChart, LineTrendPoint } from '../components/TrendLineChart';
+import { Colors, FontSize, Radius, Spacing } from '../constants/theme';
+import { useHealth } from '../context/HealthContext';
+import { useWorkouts } from '../context/WorkoutsContext';
+import { localDateKey } from '../utils/date';
+import { formatVolume } from '../utils/stats';
+import {
+  aggregateNutritionTrend,
+  aggregateTrainingTrend,
+  aggregateWeightTrend,
+  buildTrendSeries,
+  TrendRange,
+} from '../utils/trends';
+
+type TrendCategory = 'weight' | 'nutrition' | 'training';
+type MetricKey =
+  | 'weight'
+  | 'bodyFat'
+  | 'leanMass'
+  | 'calories'
+  | 'protein'
+  | 'fiber'
+  | 'volume'
+  | 'sessions'
+  | 'minutes';
+
+interface MetricOption {
+  key: MetricKey;
+  label: string;
+  color: string;
+}
+
+const CATEGORIES: {
+  key: TrendCategory;
+  label: string;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+}[] = [
+  { key: 'weight', label: 'Weight', icon: 'scale-outline' },
+  { key: 'nutrition', label: 'Nutrition', icon: 'restaurant-outline' },
+  { key: 'training', label: 'Training', icon: 'barbell-outline' },
+];
+
+const METRICS: Record<TrendCategory, MetricOption[]> = {
+  weight: [
+    { key: 'weight', label: 'Weight', color: Colors.primary },
+    { key: 'bodyFat', label: 'Body Fat', color: Colors.warning },
+    { key: 'leanMass', label: 'Lean Mass', color: Colors.success },
+  ],
+  nutrition: [
+    { key: 'calories', label: 'Calories', color: Colors.warning },
+    { key: 'protein', label: 'Protein', color: Colors.primary },
+    { key: 'fiber', label: 'Fiber', color: Colors.success },
+  ],
+  training: [
+    { key: 'volume', label: 'Volume', color: Colors.primary },
+    { key: 'sessions', label: 'Sessions', color: Colors.success },
+    { key: 'minutes', label: 'Minutes', color: Colors.warning },
+  ],
+};
+
+const RANGES: TrendRange[] = ['7D', '30D', '90D', 'ALL'];
+
+function categoryFromParam(value: string | string[] | undefined): TrendCategory {
+  const key = Array.isArray(value) ? value[0] : value;
+  if (key === 'nutrition' || key === 'training') return key;
+  return 'weight';
+}
+
+function defaultMetric(category: TrendCategory): MetricKey {
+  return METRICS[category][0].key;
+}
+
+function formatMetricValue(metric: MetricKey, value: number): string {
+  if (metric === 'weight' || metric === 'leanMass') return `${value.toFixed(1)} lb`;
+  if (metric === 'bodyFat') return `${value.toFixed(1)}%`;
+  if (metric === 'calories') return `${Math.round(value).toLocaleString()} kcal`;
+  if (metric === 'protein' || metric === 'fiber') return `${value.toFixed(1)} g`;
+  if (metric === 'volume') return formatVolume(Math.round(value));
+  if (metric === 'minutes') return `${Math.round(value)} min`;
+  return value.toFixed(1);
+}
+
+function SummaryCard({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.summaryCard}>
+      <Text style={styles.summaryCardValue} numberOfLines={1}>{value}</Text>
+      <Text style={styles.summaryCardLabel}>{label}</Text>
+    </View>
+  );
+}
+
+export default function TrendsScreen() {
+  const params = useLocalSearchParams<{ metric?: string }>();
+  const initialCategory = categoryFromParam(params.metric);
+  const [category, setCategory] = useState<TrendCategory>(initialCategory);
+  const [metric, setMetric] = useState<MetricKey>(defaultMetric(initialCategory));
+  const [range, setRange] = useState<TrendRange>('30D');
+  const { bodyWeightEntries, nutritionEntries, goals } = useHealth();
+  const { sessions } = useWorkouts();
+  const today = localDateKey();
+
+  const availableMetrics = useMemo(() => {
+    if (category !== 'weight') return METRICS[category];
+    const hasBodyFat = bodyWeightEntries.some(entry => entry.bodyFatPercent != null);
+    const hasLeanMass = bodyWeightEntries.some(entry => entry.leanBodyMassLbs != null);
+    return METRICS.weight.filter(option =>
+      option.key === 'weight' ||
+      (option.key === 'bodyFat' && hasBodyFat) ||
+      (option.key === 'leanMass' && hasLeanMass),
+    );
+  }, [bodyWeightEntries, category]);
+
+  const rawPoints = useMemo<LineTrendPoint[]>(() => {
+    if (category === 'weight') {
+      return aggregateWeightTrend(bodyWeightEntries)
+        .map(point => {
+          if (metric === 'bodyFat' && point.bodyFatPercent != null) {
+            return { date: point.date, value: point.bodyFatPercent };
+          }
+          if (metric === 'leanMass' && point.leanBodyMassLbs != null) {
+            return { date: point.date, value: point.leanBodyMassLbs };
+          }
+          if (metric === 'weight') return { date: point.date, value: point.value };
+          return null;
+        })
+        .filter((point): point is LineTrendPoint => point !== null);
+    }
+
+    if (category === 'nutrition') {
+      return aggregateNutritionTrend(nutritionEntries, today).map(point => ({
+        date: point.date,
+        value:
+          metric === 'protein'
+            ? point.proteinG
+            : metric === 'fiber'
+              ? point.fiberG
+              : point.calories,
+      }));
+    }
+
+    return aggregateTrainingTrend(sessions).map(point => ({
+      date: point.date,
+      value:
+        metric === 'sessions'
+          ? point.sessions
+          : metric === 'minutes'
+            ? point.minutes
+            : point.volume,
+    }));
+  }, [bodyWeightEntries, category, metric, nutritionEntries, sessions, today]);
+
+  const visiblePoints = useMemo(() => {
+    const usesAverage = (category === 'weight' && metric === 'weight') || category === 'nutrition';
+    return buildTrendSeries(rawPoints, range, today, usesAverage ? 7 : undefined);
+  }, [category, metric, range, rawPoints, today]);
+
+  const activeOption = availableMetrics.find(option => option.key === metric)
+    ?? METRICS[category][0];
+  const goalKind = metric === 'weight'
+    ? 'weight'
+    : metric === 'calories'
+      ? 'calories'
+      : metric === 'protein'
+        ? 'protein'
+        : metric === 'fiber'
+          ? 'fiber'
+          : metric === 'sessions'
+            ? 'workout_frequency'
+            : null;
+  const goal = goalKind
+    ? goals.find(item => item.status === 'active' && item.kind === goalKind)?.targetValue
+    : undefined;
+
+  const values = visiblePoints.map(point => point.value);
+  const latest = values.at(-1);
+  const average = values.length
+    ? values.reduce((sum, value) => sum + value, 0) / values.length
+    : undefined;
+  const change = values.length > 1 ? values.at(-1)! - values[0] : undefined;
+  const isTraining = category === 'training';
+  const total = values.reduce((sum, value) => sum + value, 0);
+
+  const handleCategory = (next: TrendCategory) => {
+    setCategory(next);
+    setMetric(defaultMetric(next));
+    setRange(next === 'training' ? '90D' : '30D');
+  };
+
+  return (
+    <SafeAreaView style={styles.container} edges={['bottom']}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.categoryRow}>
+          {CATEGORIES.map(item => {
+            const selected = item.key === category;
+            return (
+              <TouchableOpacity
+                key={item.key}
+                style={[styles.categoryButton, selected && styles.categoryButtonSelected]}
+                onPress={() => handleCategory(item.key)}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+              >
+                <Ionicons
+                  name={item.icon}
+                  size={18}
+                  color={selected ? Colors.primary : Colors.textMuted}
+                />
+                <Text style={[styles.categoryText, selected && styles.categoryTextSelected]}>
+                  {item.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <View style={styles.metricRow}>
+          {availableMetrics.map(option => {
+            const selected = option.key === metric;
+            return (
+              <TouchableOpacity
+                key={option.key}
+                style={[styles.metricButton, selected && { borderColor: option.color, backgroundColor: `${option.color}18` }]}
+                onPress={() => setMetric(option.key)}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+              >
+                <Text style={[styles.metricText, selected && { color: option.color }]}>{option.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <View style={styles.rangeRow}>
+          {RANGES.map(option => {
+            const selected = option === range;
+            return (
+              <TouchableOpacity
+                key={option}
+                style={[styles.rangeButton, selected && styles.rangeButtonSelected]}
+                onPress={() => setRange(option)}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+              >
+                <Text style={[styles.rangeText, selected && styles.rangeTextSelected]}>{option}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <View style={styles.summaryRow}>
+          <SummaryCard
+            label={isTraining ? 'Total' : 'Latest'}
+            value={isTraining ? formatMetricValue(metric, total) : latest == null ? '—' : formatMetricValue(metric, latest)}
+          />
+          <SummaryCard
+            label={isTraining ? 'Per Week' : 'Average'}
+            value={average == null ? '—' : formatMetricValue(metric, average)}
+          />
+          <SummaryCard
+            label="Change"
+            value={change == null ? '—' : `${change > 0 ? '+' : ''}${formatMetricValue(metric, change)}`}
+          />
+        </View>
+
+        <TrendLineChart
+          points={visiblePoints}
+          color={activeOption.color}
+          valueFormatter={value => formatMetricValue(metric, value)}
+          goal={goal}
+          showAverage={visiblePoints.length > 1 && ((category === 'weight' && metric === 'weight') || category === 'nutrition')}
+          floorAtZero={category !== 'weight'}
+        />
+
+        <View style={styles.contextCard}>
+          <Ionicons name="information-circle-outline" size={18} color={Colors.textMuted} />
+          <Text style={styles.contextText}>
+            {category === 'weight'
+              ? metric === 'weight'
+                ? 'The bright line is your seven-calendar-day average; daily readings remain visible underneath.'
+                : 'Smart-scale composition is noisy day to day. Judge the direction across several weeks.'
+              : category === 'nutrition'
+                ? `${visiblePoints.length} completed logged day${visiblePoints.length === 1 ? '' : 's'} shown. Today and unlogged days are omitted rather than treated as complete zero-calorie days.`
+                : 'Training is grouped into Monday–Sunday weeks. Volume includes strength sets only; cardio does not inflate it.'}
+          </Text>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: Colors.background },
+  content: { padding: Spacing.base, paddingBottom: Spacing.xxxl, gap: Spacing.base },
+  categoryRow: { flexDirection: 'row', gap: Spacing.sm },
+  categoryButton: {
+    flex: 1,
+    minHeight: 58,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  categoryButtonSelected: { borderColor: Colors.primary, backgroundColor: Colors.primaryDim },
+  categoryText: { color: Colors.textMuted, fontSize: FontSize.xs, fontWeight: '700' },
+  categoryTextSelected: { color: Colors.primary },
+  metricRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
+  metricButton: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surface,
+  },
+  metricText: { color: Colors.textSecondary, fontSize: FontSize.sm, fontWeight: '700' },
+  rangeRow: {
+    alignSelf: 'center',
+    flexDirection: 'row',
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.full,
+    padding: 3,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  rangeButton: { paddingHorizontal: Spacing.md, paddingVertical: 6, borderRadius: Radius.full },
+  rangeButtonSelected: { backgroundColor: Colors.card },
+  rangeText: { color: Colors.textMuted, fontSize: FontSize.xs, fontWeight: '700' },
+  rangeTextSelected: { color: Colors.text },
+  summaryRow: { flexDirection: 'row', gap: Spacing.sm },
+  summaryCard: {
+    flex: 1,
+    minWidth: 0,
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: Spacing.md,
+  },
+  summaryCardValue: { color: Colors.text, fontSize: FontSize.md, fontWeight: '800' },
+  summaryCardLabel: {
+    color: Colors.textMuted,
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    marginTop: 3,
+    textTransform: 'uppercase',
+  },
+  contextCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.sm,
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: Spacing.md,
+  },
+  contextText: { flex: 1, color: Colors.textMuted, fontSize: FontSize.sm, lineHeight: 19 },
+});

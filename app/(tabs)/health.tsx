@@ -38,17 +38,28 @@ interface SummaryTileProps {
   label: string;
   value: string;
   color: string;
+  onPress?: () => void;
 }
 
-function SummaryTile({ icon, label, value, color }: SummaryTileProps) {
+function SummaryTile({ icon, label, value, color, onPress }: SummaryTileProps) {
   return (
-    <View style={styles.summaryTile}>
+    <TouchableOpacity
+      style={styles.summaryTile}
+      onPress={onPress}
+      disabled={!onPress}
+      activeOpacity={0.72}
+      accessibilityRole={onPress ? 'button' : undefined}
+      accessibilityLabel={onPress ? `${label}: ${value}. View trend.` : undefined}
+    >
       <View style={[styles.summaryIcon, { backgroundColor: `${color}22` }]}>
         <Ionicons name={icon} size={18} color={color} />
       </View>
       <Text style={styles.summaryValue}>{value}</Text>
       <Text style={styles.summaryLabel}>{label}</Text>
-    </View>
+      {onPress && (
+        <Ionicons name="chevron-forward" size={13} color={Colors.textMuted} style={styles.summaryChevron} />
+      )}
+    </TouchableOpacity>
   );
 }
 
@@ -230,24 +241,28 @@ export default function HealthScreen() {
                   : 'No entry'
               }
               color={Colors.primary}
+              onPress={() => router.push('/trends?metric=weight' as Href)}
             />
             <SummaryTile
               icon="restaurant-outline"
               label="Today"
               value={`${nutrition.calories} kcal`}
               color={Colors.warning}
+              onPress={() => router.push('/trends?metric=nutrition' as Href)}
             />
             <SummaryTile
               icon="fitness-outline"
               label="Workouts"
               value={String(dashboardSummary?.workoutCount ?? 0)}
               color={Colors.success}
+              onPress={() => router.push('/trends?metric=training' as Href)}
             />
             <SummaryTile
               icon="barbell-outline"
               label="Volume"
               value={formatVolume(dashboardSummary?.totalWorkoutVolume ?? 0)}
               color={Colors.textSecondary}
+              onPress={() => router.push('/trends?metric=training' as Href)}
             />
           </View>
 
@@ -646,6 +661,11 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     fontWeight: '700',
     textTransform: 'uppercase',
+  },
+  summaryChevron: {
+    position: 'absolute',
+    top: Spacing.md,
+    right: Spacing.md,
   },
   section: {
     backgroundColor: Colors.surface,

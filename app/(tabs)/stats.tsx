@@ -4,10 +4,12 @@ import {
   FlatList,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { Colors, FontSize, Radius, Spacing } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
 import { computeExerciseStats, ExerciseStats, formatVolume } from '../../utils/stats';
@@ -22,17 +24,25 @@ interface SummaryPillProps {
   iconBg: string;
   label: string;
   value: string;
+  onPress?: () => void;
 }
 
-function SummaryPill({ icon, iconColor, iconBg, label, value }: SummaryPillProps) {
+function SummaryPill({ icon, iconColor, iconBg, label, value, onPress }: SummaryPillProps) {
   return (
-    <View style={styles.summaryPill}>
+    <TouchableOpacity
+      style={styles.summaryPill}
+      onPress={onPress}
+      disabled={!onPress}
+      activeOpacity={0.72}
+      accessibilityRole={onPress ? 'button' : undefined}
+      accessibilityLabel={onPress ? `${label}: ${value}. View training trend.` : undefined}
+    >
       <View style={[styles.summaryIconWrap, { backgroundColor: iconBg }]}>
         <Ionicons name={icon} size={18} color={iconColor} />
       </View>
       <Text style={styles.summaryValue}>{value}</Text>
       <Text style={styles.summaryLabel}>{label}</Text>
-    </View>
+    </TouchableOpacity>
   );
 }
 
@@ -123,6 +133,7 @@ function EmptyStats() {
 // ---------------------------------------------------------------------------
 
 export default function StatsScreen() {
+  const router = useRouter();
   const { sessions, loading } = useWorkouts();
 
   const stats = useMemo(() => computeExerciseStats(sessions), [sessions]);
@@ -174,6 +185,7 @@ export default function StatsScreen() {
                 iconBg={Colors.primaryDim}
                 label="Sessions"
                 value={String(sessions.length)}
+                onPress={() => router.push('/trends?metric=training')}
               />
               <SummaryPill
                 icon="time-outline"
@@ -181,6 +193,7 @@ export default function StatsScreen() {
                 iconBg={Colors.successDim}
                 label="Hours"
                 value={(totalDuration / 60).toFixed(1)}
+                onPress={() => router.push('/trends?metric=training')}
               />
               <SummaryPill
                 icon="barbell-outline"
@@ -188,6 +201,7 @@ export default function StatsScreen() {
                 iconBg={Colors.warningDim}
                 label="Volume"
                 value={formatVolume(totalVolume)}
+                onPress={() => router.push('/trends?metric=training')}
               />
             </View>
 
