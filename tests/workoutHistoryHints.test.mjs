@@ -31,6 +31,26 @@ test('findPreviousExercise returns the newest matching strength exercise', () =>
   assert.equal(previous?.id, 'newer-exercise');
 });
 
+test('findPreviousExercise can freeze history before the current plan week', () => {
+  const sessions = [
+    session('prior-week', '2026-08-03T07:00:00-04:00', 'Machine Chest Press', [
+      { id: 'prior-set', weight: 85, reps: 8 },
+    ]),
+    session('same-week', '2026-08-10T07:00:00-04:00', 'Machine Chest Press', [
+      { id: 'same-set', weight: 100, reps: 12 },
+    ]),
+  ];
+
+  const previous = findPreviousExercise(
+    sessions,
+    'Machine Chest Press',
+    'strength',
+    new Date('2026-08-10T00:00:00-04:00'),
+  );
+
+  assert.equal(previous?.id, 'prior-week-exercise');
+});
+
 test('findPreviousExercise does not suggest strength history for a cardio draft', () => {
   const sessions = [
     session('pull', '2026-07-28T07:00:00-04:00', 'Row Erg', [
@@ -70,4 +90,15 @@ test('getPreviousSetHint omits zero or missing historical values', () => {
 
   assert.deepEqual(getPreviousSetHint(exercise, 0), {});
   assert.deepEqual(getPreviousSetHint(undefined, 0), {});
+});
+
+test('history hints and summaries omit implausible rep outliers', () => {
+  const previous = session('push', '2026-07-27T07:00:00-04:00', 'Machine Shoulder Press', [
+    { id: 'set-1', weight: 50, reps: 12 },
+    { id: 'set-2', weight: 50, reps: 74 },
+    { id: 'set-3', weight: 50, reps: 8 },
+  ]).exercises[0];
+
+  assert.deepEqual(getPreviousSetHint(previous, 1), { weight: '50', reps: '8' });
+  assert.equal(formatPreviousExerciseSummary(previous), 'Last: 50×12 · 50×8');
 });

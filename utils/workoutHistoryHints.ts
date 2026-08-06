@@ -9,10 +9,22 @@ function normalizeExerciseName(name: string): string {
   return name.trim().toLocaleLowerCase().replace(/\s+/g, ' ');
 }
 
+function usableHistoricalSets(exercise: Exercise): WorkoutSet[] {
+  return exercise.sets.filter(
+    set =>
+      Number.isFinite(set.weight) &&
+      Number.isFinite(set.reps) &&
+      set.weight > 0 &&
+      set.reps > 0 &&
+      set.reps <= 40,
+  );
+}
+
 export function findPreviousExercise(
   sessions: readonly WorkoutSession[],
   exerciseName: string,
   exerciseKind: ExerciseKind = 'strength',
+  before?: Date,
 ): Exercise | undefined {
   if (exerciseKind !== 'strength') return undefined;
 
@@ -20,13 +32,14 @@ export function findPreviousExercise(
   if (!normalizedName) return undefined;
 
   return [...sessions]
+    .filter(session => before == null || Date.parse(session.date) < before.getTime())
     .sort((a, b) => Date.parse(b.date) - Date.parse(a.date))
     .flatMap(session => session.exercises)
     .find(
       exercise =>
         (exercise.kind ?? 'strength') === 'strength' &&
         normalizeExerciseName(exercise.name) === normalizedName &&
-        exercise.sets.length > 0,
+        usableHistoricalSets(exercise).length > 0,
     );
 }
 
@@ -37,8 +50,7 @@ function formatValue(value: number): string {
 export function formatPreviousExerciseSummary(exercise: Exercise | undefined): string | null {
   if (!exercise || exercise.sets.length === 0) return null;
 
-  const sets = exercise.sets
-    .filter(set => set.weight > 0 && set.reps > 0)
+  const sets = usableHistoricalSets(exercise)
     .map(set => `${formatValue(set.weight)}×${formatValue(set.reps)}`);
 
   return sets.length > 0 ? `Last: ${sets.join(' · ')}` : null;
@@ -48,10 +60,12 @@ export function getPreviousSetHint(
   exercise: Exercise | undefined,
   setIndex: number,
 ): PreviousSetHint {
-  if (!exercise || exercise.sets.length === 0) return {};
+  if (!exercise) return {};
 
+  const sets = usableHistoricalSets(exercise);
+  if (sets.length === 0) return {};
   const previousSet: WorkoutSet =
-    exercise.sets[setIndex] ?? exercise.sets[exercise.sets.length - 1];
+    sets[setIndex] ?? sets[sets.length - 1];
 
   return {
     ...(previousSet.weight > 0 ? { weight: formatValue(previousSet.weight) } : {}),

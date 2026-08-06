@@ -31,6 +31,7 @@ import {
   PLANET_FITNESS_TEMPLATES,
   buildWorkoutTemplateDraft,
   getSuggestedTemplateId,
+  getWorkoutPlanWeekStart,
   WorkoutTemplateId,
 } from '../../utils/workoutTemplates';
 
@@ -53,6 +54,7 @@ interface DraftExercise {
   distanceMiles: string;
   resistanceLevel: string;
   prescription?: string;
+  recommendedWeight?: string;
 }
 
 function newSet(): DraftSet {
@@ -79,6 +81,7 @@ interface SetRowProps {
   set: DraftSet;
   index: number;
   previousHint: PreviousSetHint;
+  recommendedWeight?: string;
   canDelete: boolean;
   onChangeWeight: (v: string) => void;
   onChangeReps: (v: string) => void;
@@ -89,6 +92,7 @@ function SetRow({
   set,
   index,
   previousHint,
+  recommendedWeight,
   canDelete,
   onChangeWeight,
   onChangeReps,
@@ -104,7 +108,7 @@ function SetRow({
         style={[styles.setInput, styles.weightInput]}
         value={set.weight}
         onChangeText={onChangeWeight}
-        placeholder={previousHint.weight ?? '0'}
+        placeholder={recommendedWeight ?? previousHint.weight ?? '0'}
         placeholderTextColor={Colors.textMuted}
         keyboardType="decimal-pad"
         returnKeyType="next"
@@ -215,6 +219,7 @@ function ExerciseCard({
               set={set}
               index={setIdx}
               previousHint={getPreviousSetHint(previousExercise, setIdx)}
+              recommendedWeight={exercise.recommendedWeight}
               canDelete={exercise.sets.length > 1}
               onChangeWeight={v => onUpdateSet(set.id, 'weight', v)}
               onChangeReps={v => onUpdateSet(set.id, 'reps', v)}
@@ -324,7 +329,7 @@ function SuccessView({ onReset, insightLoading, insight }: SuccessViewProps) {
 // ---------------------------------------------------------------------------
 
 export default function LogScreen() {
-  const { sessions, addSession, refresh } = useWorkouts();
+  const { sessions, loading: workoutsLoading, addSession, refresh } = useWorkouts();
   const { nutritionEntries, loading: healthLoading } = useHealth();
   const router = useRouter();
 
@@ -357,6 +362,7 @@ export default function LogScreen() {
   const [selectedTemplateId, setSelectedTemplateId] = useState<WorkoutTemplateId | null>(null);
 
   const suggestedTemplateId = getSuggestedTemplateId(now.getDay());
+  const planHistoryCutoff = getWorkoutPlanWeekStart(now);
 
   // -- Exercise mutations ---------------------------------------------------
 
@@ -425,7 +431,7 @@ export default function LogScreen() {
 
   const loadTemplate = useCallback((templateId: WorkoutTemplateId) => {
     const applyTemplate = () => {
-      const draft = buildWorkoutTemplateDraft(templateId, generateId);
+      const draft = buildWorkoutTemplateDraft(templateId, generateId, sessions, new Date());
       setExercises(draft.exercises);
       setSelectedTemplateId(draft.template.id);
       setStrengthDuration('');
@@ -448,7 +454,7 @@ export default function LogScreen() {
         { text: 'Replace', style: 'destructive', onPress: applyTemplate },
       ],
     );
-  }, [exercises.length]);
+  }, [exercises.length, sessions]);
 
   // -- Save -----------------------------------------------------------------
 
@@ -686,7 +692,7 @@ export default function LogScreen() {
             <View style={styles.planHeader}>
               <View>
                 <Text style={styles.planEyebrow}>PLANET FITNESS PLAN</Text>
-                <Text style={styles.planTitle}>Choose today&apos;s workout</Text>
+                <Text style={styles.planTitle}>Adaptive weekly plan</Text>
               </View>
               <Ionicons name="calendar-outline" size={22} color={Colors.primary} />
             </View>
@@ -701,7 +707,12 @@ export default function LogScreen() {
                 return (
                   <TouchableOpacity
                     key={template.id}
-                    style={[styles.planCard, selected && styles.planCardSelected]}
+                    disabled={workoutsLoading}
+                    style={[
+                      styles.planCard,
+                      workoutsLoading && styles.planCardDisabled,
+                      selected && styles.planCardSelected,
+                    ]}
                     onPress={() => loadTemplate(template.id)}
                     activeOpacity={0.8}
                     accessibilityLabel={`Load ${template.weekday} ${template.title} workout`}
@@ -717,14 +728,18 @@ export default function LogScreen() {
                     </Text>
                     <Text style={styles.planFocus}>{template.focus}</Text>
                     <Text style={styles.planMeta}>
-                      {template.exercises.length} lifts · ~{template.estimatedMinutes} min
+                      {template.id === 'recovery'
+                        ? `Easy cardio · ~${template.estimatedMinutes} min`
+                        : `${template.exercises.length} lifts · ~${template.estimatedMinutes} min`}
                     </Text>
                   </TouchableOpacity>
                 );
               })}
             </ScrollView>
             <Text style={styles.planHint}>
-              Templates show your last set-by-set weights and reps as hints. Enter what you actually complete; optional cardio only saves when you enter minutes.
+              {workoutsLoading
+                ? 'Loading your workout history before generating this week’s plan…'
+                : 'Each week uses your completed GainLog history from before Monday to recommend the next load. Enter what you actually complete. Wednesday is easy cardio only; elliptical counts as cardio, not step-equivalent mileage.'}
             </Text>
           </View>
 
@@ -742,7 +757,12 @@ export default function LogScreen() {
               <ExerciseCard
                 key={ex.id}
                 exercise={ex}
-                previousExercise={findPreviousExercise(sessions, ex.name, ex.kind)}
+                previousExercise={findPreviousExercise(
+                  sessions,
+                  ex.name,
+                  ex.kind,
+                  selectedTemplateId ? planHistoryCutoff : undefined,
+                )}
                 index={idx}
                 onUpdateName={name => updateExerciseName(ex.id, name)}
                 onAddSet={() => addSet(ex.id)}
@@ -1020,6 +1040,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: Radius.lg,
     padding: Spacing.md,
+  },
+  planCardDisabled: {
+    opacity: 0.5,
   },
   planCardSelected: {
     backgroundColor: Colors.primaryDim,
