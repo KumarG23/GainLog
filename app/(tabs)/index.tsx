@@ -1,6 +1,5 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -19,7 +18,8 @@ import { useWorkouts } from '../../context/WorkoutsContext';
 import { useHealth } from '../../context/HealthContext';
 import { generateId } from '../../utils/id';
 import { API_URL } from '../../constants/api';
-import { Exercise, ExerciseKind } from '../../types/workout';
+import { CoachInsight, Exercise, ExerciseKind, WorkoutEffort, WorkoutSession } from '../../types/workout';
+import { CoachInsightCard } from '../../components/CoachInsightCard';
 import { localDateKey, localIsoTimestamp } from '../../utils/date';
 import {
   findPreviousExercise,
@@ -280,10 +280,12 @@ function ExerciseCard({
 interface SuccessViewProps {
   onReset: () => void;
   insightLoading: boolean;
-  insight: string | null;
+  insightError: string | null;
+  session: WorkoutSession;
+  onFeedback: (feedback: { effort?: WorkoutEffort; pain?: boolean }) => Promise<void>;
 }
 
-function SuccessView({ onReset, insightLoading, insight }: SuccessViewProps) {
+function SuccessView({ onReset, insightLoading, insightError, session, onFeedback }: SuccessViewProps) {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView
@@ -298,21 +300,13 @@ function SuccessView({ onReset, insightLoading, insight }: SuccessViewProps) {
           Great work. Your session has been saved.
         </Text>
 
-        {(insightLoading || insight !== null) && (
-          <View style={styles.insightCard}>
-            <View style={styles.insightHeader}>
-              <Ionicons name="sparkles" size={13} color={Colors.primary} />
-              <Text style={styles.insightLabel}>AI Coaching Insight</Text>
-            </View>
-            {insightLoading ? (
-              <View style={styles.insightLoading}>
-                <ActivityIndicator size="small" color={Colors.primary} />
-                <Text style={styles.insightLoadingText}>Analyzing your workout…</Text>
-              </View>
-            ) : (
-              <Text style={styles.insightText}>{insight}</Text>
-            )}
-          </View>
+        {(insightLoading || insightError || session.coachInsight || session.insight) && (
+          <CoachInsightCard
+            session={session}
+            loading={insightLoading}
+            error={insightError}
+            onFeedback={onFeedback}
+          />
         )}
 
         <TouchableOpacity style={styles.newWorkoutBtn} onPress={onReset}>
@@ -329,7 +323,7 @@ function SuccessView({ onReset, insightLoading, insight }: SuccessViewProps) {
 // ---------------------------------------------------------------------------
 
 export default function LogScreen() {
-  const { sessions, loading: workoutsLoading, addSession, refresh } = useWorkouts();
+  const { sessions, loading: workoutsLoading, addSession, updateFeedback, refresh } = useWorkouts();
   const { nutritionEntries, loading: healthLoading } = useHealth();
   const router = useRouter();
 
@@ -357,8 +351,10 @@ export default function LogScreen() {
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [insight, setInsight] = useState<string | null>(null);
+  const [savedSession, setSavedSession] = useState<WorkoutSession | null>(null);
   const [insightLoading, setInsightLoading] = useState(false);
+  const [insightError, setInsightError] = useState<string | null>(null);
+  const insightRequestSessionId = useRef<string | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState<WorkoutTemplateId | null>(null);
 
   const suggestedTemplateId = getSuggestedTemplateId(now.getDay());
@@ -556,6 +552,7 @@ export default function LogScreen() {
             }
           : undefined,
         notes: notes.trim() || undefined,
+        templateId: selectedTemplateId ?? undefined,
         exercises: validExercises.map(e => ({
           id: e.id,
           name: e.name.trim(),
@@ -580,20 +577,35 @@ export default function LogScreen() {
             : undefined,
         })),
       });
+      setSavedSession(session);
       setSaved(true);
-      // Fetch insight in the background — failure is silent so success screen always shows
+      setInsightError(null);
       setInsightLoading(true);
+      insightRequestSessionId.current = session.id;
       fetch(`${API_URL}/workouts/${session.id}/insight`, { method: 'POST' })
         .then(res => {
           if (!res.ok) throw new Error('insight request failed');
-          return res.json() as Promise<{ insight: string }>;
+          return res.json() as Promise<{ insight: string; coachInsight: CoachInsight }>;
         })
         .then(data => {
-          setInsight(data.insight);
+          if (insightRequestSessionId.current !== session.id) return;
+          setSavedSession(current => current
+            && current.id === session.id
+            ? { ...current, insight: data.insight, coachInsight: data.coachInsight }
+            : current);
           refresh();
         })
-        .catch(() => {/* don't surface — success screen still shows */})
-        .finally(() => setInsightLoading(false));
+        .catch(() => {
+          if (insightRequestSessionId.current === session.id) {
+            setInsightError('Coach insight is unavailable right now. Your workout is still saved.');
+          }
+        })
+        .finally(() => {
+          if (insightRequestSessionId.current === session.id) {
+            insightRequestSessionId.current = null;
+            setInsightLoading(false);
+          }
+        });
     } finally {
       setSaving(false);
     }
@@ -605,11 +617,13 @@ export default function LogScreen() {
     cardioHeartRate,
     cardioCalories,
     notes,
+    selectedTemplateId,
     addSession,
     refresh,
   ]);
 
   const resetForm = useCallback(() => {
+    insightRequestSessionId.current = null;
     setExercises([]);
     setStrengthDuration('');
     setStrengthHeartRate('');
@@ -618,19 +632,25 @@ export default function LogScreen() {
     setCardioCalories('');
     setNotes('');
     setSaved(false);
-    setInsight(null);
+    setSavedSession(null);
     setInsightLoading(false);
+    setInsightError(null);
     setSelectedTemplateId(null);
   }, []);
 
   // -------------------------------------------------------------------------
 
-  if (saved) {
+  if (saved && savedSession) {
     return (
       <SuccessView
         onReset={resetForm}
         insightLoading={insightLoading}
-        insight={insight}
+        insightError={insightError}
+        session={savedSession}
+        onFeedback={async feedback => {
+          const updated = await updateFeedback(savedSession.id, feedback);
+          setSavedSession(updated);
+        }}
       />
     );
   }

@@ -5,7 +5,7 @@ import React, {
   useEffect,
   useState,
 } from 'react';
-import { WorkoutSession } from '../types/workout';
+import { WorkoutEffort, WorkoutSession } from '../types/workout';
 import { API_URL } from '../constants/api';
 
 interface WorkoutsContextValue {
@@ -14,6 +14,10 @@ interface WorkoutsContextValue {
   error: string | null;
   addSession: (data: Omit<WorkoutSession, 'id'>) => Promise<WorkoutSession>;
   deleteSession: (id: string) => Promise<void>;
+  updateFeedback: (
+    id: string,
+    feedback: { effort?: WorkoutEffort; pain?: boolean },
+  ) => Promise<WorkoutSession>;
   getSession: (id: string) => WorkoutSession | undefined;
   refresh: () => Promise<void>;
 }
@@ -75,6 +79,18 @@ export function WorkoutsProvider({ children }: { children: React.ReactNode }) {
     setSessions(prev => prev.filter(s => s.id !== id));
   }, []);
 
+  const updateFeedback = useCallback(async (
+    id: string,
+    feedback: { effort?: WorkoutEffort; pain?: boolean },
+  ) => {
+    const updated = await apiFetch<WorkoutSession>(`/workouts/${id}/feedback`, {
+      method: 'PATCH',
+      body: JSON.stringify(feedback),
+    });
+    setSessions(prev => prev.map(session => session.id === id ? updated : session));
+    return updated;
+  }, []);
+
   const getSession = useCallback(
     (id: string) => sessions.find(s => s.id === id),
     [sessions],
@@ -82,7 +98,16 @@ export function WorkoutsProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <WorkoutsContext.Provider
-      value={{ sessions, loading, error, addSession, deleteSession, getSession, refresh }}
+      value={{
+        sessions,
+        loading,
+        error,
+        addSession,
+        deleteSession,
+        updateFeedback,
+        getSession,
+        refresh,
+      }}
     >
       {children}
     </WorkoutsContext.Provider>

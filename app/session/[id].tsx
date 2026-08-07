@@ -14,6 +14,7 @@ import { Colors, FontSize, Radius, Spacing } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
 import { Exercise, WorkoutSet } from '../../types/workout';
 import { formatDate } from '../../utils/date';
+import { CoachInsightCard } from '../../components/CoachInsightCard';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -146,7 +147,7 @@ function ExerciseTable({ exercise, index }: ExerciseTableProps) {
 export default function SessionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { getSession, deleteSession } = useWorkouts();
+  const { getSession, deleteSession, updateFeedback } = useWorkouts();
 
   const session = getSession(id);
 
@@ -323,14 +324,13 @@ export default function SessionDetailScreen() {
         ))}
 
         {/* AI insight */}
-        {session.insight != null && session.insight.length > 0 && (
-          <View style={styles.insightCard}>
-            <View style={styles.insightHeader}>
-              <Ionicons name="sparkles" size={13} color={Colors.primary} />
-              <Text style={styles.insightLabel}>AI Coaching Insight</Text>
-            </View>
-            <Text style={styles.insightText}>{session.insight}</Text>
-          </View>
+        {(session.coachInsight || (session.insight != null && session.insight.length > 0)) && (
+          <CoachInsightCard
+            session={session}
+            onFeedback={async feedback => {
+              await updateFeedback(session.id, feedback);
+            }}
+          />
         )}
 
         <View style={{ height: Spacing.xxxl }} />

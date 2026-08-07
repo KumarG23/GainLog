@@ -169,3 +169,132 @@ def test_mixed_workout_keeps_strength_and_cardio_session_metrics_separate(monkey
         assert insight.status_code == 200
         assert "Treat strength and cardio summaries as distinct segments" in calls["prompt"]
         assert "one combined response" in calls["prompt"]
+
+
+def test_workout_insight_returns_and_persists_structured_coaching(monkeypatch):
+    reset_db()
+    with TestClient(app) as client:
+        created = client.post(
+            "/workouts/",
+            json={
+                "date": "2026-08-05T07:00:00-04:00",
+                "durationMinutes": 31,
+                "avgHeartRate": 120,
+                "templateId": "recovery",
+                "exercises": [
+                    {
+                        "name": "Treadmill Walk",
+                        "kind": "cardio",
+                        "sets": [],
+                        "cardioDurationMinutes": 31,
+                        "distanceMiles": 1.32,
+                    }
+                ],
+            },
+        )
+        assert created.status_code == 201
+        workout_id = created.json()["id"]
+        calls = {}
+
+        class FakeProvider:
+            def generate(self, prompt: str) -> str:
+                calls["prompt"] = prompt
+                return """{
+                    "headline": "Recovery cardio nailed",
+                    "verdict": "You completed the planned easy session.",
+                    "wins": ["31 minutes stayed inside the prescribed range."],
+                    "caveat": "Heart-rate efficiency requires comparable speed and incline.",
+                    "nextAction": {
+                        "title": "Next move",
+                        "detail": "Follow the next scheduled workout without adding extra work."
+                    },
+                    "question": "How did this feel?",
+                    "confidence": "high"
+                }"""
+
+        monkeypatch.setattr("backend.main.get_coach_provider", lambda: FakeProvider())
+        response = client.post(f"/workouts/{workout_id}/insight")
+
+        assert response.status_code == 200
+        assert response.json()["coachInsight"]["headline"] == "Recovery cardio nailed"
+        assert response.json()["coachInsight"]["nextAction"]["title"] == "Next move"
+        assert "WORKOUT PLAN: recovery" in calls["prompt"]
+        assert "Never criticize absent strength during planned recovery cardio" in calls["prompt"]
+        assert "Return only valid JSON" in calls["prompt"]
+
+        persisted = client.get(f"/workouts/{workout_id}").json()
+        assert persisted["templateId"] == "recovery"
+        assert persisted["coachInsight"]["headline"] == "Recovery cardio nailed"
+
+
+def test_workout_feedback_round_trip_and_history_context(monkeypatch):
+    reset_db()
+    with TestClient(app) as client:
+        previous = client.post(
+            "/workouts/",
+            json={
+                "date": "2026-08-04T07:00:00-04:00",
+                "durationMinutes": 30,
+                "exercises": [{"name": "Elliptical", "kind": "cardio", "sets": [], "cardioDurationMinutes": 30}],
+            },
+        ).json()
+        feedback = client.patch(
+            f"/workouts/{previous['id']}/feedback",
+            json={"effort": "hard"},
+        )
+        assert feedback.status_code == 200
+        assert feedback.json()["effort"] == "hard"
+        pain_feedback = client.patch(
+            f"/workouts/{previous['id']}/feedback",
+            json={"pain": True},
+        )
+        assert pain_feedback.status_code == 200
+        assert pain_feedback.json()["effort"] == "hard"
+        assert pain_feedback.json()["pain"] is True
+
+        current = client.post(
+            "/workouts/",
+            json={
+                "date": "2026-08-05T07:00:00-04:00",
+                "durationMinutes": 30,
+                "exercises": [{"name": "Elliptical", "kind": "cardio", "sets": [], "cardioDurationMinutes": 30}],
+            },
+        ).json()
+        calls = {}
+
+        class FakeProvider:
+            def generate(self, prompt: str) -> str:
+                calls["prompt"] = prompt
+                return """{"headline":"Steady work","verdict":"Session complete.","wins":[],"caveat":null,"nextAction":{"title":"Next move","detail":"Recover first."},"question":"How did this feel?","confidence":"medium"}"""
+
+        monkeypatch.setattr("backend.main.get_coach_provider", lambda: FakeProvider())
+        response = client.post(f"/workouts/{current['id']}/insight")
+
+        assert response.status_code == 200
+        assert "Reported effort: hard" in calls["prompt"]
+        assert "Pain reported: yes" in calls["prompt"]
+
+
+def test_malformed_structured_insight_uses_safe_card_and_preserves_legacy_text(monkeypatch):
+    reset_db()
+    with TestClient(app) as client:
+        workout = client.post(
+            "/workouts/",
+            json={
+                "date": "2026-08-05T07:00:00-04:00",
+                "durationMinutes": 30,
+                "exercises": [{"name": "Elliptical", "kind": "cardio", "sets": [], "cardioDurationMinutes": 30}],
+            },
+        ).json()
+
+        class FakeProvider:
+            def generate(self, prompt: str) -> str:
+                return "Legacy coach prose that is not JSON."
+
+        monkeypatch.setattr("backend.main.get_coach_provider", lambda: FakeProvider())
+        response = client.post(f"/workouts/{workout['id']}/insight")
+
+        assert response.status_code == 200
+        assert response.json()["insight"] == "Legacy coach prose that is not JSON."
+        assert response.json()["coachInsight"]["headline"] == "Workout complete"
+        assert response.json()["coachInsight"]["verdict"] == "The coach response could not be structured. Your workout is still saved."

@@ -1,9 +1,10 @@
+import json
 import os
 import uuid
 from contextlib import asynccontextmanager
 from datetime import date as date_cls, datetime, timezone
 from pathlib import Path
-from typing import Any, List, Literal, Optional
+from typing import Any, List, Literal, Optional, cast
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
@@ -69,6 +70,10 @@ class WorkoutSessionDB(SQLModel, table=True):
     cardio_active_calories: Optional[int] = None
     notes: Optional[str] = None
     insight: Optional[str] = None
+    insight_json: Optional[str] = None
+    template_id: Optional[str] = None
+    effort: Optional[str] = None
+    pain: bool = False
     exercises: List[ExerciseDB] = Relationship(back_populates="session")
 
 
@@ -187,6 +192,28 @@ class ActivitySummary(CamelModel):
     active_calories: Optional[int] = None
 
 
+class CoachNextAction(CamelModel):
+    title: str = Field(min_length=1, max_length=40)
+    detail: str = Field(min_length=1, max_length=240)
+
+
+class CoachInsight(CamelModel):
+    headline: str = Field(min_length=1, max_length=80)
+    verdict: str = Field(min_length=1, max_length=320)
+    wins: List[str] = Field(default_factory=list, max_length=2)
+    caveat: Optional[str] = Field(default=None, max_length=240)
+    next_action: CoachNextAction
+    question: str = Field(default="How did this feel?", min_length=1, max_length=80)
+    confidence: Literal["low", "medium", "high"] = "medium"
+
+    @field_validator("wins")
+    @classmethod
+    def validate_wins(cls, values: List[str]) -> List[str]:
+        if any(not value.strip() or len(value) > 180 for value in values):
+            raise ValueError("wins must be non-empty and at most 180 characters each")
+        return values
+
+
 class WorkoutSessionOut(CamelModel):
     id: str
     date: str
@@ -198,6 +225,10 @@ class WorkoutSessionOut(CamelModel):
     cardio_summary: Optional[ActivitySummary] = None
     notes: Optional[str] = None
     insight: Optional[str] = None
+    coach_insight: Optional[CoachInsight] = None
+    template_id: Optional[Literal["push", "pull", "recovery", "legs", "upper"]] = None
+    effort: Optional[Literal["easy", "right", "hard"]] = None
+    pain: bool = False
 
 
 class WorkoutSessionIn(CamelModel):
@@ -210,6 +241,12 @@ class WorkoutSessionIn(CamelModel):
     strength_summary: Optional[ActivitySummary] = None
     cardio_summary: Optional[ActivitySummary] = None
     notes: Optional[str] = None
+    template_id: Optional[Literal["push", "pull", "recovery", "legs", "upper"]] = None
+
+
+class WorkoutFeedbackIn(CamelModel):
+    effort: Optional[Literal["easy", "right", "hard"]] = None
+    pain: Optional[bool] = None
 
 
 class BodyWeightEntryOut(CamelModel):
@@ -372,8 +409,9 @@ class CoachStatusOut(CamelModel):
     configured: bool
 
 
-class InsightResponse(BaseModel):
+class InsightResponse(CamelModel):
     insight: str
+    coach_insight: CoachInsight
 
 
 class DailyReviewOut(CamelModel):
@@ -401,6 +439,10 @@ async def lifespan(_: FastAPI):
             "ALTER TABLE workout_session ADD COLUMN cardio_duration_minutes INTEGER",
             "ALTER TABLE workout_session ADD COLUMN cardio_avg_heart_rate INTEGER",
             "ALTER TABLE workout_session ADD COLUMN cardio_active_calories INTEGER",
+            "ALTER TABLE workout_session ADD COLUMN insight_json TEXT",
+            "ALTER TABLE workout_session ADD COLUMN template_id TEXT",
+            "ALTER TABLE workout_session ADD COLUMN effort TEXT",
+            "ALTER TABLE workout_session ADD COLUMN pain BOOLEAN DEFAULT 0",
             "ALTER TABLE nutrition_entry ADD COLUMN fiber_g REAL DEFAULT 0",
             "ALTER TABLE body_weight_entry ADD COLUMN body_fat_percent REAL",
             "ALTER TABLE body_weight_entry ADD COLUMN lean_body_mass_lbs REAL",
@@ -452,6 +494,42 @@ def require_native_health_import(request: Request) -> None:
         )
 
 
+def _decode_coach_insight(raw: str) -> Optional[CoachInsight]:
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.removeprefix("```json").removeprefix("```")
+        cleaned = cleaned.removesuffix("```").strip()
+    try:
+        return CoachInsight.model_validate(json.loads(cleaned))
+    except (json.JSONDecodeError, ValidationError):
+        return None
+
+
+def _parse_coach_insight(raw: str) -> CoachInsight:
+    parsed = _decode_coach_insight(raw)
+    if parsed:
+        return parsed
+    return CoachInsight(
+        headline="Workout complete",
+        verdict="The coach response could not be structured. Your workout is still saved.",
+        next_action=CoachNextAction(
+            title="Next move",
+            detail="Follow your scheduled plan and adjust only if recovery calls for it.",
+        ),
+        confidence="low",
+    )
+
+
+def _legacy_insight_text(raw: str, insight: CoachInsight) -> str:
+    if _decode_coach_insight(raw) is None:
+        return raw.strip()
+    parts = [insight.headline, insight.verdict, *insight.wins]
+    if insight.caveat:
+        parts.append(insight.caveat)
+    parts.append(f"{insight.next_action.title}: {insight.next_action.detail}")
+    return " ".join(parts)
+
+
 def _to_out(s: WorkoutSessionDB) -> WorkoutSessionOut:
     strength_summary = (
         ActivitySummary(
@@ -471,6 +549,7 @@ def _to_out(s: WorkoutSessionDB) -> WorkoutSessionOut:
         if s.cardio_duration_minutes is not None
         else None
     )
+    coach_insight = _parse_coach_insight(s.insight_json) if s.insight_json else None
     return WorkoutSessionOut(
         id=s.id,
         date=s.date,
@@ -481,6 +560,13 @@ def _to_out(s: WorkoutSessionDB) -> WorkoutSessionOut:
         cardio_summary=cardio_summary,
         notes=s.notes,
         insight=s.insight,
+        coach_insight=coach_insight,
+        template_id=cast(
+            Optional[Literal["push", "pull", "recovery", "legs", "upper"]],
+            s.template_id,
+        ),
+        effort=cast(Optional[Literal["easy", "right", "hard"]], s.effort),
+        pain=bool(s.pain),
         exercises=[
             ExerciseOut(
                 id=e.id,
@@ -690,6 +776,12 @@ def _format_session(s: WorkoutSessionDB, label: str) -> str:
         lines.append(f"  Avg HR: {s.avg_heart_rate} bpm")
     if s.active_calories:
         lines.append(f"  Calories: {s.active_calories} kcal")
+    if s.template_id:
+        lines.append(f"  Workout plan: {s.template_id}")
+    if s.effort:
+        lines.append(f"  Reported effort: {s.effort}")
+    if s.pain:
+        lines.append("  Pain reported: yes")
     lines.append(f"  Session volume: {_session_volume(s)} lbs")
     return "\n".join(lines)
 
@@ -811,18 +903,47 @@ def _build_prompt(
         else ""
     )
 
+    next_template = {
+        "push": "pull",
+        "pull": "recovery",
+        "recovery": "legs",
+        "legs": "upper",
+        "upper": "next week's push",
+    }.get(current.template_id or "")
+    plan_context = (
+        f"WORKOUT PLAN: {current.template_id}; next scheduled template: {next_template}."
+        if current.template_id
+        else "WORKOUT PLAN: no template was selected; do not invent one."
+    )
+
     return f"""You are a personal trainer AI reviewing a client's workout log.
 
 {current_block}
 
+{plan_context}
+
 {context}{broader_context_block}
 
-Write a coaching insight of exactly 2-3 sentences that covers:
-1. Compare today's relevant strength or cardio metrics to recent history using specific numbers when comparable history exists.
-2. Call out any strength or cardio personal record when the data supports one. If none, skip this point.
-3. Give one concrete, specific suggestion for the next session.
+Create a compact coaching response with a clear verdict, no more than two evidence-backed wins, an optional comparison caveat, and one plan-aligned next action. Treat strength and cardio summaries as distinct segments. When both are recorded, discuss both within one combined response instead of merging their heart rate or calorie metrics.
 
-Rules: Treat strength and cardio summaries as distinct segments. When both are recorded, discuss both within one combined response instead of merging their heart rate or calorie metrics. Be encouraging but direct. Use exact numbers from the data. No bullet points, no headers, no markdown. Output plain prose only."""
+Rules:
+- Never criticize absent strength during planned recovery cardio.
+- Never invent a workout when a recorded plan exists; connect the next action to the next scheduled template.
+- Compare only genuinely comparable sessions of the same modality. Do not infer improved cardiovascular efficiency unless activity, speed/incline or resistance, and effort are sufficiently comparable; otherwise state the limitation.
+- Call something a personal record only when the record type and available history support it.
+- Use reported effort and pain from prior sessions when choosing the next action. Pain should make the advice conservative, not diagnostic.
+- Keep each text field concise and the total visible coaching copy under about 90 words.
+
+Return only valid JSON matching this exact shape, with no markdown fence or extra prose:
+{{
+  "headline": "short coaching verdict",
+  "verdict": "one concise interpretation",
+  "wins": ["zero to two evidence-backed wins"],
+  "caveat": "comparison limitation or null",
+  "nextAction": {{"title": "Next move", "detail": "one plan-aligned action"}},
+  "question": "How did this feel?",
+  "confidence": "low, medium, or high"
+}}"""
 
 
 def _build_daily_review_prompt(
@@ -1637,6 +1758,7 @@ def create_workout(payload: WorkoutSessionIn, db: Session = Depends(get_db)):
             payload.cardio_summary.active_calories if payload.cardio_summary else None
         ),
         notes=payload.notes,
+        template_id=payload.template_id,
     )
     db.add(row)
     for ex in payload.exercises:
@@ -1671,6 +1793,29 @@ def get_workout(session_id: str, db: Session = Depends(get_db)):
     return _to_out(row)
 
 
+@app.patch(
+    "/workouts/{session_id}/feedback",
+    response_model=WorkoutSessionOut,
+    response_model_by_alias=True,
+)
+def update_workout_feedback(
+    session_id: str,
+    payload: WorkoutFeedbackIn,
+    db: Session = Depends(get_db),
+):
+    row = db.get(WorkoutSessionDB, session_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Workout not found")
+    if "effort" in payload.model_fields_set:
+        row.effort = payload.effort
+    if "pain" in payload.model_fields_set and payload.pain is not None:
+        row.pain = payload.pain
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _to_out(row)
+
+
 @app.delete("/workouts/{session_id}", status_code=204)
 def delete_workout(session_id: str, db: Session = Depends(get_db)):
     row = db.get(WorkoutSessionDB, session_id)
@@ -1684,7 +1829,11 @@ def delete_workout(session_id: str, db: Session = Depends(get_db)):
     db.commit()
 
 
-@app.post("/workouts/{session_id}/insight", response_model=InsightResponse)
+@app.post(
+    "/workouts/{session_id}/insight",
+    response_model=InsightResponse,
+    response_model_by_alias=True,
+)
 def get_insight(session_id: str, db: Session = Depends(get_db)):
     row = db.get(WorkoutSessionDB, session_id)
     if not row:
@@ -1724,7 +1873,10 @@ def get_insight(session_id: str, db: Session = Depends(get_db)):
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"AI insights unavailable: {exc}") from exc
 
-    row.insight = insight_text
+    coach_insight = _parse_coach_insight(insight_text)
+    legacy_insight = _legacy_insight_text(insight_text, coach_insight)
+    row.insight = legacy_insight
+    row.insight_json = coach_insight.model_dump_json(by_alias=True)
     db.add(row)
     db.commit()
-    return InsightResponse(insight=insight_text)
+    return InsightResponse(insight=legacy_insight, coach_insight=coach_insight)
