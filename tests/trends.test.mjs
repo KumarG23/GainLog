@@ -8,6 +8,7 @@ import {
   filterTrendRange,
   withRollingAverage,
   resolveChartWidth,
+  resolveScrollableChartWidth,
   resolveChartDomain,
   buildTrendSeries,
   relativeDatePositions,
@@ -16,13 +17,13 @@ import {
 test('weight trend keeps the latest measurement for each local calendar day', () => {
   const points = aggregateWeightTrend([
     { id: '1', date: '2026-08-01T06:00:00-04:00', weightLbs: 208 },
-    { id: '2', date: '2026-08-01T08:00:00-04:00', weightLbs: 207.5, bodyFatPercent: 24.2 },
+    { id: '2', date: '2026-08-01T08:00:00-04:00', weightLbs: 207.5, bodyFatPercent: 24.2, bmi: 28.9, source: 'apple-health' },
     { id: '3', date: '2026-08-02T06:00:00-04:00', weightLbs: 207 },
   ]);
 
   assert.deepEqual(points, [
-    { date: '2026-08-01', value: 207.5, bodyFatPercent: 24.2, leanBodyMassLbs: undefined },
-    { date: '2026-08-02', value: 207, bodyFatPercent: undefined, leanBodyMassLbs: undefined },
+    { date: '2026-08-01', value: 207.5, bodyFatPercent: 24.2, leanBodyMassLbs: undefined, bmi: 28.9, source: 'apple-health' },
+    { date: '2026-08-02', value: 207, bodyFatPercent: undefined, leanBodyMassLbs: undefined, bmi: undefined, source: undefined },
   ]);
 });
 
@@ -149,6 +150,29 @@ test('chart x positions preserve elapsed time across missing dates', () => {
 test('chart width falls back to the viewport when layout measurement is unavailable', () => {
   assert.equal(resolveChartWidth(0, 390, 32), 358);
   assert.equal(resolveChartWidth(700, 390, 32), 700);
+});
+
+test('scrollable chart width gives daily chart points at least 44 px of elapsed-date separation', () => {
+  assert.equal(
+    resolveScrollableChartWidth(358, ['2026-08-01', '2026-08-07']),
+    358,
+  );
+  assert.equal(
+    resolveScrollableChartWidth(358, ['2026-08-01', '2026-08-31']),
+    1_384,
+  );
+  assert.equal(resolveScrollableChartWidth(358, ['2026-08-10']), 358);
+});
+
+test('scrollable chart width permits weekly charts to use seven px per elapsed day', () => {
+  assert.equal(
+    resolveScrollableChartWidth(358, ['2026-08-03', '2026-08-31'], 7),
+    358,
+  );
+  assert.equal(
+    resolveScrollableChartWidth(358, ['2026-08-03', '2026-10-26'], 7),
+    652,
+  );
 });
 
 test('chart domain does not flatten useful variation to include a distant goal', () => {

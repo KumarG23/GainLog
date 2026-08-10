@@ -8,6 +8,8 @@ export interface WeightTrendPoint {
   value: number;
   bodyFatPercent?: number;
   leanBodyMassLbs?: number;
+  bmi?: number;
+  source?: string;
 }
 
 export interface NutritionTrendPoint {
@@ -33,6 +35,19 @@ export function resolveChartWidth(
 ): number {
   if (layoutWidth > 0) return layoutWidth;
   return Math.max(viewportWidth - horizontalInset, 0);
+}
+
+export function resolveScrollableChartWidth(
+  viewportWidth: number,
+  dateKeys: string[],
+  pixelsPerDay = 44,
+  chartPadding = 64,
+): number {
+  if (dateKeys.length < 2) return viewportWidth;
+  const first = Date.parse(`${dateKeys[0]}T12:00:00Z`);
+  const last = Date.parse(`${dateKeys[dateKeys.length - 1]}T12:00:00Z`);
+  const elapsedDays = Math.max(0, (last - first) / 86_400_000);
+  return Math.max(viewportWidth, elapsedDays * pixelsPerDay + chartPadding);
 }
 
 export function resolveChartDomain(
@@ -114,6 +129,8 @@ export function aggregateWeightTrend(entries: BodyWeightEntry[]): WeightTrendPoi
       value: entry.weightLbs,
       bodyFatPercent: entry.bodyFatPercent,
       leanBodyMassLbs: entry.leanBodyMassLbs,
+      bmi: entry.bmi,
+      source: entry.source,
     }));
 }
 

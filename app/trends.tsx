@@ -125,16 +125,30 @@ export default function TrendsScreen() {
     if (category === 'weight') {
       return aggregateWeightTrend(bodyWeightEntries)
         .map(point => {
+          const details = [
+            metric === 'weight' ? null : { label: 'Weight', value: `${point.value.toFixed(1)} lb` },
+            metric === 'bodyFat' || point.bodyFatPercent == null
+              ? null
+              : { label: 'Body Fat', value: `${point.bodyFatPercent.toFixed(1)}%` },
+            metric === 'leanMass' || point.leanBodyMassLbs == null
+              ? null
+              : { label: 'Lean Mass', value: `${point.leanBodyMassLbs.toFixed(1)} lb` },
+            point.bmi == null ? null : { label: 'BMI', value: point.bmi.toFixed(1) },
+            point.source == null
+              ? null
+              : { label: 'Source', value: point.source === 'apple-health' ? 'Apple Health' : point.source },
+          ].filter((detail): detail is { label: string; value: string } => detail !== null);
+
           if (metric === 'bodyFat' && point.bodyFatPercent != null) {
-            return { date: point.date, value: point.bodyFatPercent };
+            return { date: point.date, value: point.bodyFatPercent, details };
           }
           if (metric === 'leanMass' && point.leanBodyMassLbs != null) {
-            return { date: point.date, value: point.leanBodyMassLbs };
+            return { date: point.date, value: point.leanBodyMassLbs, details };
           }
-          if (metric === 'weight') return { date: point.date, value: point.value };
+          if (metric === 'weight') return { date: point.date, value: point.value, details };
           return null;
         })
-        .filter((point): point is LineTrendPoint => point !== null);
+        .filter((point): point is { date: string; value: number; details: { label: string; value: string }[] } => point !== null);
     }
 
     if (category === 'nutrition') {
@@ -146,6 +160,13 @@ export default function TrendsScreen() {
             : metric === 'fiber'
               ? point.fiberG
               : point.calories,
+        details: [
+          { label: 'Calories', value: `${Math.round(point.calories).toLocaleString()} kcal` },
+          { label: 'Protein', value: `${point.proteinG.toFixed(1)} g` },
+          { label: 'Carbs', value: `${point.carbsG.toFixed(1)} g` },
+          { label: 'Fat', value: `${point.fatG.toFixed(1)} g` },
+          { label: 'Fiber', value: `${point.fiberG.toFixed(1)} g` },
+        ],
       }));
     }
 
@@ -157,6 +178,11 @@ export default function TrendsScreen() {
           : metric === 'minutes'
             ? point.minutes
             : point.volume,
+      details: [
+        { label: 'Strength Volume', value: formatVolume(Math.round(point.volume)) },
+        { label: 'Sessions', value: point.sessions.toFixed(0) },
+        { label: 'Minutes', value: `${Math.round(point.minutes)} min` },
+      ],
     }));
   }, [bodyWeightEntries, category, metric, nutritionEntries, sessions, today]);
 
@@ -280,6 +306,7 @@ export default function TrendsScreen() {
           goal={goal}
           showAverage={visiblePoints.length > 1 && ((category === 'weight' && metric === 'weight') || category === 'nutrition')}
           floorAtZero={category !== 'weight'}
+          pixelsPerDay={category === 'training' ? 7 : 44}
         />
 
         <View style={styles.contextCard}>
