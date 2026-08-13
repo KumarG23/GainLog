@@ -109,7 +109,7 @@ export const PLANET_FITNESS_TEMPLATES: readonly WorkoutTemplate[] = [
     estimatedMinutes: 45,
     exercises: [
       { name: '45-Degree Leg Press', sets: 3, targetReps: '8–12', rest: '2–3 min' },
-      { name: 'Smith Machine Romanian Deadlift', sets: 3, targetReps: '8–12', rest: '2–3 min' },
+      { name: 'Glute Kickback Machine', sets: 3, targetReps: '10–15', rest: '60–90 sec' },
       { name: 'Leg Extension', sets: 3, targetReps: '10–15', rest: '60–90 sec' },
       { name: 'Seated Leg Curl', sets: 3, targetReps: '10–15', rest: '60–90 sec' },
     ],

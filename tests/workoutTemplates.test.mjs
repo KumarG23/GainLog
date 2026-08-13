@@ -15,6 +15,10 @@ test('Planet Fitness plan provides five ordered weekday templates', () => {
   assert.equal(PLANET_FITNESS_TEMPLATES[2].weekday, 'Wednesday');
   assert.equal(PLANET_FITNESS_TEMPLATES[2].exercises.length, 0);
   assert.equal(PLANET_FITNESS_TEMPLATES[3].weekday, 'Thursday');
+  assert.deepEqual(
+    PLANET_FITNESS_TEMPLATES[3].exercises.map(exercise => exercise.name),
+    ['45-Degree Leg Press', 'Glute Kickback Machine', 'Leg Extension', 'Seated Leg Curl'],
+  );
   assert.equal(PLANET_FITNESS_TEMPLATES[4].weekday, 'Friday');
 });
 
