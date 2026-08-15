@@ -19,7 +19,7 @@ import {
 type CreateBodyWeightEntry = Omit<BodyWeightEntry, 'id'>;
 type CreateGoal = Omit<Goal, 'id'>;
 type GoalUpdate = Partial<
-  Pick<Goal, 'title' | 'targetValue' | 'unit' | 'targetDate' | 'status' | 'notes'>
+  Pick<Goal, 'title' | 'targetValue' | 'minimumValue' | 'maximumValue' | 'unit' | 'targetDate' | 'status' | 'notes'>
 >;
 type CreateNutritionEntry = Omit<NutritionEntry, 'id'>;
 

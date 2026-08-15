@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import uuid
 from contextlib import asynccontextmanager
@@ -115,6 +116,8 @@ class GoalDB(SQLModel, table=True):
     kind: str
     title: str
     target_value: Optional[float] = None
+    minimum_value: Optional[float] = None
+    maximum_value: Optional[float] = None
     unit: Optional[str] = None
     start_date: str
     target_date: Optional[str] = None
@@ -330,6 +333,8 @@ class GoalOut(CamelModel):
     kind: str
     title: str
     target_value: Optional[float] = None
+    minimum_value: Optional[float] = None
+    maximum_value: Optional[float] = None
     unit: Optional[str] = None
     start_date: str
     target_date: Optional[str] = None
@@ -342,6 +347,8 @@ class GoalIn(CamelModel):
     kind: str
     title: str
     target_value: Optional[float] = None
+    minimum_value: Optional[float] = None
+    maximum_value: Optional[float] = None
     unit: Optional[str] = None
     start_date: str
     target_date: Optional[str] = None
@@ -352,6 +359,8 @@ class GoalIn(CamelModel):
 class GoalPatch(CamelModel):
     title: Optional[str] = None
     target_value: Optional[float] = None
+    minimum_value: Optional[float] = None
+    maximum_value: Optional[float] = None
     unit: Optional[str] = None
     target_date: Optional[str] = None
     status: Optional[str] = None
@@ -449,6 +458,8 @@ async def lifespan(_: FastAPI):
             "ALTER TABLE body_weight_entry ADD COLUMN bmi REAL",
             "ALTER TABLE body_weight_entry ADD COLUMN source TEXT",
             "ALTER TABLE body_weight_entry ADD COLUMN source_record_id TEXT",
+            "ALTER TABLE goal ADD COLUMN minimum_value REAL",
+            "ALTER TABLE goal ADD COLUMN maximum_value REAL",
         ]
         for statement in migrations:
             try:
@@ -662,12 +673,30 @@ def _goal_to_out(goal: GoalDB) -> GoalOut:
         kind=goal.kind,
         title=goal.title,
         target_value=goal.target_value,
+        minimum_value=goal.minimum_value,
+        maximum_value=goal.maximum_value,
         unit=goal.unit,
         start_date=goal.start_date,
         target_date=goal.target_date,
         status=goal.status,
         notes=goal.notes,
     )
+
+
+def _format_goal_for_coach(goal: GoalDB) -> str:
+    unit = f" {goal.unit}" if goal.unit else ""
+    if goal.minimum_value is not None and goal.maximum_value is not None:
+        target = f"{goal.minimum_value:g}–{goal.maximum_value:g}{unit}"
+        if goal.target_value is not None:
+            target += f" (aim {goal.target_value:g}{unit})"
+        return f"{goal.title}: {target}"
+    if goal.target_value is not None:
+        return f"{goal.title}: {goal.target_value:g}{unit}"
+    if goal.minimum_value is not None:
+        return f"{goal.title}: at least {goal.minimum_value:g}{unit}"
+    if goal.maximum_value is not None:
+        return f"{goal.title}: up to {goal.maximum_value:g}{unit}"
+    return goal.title
 
 
 def _nutrition_to_out(entry: NutritionEntryDB) -> NutritionEntryOut:
@@ -692,6 +721,21 @@ def _validate_goal_kind(kind: str) -> None:
     if kind not in GOAL_KINDS:
         allowed = ", ".join(sorted(GOAL_KINDS))
         raise HTTPException(status_code=400, detail=f"Unsupported goal kind. Use one of: {allowed}")
+
+
+def _validate_goal_values(
+    minimum_value: Optional[float],
+    target_value: Optional[float],
+    maximum_value: Optional[float],
+) -> None:
+    ordered = [value for value in (minimum_value, target_value, maximum_value) if value is not None]
+    if any(not math.isfinite(value) for value in ordered):
+        raise HTTPException(status_code=400, detail="Goal values must be finite numbers")
+    if ordered != sorted(ordered):
+        raise HTTPException(
+            status_code=400,
+            detail="Goal values must satisfy minimum <= target <= maximum",
+        )
 
 
 def _get_coach_status() -> CoachStatusOut:
@@ -856,10 +900,7 @@ def _format_broader_context(
             + f" on {latest_weight.date[:10]}."
         )
     if active_weight_goal:
-        goal = f"Active weight goal: {active_weight_goal.title}"
-        if active_weight_goal.target_value is not None:
-            unit = f" {active_weight_goal.unit}" if active_weight_goal.unit else ""
-            goal += f" targeting {active_weight_goal.target_value:g}{unit}"
+        goal = f"Active weight goal: {_format_goal_for_coach(active_weight_goal)}"
         if active_weight_goal.target_date:
             goal += f" by {active_weight_goal.target_date[:10]}"
         lines.append(f"{goal}.")
@@ -992,11 +1033,7 @@ def _build_daily_review_prompt(
 
     goal_lines = []
     for goal in active_goals:
-        target = ""
-        if goal.target_value is not None:
-            unit = f" {goal.unit}" if goal.unit else ""
-            target = f": {goal.target_value:g}{unit}"
-        goal_lines.append(f"{goal.title}{target}")
+        goal_lines.append(_format_goal_for_coach(goal))
     if not goal_lines:
         goal_lines = ["No active goals logged."]
 
@@ -1608,12 +1645,15 @@ def list_goals(db: Session = Depends(get_db)):
 @app.post("/goals/", response_model=GoalOut, response_model_by_alias=True, status_code=201)
 def create_goal(payload: GoalIn, db: Session = Depends(get_db)):
     _validate_goal_kind(payload.kind)
+    _validate_goal_values(payload.minimum_value, payload.target_value, payload.maximum_value)
     goal_id = payload.id or str(uuid.uuid4())
     row = GoalDB(
         id=goal_id,
         kind=payload.kind,
         title=payload.title,
         target_value=payload.target_value,
+        minimum_value=payload.minimum_value,
+        maximum_value=payload.maximum_value,
         unit=payload.unit,
         start_date=payload.start_date,
         target_date=payload.target_date,
@@ -1632,6 +1672,11 @@ def update_goal(goal_id: str, payload: GoalPatch, db: Session = Depends(get_db))
     if not row:
         raise HTTPException(status_code=404, detail="Goal not found")
     updates = payload.model_dump(exclude_unset=True)
+    _validate_goal_values(
+        updates.get("minimum_value", row.minimum_value),
+        updates.get("target_value", row.target_value),
+        updates.get("maximum_value", row.maximum_value),
+    )
     for field, value in updates.items():
         setattr(row, field, value)
     db.add(row)

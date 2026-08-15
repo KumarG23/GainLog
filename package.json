@@ -14,7 +14,8 @@
     "test:workout-templates": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/workoutTemplates.test.mjs",
     "test:workout-history": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/workoutHistoryHints.test.mjs",
     "test:trends": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/trends.test.mjs",
-    "test": "npm run test:notifications && npm run test:nutrition-memory && npm run test:workout-templates && npm run test:workout-history && npm run test:trends"
+    "test:goals": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/goals.test.mjs",
+    "test": "npm run test:notifications && npm run test:nutrition-memory && npm run test:workout-templates && npm run test:workout-history && npm run test:trends && npm run test:goals"
   },
   "dependencies": {
     "@expo/ngrok": "^4.1.3",

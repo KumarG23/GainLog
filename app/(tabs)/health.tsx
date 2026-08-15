@@ -18,6 +18,7 @@ import { Colors, FontSize, Radius, Spacing } from '../../constants/theme';
 import { useHealth } from '../../context/HealthContext';
 import { formatVolume } from '../../utils/stats';
 import { localDateKey, localIsoTimestamp } from '../../utils/date';
+import { formatGoalTarget } from '../../utils/goals';
 
 type GoalKind = 'weight' | 'calories' | 'protein' | 'fiber' | 'workout_frequency';
 
@@ -83,6 +84,8 @@ export default function HealthScreen() {
   const [goalTitle, setGoalTitle] = useState('');
   const [goalKind, setGoalKind] = useState<GoalKind>('weight');
   const [goalTarget, setGoalTarget] = useState('');
+  const [goalMinimum, setGoalMinimum] = useState('');
+  const [goalMaximum, setGoalMaximum] = useState('');
   const [goalUnit, setGoalUnit] = useState('lbs');
   const [goalTargetDate, setGoalTargetDate] = useState('');
   const [goalNotes, setGoalNotes] = useState('');
@@ -158,8 +161,17 @@ export default function HealthScreen() {
     const parsedTarget = goalTarget.trim()
       ? Number.parseFloat(goalTarget)
       : undefined;
-    if (parsedTarget !== undefined && !Number.isFinite(parsedTarget)) {
-      Alert.alert('Target needed', 'Enter a valid target number.');
+    const parsedMinimum = goalMinimum.trim() ? Number.parseFloat(goalMinimum) : undefined;
+    const parsedMaximum = goalMaximum.trim() ? Number.parseFloat(goalMaximum) : undefined;
+    if ([parsedMinimum, parsedTarget, parsedMaximum].some(value => value !== undefined && !Number.isFinite(value))) {
+      Alert.alert('Target needed', 'Enter valid target numbers.');
+      return;
+    }
+    const orderedValues = [parsedMinimum, parsedTarget, parsedMaximum].filter(
+      (value): value is number => value !== undefined,
+    );
+    if (orderedValues.some((value, index) => index > 0 && value < orderedValues[index - 1])) {
+      Alert.alert('Range out of order', 'Use minimum ≤ aim ≤ maximum.');
       return;
     }
 
@@ -169,6 +181,8 @@ export default function HealthScreen() {
         kind: goalKind,
         title: goalTitle.trim(),
         targetValue: parsedTarget,
+        minimumValue: parsedMinimum,
+        maximumValue: parsedMaximum,
         unit: goalUnit.trim() || undefined,
         startDate: todayIso(),
         targetDate: goalTargetDate.trim() || undefined,
@@ -177,6 +191,8 @@ export default function HealthScreen() {
       });
       setGoalTitle('');
       setGoalTarget('');
+      setGoalMinimum('');
+      setGoalMaximum('');
       setGoalTargetDate('');
       setGoalNotes('');
     } catch (err) {
@@ -513,9 +529,7 @@ export default function HealthScreen() {
                   <View style={styles.goalBody}>
                     <Text style={styles.goalTitle}>{goal.title}</Text>
                     <Text style={styles.goalMeta}>
-                      {goal.targetValue != null
-                        ? `${goal.targetValue}${goal.unit ? ` ${goal.unit}` : ''}`
-                        : goal.kind}
+                      {formatGoalTarget(goal) || goal.kind}
                     </Text>
                   </View>
                   <TouchableOpacity
@@ -563,12 +577,30 @@ export default function HealthScreen() {
             <View style={styles.row}>
               <TextInput
                 style={[styles.input, styles.rowInput]}
-                value={goalTarget}
-                onChangeText={setGoalTarget}
-                placeholder="Target"
+                value={goalMinimum}
+                onChangeText={setGoalMinimum}
+                placeholder="Minimum"
                 placeholderTextColor={Colors.textMuted}
                 keyboardType="decimal-pad"
               />
+              <TextInput
+                style={[styles.input, styles.rowInput]}
+                value={goalTarget}
+                onChangeText={setGoalTarget}
+                placeholder="Aim"
+                placeholderTextColor={Colors.textMuted}
+                keyboardType="decimal-pad"
+              />
+              <TextInput
+                style={[styles.input, styles.rowInput]}
+                value={goalMaximum}
+                onChangeText={setGoalMaximum}
+                placeholder="Maximum"
+                placeholderTextColor={Colors.textMuted}
+                keyboardType="decimal-pad"
+              />
+            </View>
+            <View style={styles.row}>
               <TextInput
                 style={[styles.input, styles.rowInput]}
                 value={goalUnit}

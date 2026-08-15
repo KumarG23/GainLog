@@ -33,6 +33,8 @@ export interface Goal {
   kind: 'weight' | 'calories' | 'protein' | 'fiber' | 'workout_frequency' | string;
   title: string;
   targetValue?: number;
+  minimumValue?: number;
+  maximumValue?: number;
   unit?: string;
   startDate: string;
   targetDate?: string;
