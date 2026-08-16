@@ -14,6 +14,10 @@ import { Colors, FontSize, Radius, Spacing } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
 import { Exercise, WorkoutSet } from '../../types/workout';
 import { formatDate } from '../../utils/date';
+import {
+  findPersonalRecordsForSession,
+  SetPersonalRecord,
+} from '../../utils/workoutRecords';
 import { CoachInsightCard } from '../../components/CoachInsightCard';
 
 // ---------------------------------------------------------------------------
@@ -40,9 +44,10 @@ function bestSet(sets: WorkoutSet[]): WorkoutSet | null {
 interface ExerciseTableProps {
   exercise: Exercise;
   index: number;
+  recordsBySetId: ReadonlyMap<string, SetPersonalRecord>;
 }
 
-function ExerciseTable({ exercise, index }: ExerciseTableProps) {
+function ExerciseTable({ exercise, index, recordsBySetId }: ExerciseTableProps) {
   if (exercise.kind === 'cardio') {
     const details = [
       exercise.cardioDurationMinutes != null
@@ -92,9 +97,11 @@ function ExerciseTable({ exercise, index }: ExerciseTableProps) {
         <Text style={[styles.tableCell, styles.colWeight]}>LBS</Text>
         <Text style={[styles.tableCell, styles.colReps]}>REPS</Text>
         <Text style={[styles.tableCell, styles.colVol]}>VOL</Text>
+        <Text style={[styles.tableCell, styles.colPr]}>PR</Text>
       </View>
 
       {exercise.sets.map((set, idx) => {
+        const record = recordsBySetId.get(set.id);
         const isBest =
           best !== null &&
           set.weight === best.weight &&
@@ -119,11 +126,20 @@ function ExerciseTable({ exercise, index }: ExerciseTableProps) {
             <Text style={[styles.tableCell, styles.colVol, styles.cellValue]}>
               {set.weight > 0 ? `${set.weight * set.reps}` : set.reps}
             </Text>
-            {isBest && (
-              <View style={styles.bestBadge}>
-                <Ionicons name="trophy" size={10} color={Colors.warning} />
-              </View>
-            )}
+            <View style={styles.colPr}>
+              {record ? (
+                <View style={styles.prBadge}>
+                  <Ionicons name="trophy" size={9} color={Colors.warning} />
+                  <Text style={styles.prBadgeText}>
+                    {record.kind === 'weight' ? 'WT' : 'REP'}
+                  </Text>
+                </View>
+              ) : isBest ? (
+                <View style={styles.bestBadge}>
+                  <Ionicons name="trophy-outline" size={11} color={Colors.textMuted} />
+                </View>
+              ) : null}
+            </View>
           </View>
         );
       })}
@@ -147,7 +163,7 @@ function ExerciseTable({ exercise, index }: ExerciseTableProps) {
 export default function SessionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { getSession, deleteSession, updateFeedback } = useWorkouts();
+  const { sessions, getSession, deleteSession, updateFeedback } = useWorkouts();
 
   const session = getSession(id);
 
@@ -181,6 +197,9 @@ export default function SessionDetailScreen() {
     );
   }
 
+  const recordsBySetId = new Map(
+    findPersonalRecordsForSession(sessions, session).map(record => [record.setId, record]),
+  );
   const totalVolume = session.exercises.reduce(
     (acc, ex) => acc + exerciseVolume(ex),
     0,
@@ -320,7 +339,12 @@ export default function SessionDetailScreen() {
 
         {/* Exercise tables */}
         {session.exercises.map((exercise, idx) => (
-          <ExerciseTable key={exercise.id} exercise={exercise} index={idx} />
+          <ExerciseTable
+            key={exercise.id}
+            exercise={exercise}
+            index={idx}
+            recordsBySetId={recordsBySetId}
+          />
         ))}
 
         {/* AI insight */}
@@ -572,6 +596,11 @@ const styles = StyleSheet.create({
   colWeight: { flex: 1 },
   colReps: { flex: 1 },
   colVol: { flex: 1 },
+  colPr: {
+    width: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
   setNumWrap: {
     width: 36,
@@ -593,14 +622,24 @@ const styles = StyleSheet.create({
   },
 
   bestBadge: {
-    position: 'absolute',
-    right: Spacing.base,
-    top: 0,
-    bottom: 0,
+    alignItems: 'center',
     justifyContent: 'center',
+  },
+  prBadge: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 2,
+    minWidth: 38,
+    paddingHorizontal: 4,
+    paddingVertical: 3,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.warningDim,
+  },
+  prBadgeText: {
+    color: Colors.warning,
+    fontSize: 8,
+    fontWeight: '900',
   },
 
   // Exercise footer

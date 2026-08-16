@@ -1,6 +1,7 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Animated,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -12,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { Href, useRouter } from 'expo-router';
 import { Colors, FontSize, Radius, Spacing } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
@@ -27,6 +29,12 @@ import {
   getPreviousSetHint,
   PreviousSetHint,
 } from '../../utils/workoutHistoryHints';
+import {
+  findPersonalRecordsForSession,
+  findSuspiciousStrengthSets,
+  PersonalRecord,
+  SetPersonalRecord,
+} from '../../utils/workoutRecords';
 import {
   PLANET_FITNESS_TEMPLATES,
   buildWorkoutTemplateDraft,
@@ -73,6 +81,41 @@ function newExercise(kind: ExerciseKind): DraftExercise {
   };
 }
 
+function formatRecordLabel(record: PersonalRecord): string {
+  return record.kind === 'weight'
+    ? `Weight PR · ${record.weight} lb × ${record.reps}`
+    : `Rep PR · ${record.reps} at ${record.weight} lb`;
+}
+
+function confirmSuspiciousEntries(exercises: readonly DraftExercise[]): Promise<boolean> {
+  const suspicious = findSuspiciousStrengthSets(exercises);
+  if (suspicious.length === 0) return Promise.resolve(true);
+
+  const preview = suspicious
+    .slice(0, 3)
+    .map(entry => `${entry.exerciseName || 'Unnamed exercise'}: ${entry.weight} lb × ${entry.reps}`)
+    .join('\n');
+  const remaining = suspicious.length > 3 ? `\n…and ${suspicious.length - 3} more` : '';
+
+  const message = `${preview}${remaining}\n\nMore than 40 reps is unusual. Review it, or confirm that the number is intentional. Confirmed outliers are saved but never count toward PRs or progression.`;
+
+  if (Platform.OS === 'web') {
+    return Promise.resolve(window.confirm(`Possible typo\n\n${message}`));
+  }
+
+  return new Promise(resolve => {
+    Alert.alert(
+      'Possible typo',
+      message,
+      [
+        { text: 'Review', style: 'cancel', onPress: () => resolve(false) },
+        { text: 'Save Anyway', onPress: () => resolve(true) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) },
+    );
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
@@ -82,9 +125,11 @@ interface SetRowProps {
   index: number;
   previousHint: PreviousSetHint;
   recommendedWeight?: string;
+  record?: PersonalRecord;
   canDelete: boolean;
   onChangeWeight: (v: string) => void;
   onChangeReps: (v: string) => void;
+  onComplete: () => void;
   onDelete: () => void;
 }
 
@@ -93,53 +138,64 @@ function SetRow({
   index,
   previousHint,
   recommendedWeight,
+  record,
   canDelete,
   onChangeWeight,
   onChangeReps,
+  onComplete,
   onDelete,
 }: SetRowProps) {
   return (
-    <View style={styles.setRow}>
-      <View style={styles.setBadge}>
-        <Text style={styles.setBadgeText}>{index + 1}</Text>
-      </View>
+    <View style={styles.setRowBlock}>
+      <View style={styles.setRow}>
+        <View style={styles.setBadge}>
+          <Text style={styles.setBadgeText}>{index + 1}</Text>
+        </View>
 
-      <TextInput
-        style={[styles.setInput, styles.weightInput]}
-        value={set.weight}
-        onChangeText={onChangeWeight}
-        placeholder={recommendedWeight ?? previousHint.weight ?? '0'}
-        placeholderTextColor={Colors.textMuted}
-        keyboardType="decimal-pad"
-        returnKeyType="next"
-        selectTextOnFocus
-      />
-
-      <Text style={styles.setMultiplier}>×</Text>
-
-      <TextInput
-        style={[styles.setInput, styles.repsInput]}
-        value={set.reps}
-        onChangeText={onChangeReps}
-        placeholder={previousHint.reps ?? '0'}
-        placeholderTextColor={Colors.textMuted}
-        keyboardType="number-pad"
-        returnKeyType="done"
-        selectTextOnFocus
-      />
-
-      <TouchableOpacity
-        style={styles.setDeleteBtn}
-        onPress={onDelete}
-        disabled={!canDelete}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-      >
-        <Ionicons
-          name="remove-circle-outline"
-          size={20}
-          color={canDelete ? Colors.danger : Colors.cardBorder}
+        <TextInput
+          style={[styles.setInput, styles.weightInput]}
+          value={set.weight}
+          onChangeText={onChangeWeight}
+          placeholder={recommendedWeight ?? previousHint.weight ?? '0'}
+          placeholderTextColor={Colors.textMuted}
+          keyboardType="decimal-pad"
+          returnKeyType="next"
+          selectTextOnFocus
         />
-      </TouchableOpacity>
+
+        <Text style={styles.setMultiplier}>×</Text>
+
+        <TextInput
+          style={[styles.setInput, styles.repsInput]}
+          value={set.reps}
+          onChangeText={onChangeReps}
+          onBlur={onComplete}
+          placeholder={previousHint.reps ?? '0'}
+          placeholderTextColor={Colors.textMuted}
+          keyboardType="number-pad"
+          returnKeyType="done"
+          selectTextOnFocus
+        />
+
+        <TouchableOpacity
+          style={styles.setDeleteBtn}
+          onPress={onDelete}
+          disabled={!canDelete}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Ionicons
+            name="remove-circle-outline"
+            size={20}
+            color={canDelete ? Colors.danger : Colors.cardBorder}
+          />
+        </TouchableOpacity>
+      </View>
+      {record && (
+        <View style={styles.prSetBadge}>
+          <Ionicons name="trophy" size={12} color={Colors.warning} />
+          <Text style={styles.prSetBadgeText}>{formatRecordLabel(record)}</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -147,11 +203,13 @@ function SetRow({
 interface ExerciseCardProps {
   exercise: DraftExercise;
   previousExercise?: Exercise;
+  recordsBySetId: ReadonlyMap<string, SetPersonalRecord>;
   index: number;
   onUpdateName: (name: string) => void;
   onAddSet: () => void;
   onRemoveSet: (setId: string) => void;
   onUpdateSet: (setId: string, field: 'weight' | 'reps', value: string) => void;
+  onCompleteSet: (set: DraftSet) => void;
   onUpdateCardio: (
     field: 'cardioDurationMinutes' | 'distanceMiles' | 'resistanceLevel',
     value: string,
@@ -162,11 +220,13 @@ interface ExerciseCardProps {
 function ExerciseCard({
   exercise,
   previousExercise,
+  recordsBySetId,
   index,
   onUpdateName,
   onAddSet,
   onRemoveSet,
   onUpdateSet,
+  onCompleteSet,
   onUpdateCardio,
   onRemove,
 }: ExerciseCardProps) {
@@ -220,9 +280,11 @@ function ExerciseCard({
               index={setIdx}
               previousHint={getPreviousSetHint(previousExercise, setIdx)}
               recommendedWeight={exercise.recommendedWeight}
+              record={recordsBySetId.get(set.id)}
               canDelete={exercise.sets.length > 1}
               onChangeWeight={v => onUpdateSet(set.id, 'weight', v)}
               onChangeReps={v => onUpdateSet(set.id, 'reps', v)}
+              onComplete={() => onCompleteSet(set)}
               onDelete={() => onRemoveSet(set.id)}
             />
           ))}
@@ -273,6 +335,56 @@ function ExerciseCard({
   );
 }
 
+function PrCelebration({ record, onDone }: { record: PersonalRecord; onDone: () => void }) {
+  const opacity = useRef(new Animated.Value(0)).current;
+  const scale = useRef(new Animated.Value(0.72)).current;
+
+  useEffect(() => {
+    opacity.setValue(0);
+    scale.setValue(0.72);
+    Animated.sequence([
+      Animated.parallel([
+        Animated.spring(scale, {
+          toValue: 1,
+          damping: 7,
+          stiffness: 190,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 180,
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.delay(1250),
+      Animated.timing(opacity, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
+      if (finished) onDone();
+    });
+  }, [onDone, opacity, scale, record]);
+
+  return (
+    <View style={styles.prOverlay} pointerEvents="none">
+      <Animated.View style={[styles.prCelebration, { opacity, transform: [{ scale }] }]}>
+        <Text style={[styles.prSpark, styles.prSparkTopLeft]}>✦</Text>
+        <Text style={[styles.prSpark, styles.prSparkTopRight]}>★</Text>
+        <Text style={[styles.prSpark, styles.prSparkBottomLeft]}>★</Text>
+        <Text style={[styles.prSpark, styles.prSparkBottomRight]}>✦</Text>
+        <View style={styles.prTrophyRing}>
+          <Ionicons name="trophy" size={34} color={Colors.warning} />
+        </View>
+        <Text style={styles.prCelebrationEyebrow}>NEW PERSONAL RECORD</Text>
+        <Text style={styles.prCelebrationTitle}>{record.exerciseName}</Text>
+        <Text style={styles.prCelebrationValue}>{formatRecordLabel(record)}</Text>
+      </Animated.View>
+    </View>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Success state
 // ---------------------------------------------------------------------------
@@ -282,10 +394,18 @@ interface SuccessViewProps {
   insightLoading: boolean;
   insightError: string | null;
   session: WorkoutSession;
+  records: readonly SetPersonalRecord[];
   onFeedback: (feedback: { effort?: WorkoutEffort; pain?: boolean }) => Promise<void>;
 }
 
-function SuccessView({ onReset, insightLoading, insightError, session, onFeedback }: SuccessViewProps) {
+function SuccessView({
+  onReset,
+  insightLoading,
+  insightError,
+  session,
+  records,
+  onFeedback,
+}: SuccessViewProps) {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView
@@ -299,6 +419,26 @@ function SuccessView({ onReset, insightLoading, insightError, session, onFeedbac
         <Text style={styles.successSubtitle}>
           Great work. Your session has been saved.
         </Text>
+
+        {records.length > 0 && (
+          <View style={styles.successPrCard}>
+            <View style={styles.successPrHeader}>
+              <Ionicons name="sparkles" size={18} color={Colors.warning} />
+              <Text style={styles.successPrTitle}>
+                {records.length} personal record{records.length === 1 ? '' : 's'}
+              </Text>
+            </View>
+            {records.map(record => (
+              <View key={`${record.setId}:${record.kind}`} style={styles.successPrRow}>
+                <Ionicons name="trophy" size={14} color={Colors.warning} />
+                <View style={styles.successPrCopy}>
+                  <Text style={styles.successPrExercise}>{record.exerciseName}</Text>
+                  <Text style={styles.successPrValue}>{formatRecordLabel(record)}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
 
         {(insightLoading || insightError || session.coachInsight || session.insight) && (
           <CoachInsightCard
@@ -356,6 +496,12 @@ export default function LogScreen() {
   const [insightError, setInsightError] = useState<string | null>(null);
   const insightRequestSessionId = useRef<string | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState<WorkoutTemplateId | null>(null);
+  const [recordsBySetId, setRecordsBySetId] = useState<Map<string, SetPersonalRecord>>(
+    () => new Map(),
+  );
+  const [activeCelebration, setActiveCelebration] = useState<PersonalRecord | null>(null);
+  const celebratedRecordKeys = useRef(new Set<string>());
+  const dismissCelebration = useCallback(() => setActiveCelebration(null), []);
 
   const suggestedTemplateId = getSuggestedTemplateId(now.getDay());
   const planHistoryCutoff = getWorkoutPlanWeekStart(now);
@@ -396,6 +542,12 @@ export default function LogScreen() {
 
   const updateSet = useCallback(
     (exerciseId: string, setId: string, field: 'weight' | 'reps', value: string) => {
+      setRecordsBySetId(current => {
+        if (!current.has(setId)) return current;
+        const next = new Map(current);
+        next.delete(setId);
+        return next;
+      });
       setExercises(prev =>
         prev.map(e =>
           e.id === exerciseId
@@ -411,6 +563,42 @@ export default function LogScreen() {
     },
     [],
   );
+
+  const completeSet = useCallback((set: DraftSet) => {
+    const draftSession: WorkoutSession = {
+      id: 'active-draft',
+      date: new Date().toISOString(),
+      durationMinutes: 0,
+      exercises: exercises.map(draftExercise => ({
+        id: draftExercise.id,
+        name: draftExercise.name,
+        kind: draftExercise.kind,
+        sets: draftExercise.kind === 'strength'
+          ? draftExercise.sets.map(draftSet => ({
+              id: draftSet.id,
+              weight: Number.parseFloat(draftSet.weight) || 0,
+              reps: Number.parseInt(draftSet.reps, 10) || 0,
+            }))
+          : [],
+        cardioDurationMinutes: draftExercise.kind === 'cardio'
+          ? Number.parseInt(draftExercise.cardioDurationMinutes, 10) || undefined
+          : undefined,
+      })),
+    };
+    const records = findPersonalRecordsForSession(sessions, draftSession);
+    const nextRecords = new Map(records.map(record => [record.setId, record]));
+    const record = nextRecords.get(set.id);
+
+    setRecordsBySetId(nextRecords);
+
+    if (!record) return;
+    const celebrationKey = `${set.id}:${record.kind}:${record.weight}:${record.reps}`;
+    if (celebratedRecordKeys.current.has(celebrationKey)) return;
+
+    celebratedRecordKeys.current.add(celebrationKey);
+    setActiveCelebration(record);
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+  }, [exercises, sessions]);
 
   const updateCardio = useCallback(
     (
@@ -435,6 +623,9 @@ export default function LogScreen() {
       setStrengthCalories('');
       setCardioHeartRate('');
       setCardioCalories('');
+      setRecordsBySetId(new Map());
+      setActiveCelebration(null);
+      celebratedRecordKeys.current.clear();
     };
 
     if (exercises.length === 0) {
@@ -475,6 +666,8 @@ export default function LogScreen() {
       );
       return;
     }
+
+    if (!(await confirmSuspiciousEntries(validExercises))) return;
 
     const hasStrength = validExercises.some(e => e.kind === 'strength');
     const hasCardio = validExercises.some(e => e.kind === 'cardio');
@@ -636,7 +829,15 @@ export default function LogScreen() {
     setInsightLoading(false);
     setInsightError(null);
     setSelectedTemplateId(null);
+    setRecordsBySetId(new Map());
+    setActiveCelebration(null);
+    celebratedRecordKeys.current.clear();
   }, []);
+
+  const savedRecords = useMemo(
+    () => savedSession ? findPersonalRecordsForSession(sessions, savedSession) : [],
+    [savedSession, sessions],
+  );
 
   // -------------------------------------------------------------------------
 
@@ -647,6 +848,7 @@ export default function LogScreen() {
         insightLoading={insightLoading}
         insightError={insightError}
         session={savedSession}
+        records={savedRecords}
         onFeedback={async feedback => {
           const updated = await updateFeedback(savedSession.id, feedback);
           setSavedSession(updated);
@@ -783,6 +985,7 @@ export default function LogScreen() {
                   ex.kind,
                   selectedTemplateId ? planHistoryCutoff : undefined,
                 )}
+                recordsBySetId={recordsBySetId}
                 index={idx}
                 onUpdateName={name => updateExerciseName(ex.id, name)}
                 onAddSet={() => addSet(ex.id)}
@@ -790,6 +993,7 @@ export default function LogScreen() {
                 onUpdateSet={(setId, field, value) =>
                   updateSet(ex.id, setId, field, value)
                 }
+                onCompleteSet={completeSet}
                 onUpdateCardio={(field, value) => updateCardio(ex.id, field, value)}
                 onRemove={() => removeExercise(ex.id)}
               />
@@ -968,6 +1172,12 @@ export default function LogScreen() {
           <View style={{ height: Spacing.xxxl }} />
         </ScrollView>
       </KeyboardAvoidingView>
+      {activeCelebration && (
+        <PrCelebration
+          record={activeCelebration}
+          onDone={dismissCelebration}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -1230,12 +1440,31 @@ const styles = StyleSheet.create({
   },
 
   // Set row
+  setRowBlock: {
+    paddingBottom: Spacing.xs,
+  },
   setRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: Spacing.base,
     paddingVertical: Spacing.xs + 2,
     gap: Spacing.sm,
+  },
+  prSetBadge: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    marginLeft: 56,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 3,
+    backgroundColor: Colors.warningDim,
+    borderRadius: Radius.full,
+  },
+  prSetBadgeText: {
+    color: Colors.warning,
+    fontSize: FontSize.xs,
+    fontWeight: '800',
   },
   setBadge: {
     width: 24,
@@ -1431,6 +1660,44 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: Spacing.sm,
   },
+  successPrCard: {
+    alignSelf: 'stretch',
+    backgroundColor: Colors.warningDim,
+    borderColor: Colors.warning,
+    borderWidth: 1,
+    borderRadius: Radius.lg,
+    padding: Spacing.base,
+    marginVertical: Spacing.md,
+    gap: Spacing.md,
+  },
+  successPrHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  successPrTitle: {
+    color: Colors.warning,
+    fontSize: FontSize.base,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  successPrRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  successPrCopy: { flex: 1 },
+  successPrExercise: {
+    color: Colors.text,
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+  },
+  successPrValue: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.xs,
+    marginTop: 2,
+  },
   newWorkoutBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1447,6 +1714,73 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.primary,
   },
+
+  // PR celebration overlay
+  prOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.xl,
+    zIndex: 50,
+  },
+  prCelebration: {
+    width: '100%',
+    maxWidth: 360,
+    alignItems: 'center',
+    overflow: 'visible',
+    backgroundColor: '#201B05',
+    borderColor: Colors.warning,
+    borderWidth: 2,
+    borderRadius: Radius.xl,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.xxl,
+    shadowColor: Colors.warning,
+    shadowOpacity: 0.65,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 18,
+  },
+  prTrophyRing: {
+    width: 68,
+    height: 68,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: Radius.full,
+    backgroundColor: Colors.warningDim,
+    borderColor: Colors.warning,
+    borderWidth: 1,
+    marginBottom: Spacing.md,
+  },
+  prCelebrationEyebrow: {
+    color: Colors.warning,
+    fontSize: FontSize.xs,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+  },
+  prCelebrationTitle: {
+    color: Colors.text,
+    fontSize: FontSize.xl,
+    fontWeight: '900',
+    textAlign: 'center',
+    marginTop: Spacing.xs,
+  },
+  prCelebrationValue: {
+    color: Colors.warning,
+    fontSize: FontSize.base,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginTop: Spacing.sm,
+  },
+  prSpark: {
+    position: 'absolute',
+    color: Colors.warning,
+    fontSize: 26,
+    fontWeight: '900',
+  },
+  prSparkTopLeft: { top: 18, left: 24, transform: [{ rotate: '-15deg' }] },
+  prSparkTopRight: { top: 28, right: 30, transform: [{ rotate: '18deg' }] },
+  prSparkBottomLeft: { bottom: 28, left: 34, transform: [{ rotate: '12deg' }] },
+  prSparkBottomRight: { bottom: 20, right: 24, transform: [{ rotate: '-12deg' }] },
 
   // AI insight card
   insightCard: {
