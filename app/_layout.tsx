@@ -5,6 +5,7 @@ import { WorkoutsProvider } from '../context/WorkoutsContext';
 import { HealthProvider } from '../context/HealthContext';
 import { Colors } from '../constants/theme';
 import { MealNotificationCoordinator } from '../components/MealNotificationCoordinator';
+import { HealthConnectSyncCoordinator } from '../components/HealthConnectSyncCoordinator';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -15,6 +16,7 @@ export default function RootLayout() {
     <WorkoutsProvider>
       <HealthProvider>
         <MealNotificationCoordinator />
+        <HealthConnectSyncCoordinator />
         <StatusBar style="light" />
         <Stack
           screenOptions={{

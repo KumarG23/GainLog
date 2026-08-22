@@ -1,0 +1,144 @@
+export interface HealthConnectDailyInput {
+  steps?: Array<{ count: number }>;
+  distancesMeters?: number[];
+  activeCalories?: number[];
+  totalCalories?: number[];
+  sleepStages?: Array<{ stage: number; durationMinutes: number }>;
+  restingHeartRates?: number[];
+  hrvMs?: number[];
+  exerciseDurationsMinutes?: number[];
+}
+
+export interface HealthConnectDailyPayload {
+  date: string;
+  source: 'health-connect';
+  sleepMinutes?: number;
+  deepSleepMinutes?: number;
+  lightSleepMinutes?: number;
+  remSleepMinutes?: number;
+  awakeMinutes?: number;
+  restingHeartRateBpm?: number;
+  hrvMs?: number;
+  steps?: number;
+  distanceMiles?: number;
+  activeCalories?: number;
+  totalCalories?: number;
+  exerciseMinutes?: number;
+}
+
+const sum = (values: number[] | undefined) =>
+  values?.length ? values.reduce((total, value) => total + value, 0) : undefined;
+const average = (values: number[] | undefined) => {
+  const total = sum(values);
+  return total == null || !values?.length ? undefined : total / values.length;
+};
+const rounded = (value: number | undefined, digits = 2) =>
+  value == null ? undefined : Number(value.toFixed(digits));
+
+/** Maps Android stage codes: awake=1, light=4, deep=5, REM=6. */
+export function buildHealthConnectDailyPayload(
+  date: string,
+  input: HealthConnectDailyInput,
+): HealthConnectDailyPayload {
+  const stages = input.sleepStages ?? [];
+  const stageMinutes = (stage: number) => sum(stages.filter(item => item.stage === stage).map(item => item.durationMinutes));
+  const deepSleepMinutes = stageMinutes(5);
+  const lightSleepMinutes = stageMinutes(4);
+  const remSleepMinutes = stageMinutes(6);
+  const awakeMinutes = stageMinutes(1);
+  const sleepMinutes = sum([deepSleepMinutes, lightSleepMinutes, remSleepMinutes].filter((value): value is number => value != null));
+
+  const payload: HealthConnectDailyPayload = {
+    date,
+    source: 'health-connect',
+    steps: sum(input.steps?.map(item => item.count)),
+    distanceMiles: rounded(sum(input.distancesMeters)?.valueOf() ? sum(input.distancesMeters)! / 1609.344 : undefined),
+    activeCalories: rounded(sum(input.activeCalories)),
+    totalCalories: rounded(sum(input.totalCalories)),
+    sleepMinutes,
+    deepSleepMinutes,
+    lightSleepMinutes,
+    remSleepMinutes,
+    awakeMinutes,
+    restingHeartRateBpm: rounded(average(input.restingHeartRates)),
+    hrvMs: rounded(average(input.hrvMs)),
+    exerciseMinutes: sum(input.exerciseDurationsMinutes),
+  };
+  return Object.fromEntries(
+    Object.entries(payload).filter(([, value]) => value !== undefined),
+  ) as unknown as HealthConnectDailyPayload;
+}
+
+export interface HealthConnectWeightInput {
+  id: string;
+  time: string;
+  weightKg: number;
+  bodyFatPercent?: number;
+  leanMassKg?: number;
+  heightMeters?: number;
+}
+
+export function nearestRecordWithin<T extends { time: string }>(
+  items: T[],
+  time: string,
+  toleranceMinutes: number,
+): T | undefined {
+  const target = Date.parse(time);
+  const toleranceMs = toleranceMinutes * 60_000;
+  return items.reduce<T | undefined>((best, item) => {
+    const distance = Math.abs(Date.parse(item.time) - target);
+    if (!Number.isFinite(distance) || distance > toleranceMs) return best;
+    if (!best) return item;
+    return distance < Math.abs(Date.parse(best.time) - target) ? item : best;
+  }, undefined);
+}
+
+export function buildHealthConnectWeightPayload(record: HealthConnectWeightInput) {
+  const bodyFatFraction = record.bodyFatPercent == null
+    ? undefined
+    : record.bodyFatPercent / 100;
+  const leanMassKg = record.leanMassKg ?? (
+    bodyFatFraction == null ? undefined : record.weightKg * (1 - bodyFatFraction)
+  );
+  const bmi = record.heightMeters == null || record.heightMeters <= 0
+    ? undefined
+    : record.weightKg / (record.heightMeters ** 2);
+  return {
+    date: record.time,
+    weightLbs: rounded(record.weightKg * 2.2046226218, 3)!,
+    bodyFatPercent: rounded(record.bodyFatPercent, 2),
+    leanBodyMassLbs: leanMassKg == null ? undefined : rounded(leanMassKg * 2.2046226218, 3),
+    bmi: rounded(bmi, 2),
+    ...(record.leanMassKg == null && leanMassKg != null ? { leanBodyMassDerived: true } : {}),
+    source: 'health-connect' as const,
+    sourceRecordId: `health-connect:weight:${record.id}`,
+  };
+}
+
+export function sleepSessionsEndingOnDate<T extends { endTime: string }>(
+  sessions: T[],
+  date: string,
+): T[] {
+  return sessions.filter(session => {
+    const end = new Date(session.endTime);
+    const year = end.getFullYear();
+    const month = String(end.getMonth() + 1).padStart(2, '0');
+    const day = String(end.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}` === date;
+  });
+}
+
+export function recentLocalDateKeys(now = new Date(), count = 2): string[] {
+  if (!Number.isInteger(count) || count < 1) return [];
+  const dates: string[] = [];
+  for (let offset = count - 1; offset >= 0; offset -= 1) {
+    const date = new Date(now);
+    date.setHours(12, 0, 0, 0);
+    date.setDate(date.getDate() - offset);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    dates.push(`${year}-${month}-${day}`);
+  }
+  return dates;
+}

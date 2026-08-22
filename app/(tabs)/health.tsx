@@ -19,6 +19,7 @@ import { useHealth } from '../../context/HealthContext';
 import { formatVolume } from '../../utils/stats';
 import { localDateKey, localIsoTimestamp } from '../../utils/date';
 import { formatGoalTarget } from '../../utils/goals';
+import { syncHealthConnect } from '../../utils/healthConnectSync';
 
 type GoalKind = 'weight' | 'calories' | 'protein' | 'fiber' | 'workout_frequency';
 
@@ -77,6 +78,7 @@ export default function HealthScreen() {
     addGoal,
     generateDailyReview,
     updateGoal,
+    refresh,
   } = useHealth();
 
   const [weight, setWeight] = useState('');
@@ -92,6 +94,7 @@ export default function HealthScreen() {
   const [savingWeight, setSavingWeight] = useState(false);
   const [savingGoal, setSavingGoal] = useState(false);
   const [reviewingDay, setReviewingDay] = useState(false);
+  const [syncingHealthConnect, setSyncingHealthConnect] = useState(false);
 
   const activeGoals = useMemo(
     () => goals.filter(goal => goal.status === 'active'),
@@ -219,6 +222,22 @@ export default function HealthScreen() {
     }
   };
 
+  const handleHealthConnectSync = async () => {
+    setSyncingHealthConnect(true);
+    try {
+      const result = await syncHealthConnect({ requestBackgroundAccess: true });
+      await refresh();
+      Alert.alert(
+        'Health Connect synced',
+        `Refreshed ${result.dailyImports} days of activity and ${result.bodyMeasurements} body measurement${result.bodyMeasurements === 1 ? '' : 's'}.`,
+      );
+    } catch (err) {
+      Alert.alert('Health Connect sync unavailable', err instanceof Error ? err.message : 'Unable to sync Health Connect.');
+    } finally {
+      setSyncingHealthConnect(false);
+    }
+  };
+
   if (loading && !dashboardSummary) {
     return (
       <SafeAreaView style={styles.container} edges={['bottom']}>
@@ -289,7 +308,9 @@ export default function HealthScreen() {
                 <Text style={styles.measurementSource}>
                   {latestMeasurement.source === 'apple-health'
                     ? 'Apple Health'
-                    : latestMeasurement.source ?? 'Manual'}
+                    : latestMeasurement.source === 'health-connect'
+                      ? 'Health Connect'
+                      : latestMeasurement.source ?? 'Manual'}
                 </Text>
               </View>
               <View style={styles.compositionRow}>
@@ -324,11 +345,32 @@ export default function HealthScreen() {
             </View>
           )}
 
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Health Connect</Text>
+              <Text style={styles.measurementSource}>Android only</Text>
+            </View>
+            <Text style={styles.compositionHint}>
+              GainLog syncs Health Connect when the app opens and periodically in the background. Android controls the exact background timing; Sync now remains available as a recovery check.
+            </Text>
+            <TouchableOpacity
+              style={styles.primaryButton}
+              onPress={handleHealthConnectSync}
+              disabled={syncingHealthConnect}
+              accessibilityRole="button"
+              accessibilityLabel="Sync Health Connect now"
+            >
+              {syncingHealthConnect ? <ActivityIndicator color={Colors.background} /> : <Text style={styles.primaryButtonText}>Sync now</Text>}
+            </TouchableOpacity>
+          </View>
+
           {todayHealth && (
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Recovery & Activity</Text>
-                <Text style={styles.measurementSource}>Apple Health</Text>
+                <Text style={styles.measurementSource}>
+                  {todayHealth.source === 'health-connect' ? 'Health Connect' : 'Apple Health'}
+                </Text>
               </View>
               <View style={styles.compositionRow}>
                 {sleepLabel && (
@@ -357,12 +399,16 @@ export default function HealthScreen() {
                     <Text style={styles.compositionLabel}>Steps</Text>
                   </View>
                 )}
-                {todayHealth.activeCalories != null && (
+                {(todayHealth.totalCalories != null || todayHealth.activeCalories != null) && (
                   <View style={styles.compositionMetric}>
                     <Text style={styles.compositionValue}>
-                      {todayHealth.activeCalories.toFixed(0)} kcal
+                      {(todayHealth.activeCalories && todayHealth.activeCalories > 0
+                        ? todayHealth.activeCalories
+                        : todayHealth.totalCalories ?? 0).toFixed(0)} kcal
                     </Text>
-                    <Text style={styles.compositionLabel}>Active</Text>
+                    <Text style={styles.compositionLabel}>
+                      {todayHealth.activeCalories && todayHealth.activeCalories > 0 ? 'Active' : 'Total'}
+                    </Text>
                   </View>
                 )}
                 {todayHealth.exerciseMinutes != null && (

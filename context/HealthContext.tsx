@@ -8,6 +8,11 @@ import React, {
 import { API_URL } from '../constants/api';
 import { localDateKey } from '../utils/date';
 import {
+  deleteNutritionEntryFromHealthConnect,
+  syncNutritionEntriesToHealthConnect,
+  writeNutritionEntryToHealthConnect,
+} from '../utils/healthConnectNutritionBridge';
+import {
   BodyWeightEntry,
   CoachStatus,
   DailyReview,
@@ -32,6 +37,7 @@ interface HealthContextValue {
   dailyReview: DailyReview | null;
   loading: boolean;
   error: string | null;
+  nutritionHealthConnectError: string | null;
   refresh: () => Promise<void>;
   fetchNutritionEntries: (date?: string) => Promise<NutritionEntry[]>;
   generateDailyReview: (date: string) => Promise<DailyReview>;
@@ -42,6 +48,7 @@ interface HealthContextValue {
   deleteGoal: (id: string) => Promise<void>;
   addNutritionEntry: (data: CreateNutritionEntry) => Promise<NutritionEntry>;
   deleteNutritionEntry: (id: string) => Promise<void>;
+  syncNutritionToHealthConnect: () => Promise<number>;
 }
 
 const HealthContext = createContext<HealthContextValue | undefined>(undefined);
@@ -67,6 +74,7 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
   const [dailyReview, setDailyReview] = useState<DailyReview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [nutritionHealthConnectError, setNutritionHealthConnectError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -153,14 +161,43 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
       method: 'POST',
       body: JSON.stringify(data),
     });
+    try {
+      await writeNutritionEntryToHealthConnect(entry);
+      setNutritionHealthConnectError(null);
+    } catch (err) {
+      setNutritionHealthConnectError(
+        err instanceof Error ? err.message : 'Meal saved, but Health Connect export failed.',
+      );
+    }
     await refresh();
     return entry;
   }, [refresh]);
 
   const deleteNutritionEntry = useCallback(async (id: string) => {
     await apiFetch<void>(`/nutrition/${id}`, { method: 'DELETE' });
+    try {
+      await deleteNutritionEntryFromHealthConnect(id);
+      setNutritionHealthConnectError(null);
+    } catch (err) {
+      setNutritionHealthConnectError(
+        err instanceof Error ? err.message : 'Meal deleted, but Health Connect cleanup failed.',
+      );
+    }
     await refresh();
   }, [refresh]);
+
+  const syncNutritionToHealthConnect = useCallback(async () => {
+    try {
+      const entries = await apiFetch<NutritionEntry[]>('/nutrition/');
+      const result = await syncNutritionEntriesToHealthConnect(entries);
+      setNutritionHealthConnectError(null);
+      return result.written;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Health Connect nutrition sync failed.';
+      setNutritionHealthConnectError(message);
+      throw new Error(message);
+    }
+  }, []);
 
   const generateDailyReview = useCallback(async (date: string) => {
     const review = await apiFetch<DailyReview>(
@@ -182,6 +219,7 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
         dailyReview,
         loading,
         error,
+        nutritionHealthConnectError,
         refresh,
         fetchNutritionEntries,
         generateDailyReview,
@@ -192,6 +230,7 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
         deleteGoal,
         addNutritionEntry,
         deleteNutritionEntry,
+        syncNutritionToHealthConnect,
       }}
     >
       {children}

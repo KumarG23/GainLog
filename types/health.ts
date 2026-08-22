@@ -10,7 +10,7 @@ export interface BodyWeightEntry {
   notes?: string;
 }
 
-export interface AppleHealthDaily {
+export interface HealthDaily {
   date: string;
   sleepMinutes?: number;
   deepSleepMinutes?: number;
@@ -21,10 +21,11 @@ export interface AppleHealthDaily {
   hrvMs?: number;
   steps?: number;
   activeCalories?: number;
+  totalCalories?: number;
   exerciseMinutes?: number;
   standHours?: number;
   walkingRunningMiles?: number;
-  source: 'apple-health';
+  source: 'apple-health' | 'health-connect';
   updatedAt: string;
 }
 
@@ -57,7 +58,7 @@ export interface NutritionEntry {
 
 export interface DashboardSummary {
   latestWeight: BodyWeightEntry | null;
-  todayHealth: AppleHealthDaily | null;
+  todayHealth: HealthDaily | null;
   activeGoals: Goal[];
   todayNutrition: {
     calories: number;

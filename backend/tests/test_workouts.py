@@ -144,11 +144,13 @@ def test_mixed_workout_keeps_strength_and_cardio_session_metrics_separate(monkey
             "durationMinutes": 45,
             "avgHeartRate": 110,
             "activeCalories": 250,
+            "totalCalories": None,
         }
         assert body["cardioSummary"] == {
             "durationMinutes": 20,
             "avgHeartRate": 145,
             "activeCalories": 220,
+            "totalCalories": None,
         }
 
         fetched = client.get(f"/workouts/{body['id']}")
@@ -169,6 +171,52 @@ def test_mixed_workout_keeps_strength_and_cardio_session_metrics_separate(monkey
         assert insight.status_code == 200
         assert "Treat strength and cardio summaries as distinct segments" in calls["prompt"]
         assert "one combined response" in calls["prompt"]
+
+
+def test_workout_total_calories_round_trip_and_coach_context(monkeypatch):
+    reset_db()
+    with TestClient(app) as client:
+        payload = {
+            "date": "2026-08-21T07:00:00-04:00",
+            "durationMinutes": 65,
+            "totalCalories": 610,
+            "strengthSummary": {
+                "durationMinutes": 45,
+                "totalCalories": 380,
+            },
+            "cardioSummary": {
+                "durationMinutes": 20,
+                "totalCalories": 230,
+            },
+            "exercises": [
+                {"name": "Chest Press", "sets": [{"reps": 10, "weight": 120}]},
+                {
+                    "name": "Elliptical",
+                    "kind": "cardio",
+                    "sets": [],
+                    "cardioDurationMinutes": 20,
+                },
+            ],
+        }
+
+        created = client.post("/workouts/", json=payload)
+        assert created.status_code == 201
+        assert created.json()["totalCalories"] == 610
+        assert created.json()["strengthSummary"]["totalCalories"] == 380
+        assert created.json()["cardioSummary"]["totalCalories"] == 230
+
+        calls = {}
+
+        class FakeProvider:
+            def generate(self, prompt: str) -> str:
+                calls["prompt"] = prompt
+                return "Total calories retained."
+
+        monkeypatch.setattr("backend.main.get_coach_provider", lambda: FakeProvider())
+        response = client.post(f"/workouts/{created.json()['id']}/insight")
+        assert response.status_code == 200
+        assert "Total calories 380 kcal" in calls["prompt"]
+        assert "Total calories 230 kcal" in calls["prompt"]
 
 
 def test_workout_insight_returns_and_persists_structured_coaching(monkeypatch):

@@ -19,7 +19,11 @@ def test_apple_health_daily_import_is_idempotent_and_preserves_omitted_values(cl
     created = client.post("/apple-health/daily/import", json=payload)
 
     assert created.status_code == 201
-    assert created.json() == {**payload, "updatedAt": created.json()["updatedAt"]}
+    assert created.json() == {
+        **payload,
+        "totalCalories": None,
+        "updatedAt": created.json()["updatedAt"],
+    }
 
     corrected = client.post(
         "/apple-health/daily/import",

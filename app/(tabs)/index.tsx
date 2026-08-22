@@ -727,21 +727,21 @@ export default function LogScreen() {
         date: localIsoTimestamp(),
         durationMinutes: totalDuration,
         avgHeartRate: combinedHeartRate,
-        activeCalories: calorieValues.length > 0
+        totalCalories: calorieValues.length > 0
           ? calorieValues.reduce((sum, value) => sum + value, 0)
           : undefined,
         strengthSummary: hasStrength
           ? {
               durationMinutes: parsedStrengthDuration,
               avgHeartRate: parsedStrengthHeartRate,
-              activeCalories: parsedStrengthCalories,
+              totalCalories: parsedStrengthCalories,
             }
           : undefined,
         cardioSummary: hasCardio
           ? {
               durationMinutes: cardioDuration,
               avgHeartRate: parsedCardioHeartRate,
-              activeCalories: parsedCardioCalories,
+              totalCalories: parsedCardioCalories,
             }
           : undefined,
         notes: notes.trim() || undefined,
@@ -1065,7 +1065,7 @@ export default function LogScreen() {
                   <Ionicons name="flame-outline" size={16} color={Colors.warning} />
                 </View>
                 <View style={styles.metaContent}>
-                  <Text style={styles.metaLabel}>Active Calories</Text>
+                  <Text style={styles.metaLabel}>Total Calories</Text>
                   <TextInput
                     style={styles.metaInput}
                     value={strengthCalories}
@@ -1123,7 +1123,7 @@ export default function LogScreen() {
                   <Ionicons name="flame-outline" size={16} color={Colors.warning} />
                 </View>
                 <View style={styles.metaContent}>
-                  <Text style={styles.metaLabel}>Active Calories</Text>
+                  <Text style={styles.metaLabel}>Total Calories</Text>
                   <TextInput
                     style={styles.metaInput}
                     value={cardioCalories}

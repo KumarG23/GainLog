@@ -20,6 +20,7 @@ export interface WorkoutActivitySummary {
   durationMinutes: number;
   avgHeartRate?: number;
   activeCalories?: number;
+  totalCalories?: number;
 }
 
 export type WorkoutEffort = 'easy' | 'right' | 'hard';
@@ -45,6 +46,7 @@ export interface WorkoutSession {
   durationMinutes: number;
   avgHeartRate?: number; // bpm
   activeCalories?: number;
+  totalCalories?: number;
   strengthSummary?: WorkoutActivitySummary;
   cardioSummary?: WorkoutActivitySummary;
   notes?: string;

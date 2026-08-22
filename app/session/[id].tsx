@@ -248,13 +248,15 @@ export default function SessionDetailScreen() {
             </>
           )}
 
-          {session.activeCalories != null && (
+          {(session.totalCalories != null || session.activeCalories != null) && (
             <>
               <View style={styles.heroDivider} />
               <View style={styles.heroMetric}>
                 <Ionicons name="flame" size={20} color={Colors.warning} />
-                <Text style={styles.heroValue}>{session.activeCalories}</Text>
-                <Text style={styles.heroLabel}>kcal</Text>
+                <Text style={styles.heroValue}>{session.totalCalories ?? session.activeCalories}</Text>
+                <Text style={styles.heroLabel}>
+                  kcal {session.totalCalories != null ? 'total' : 'active'}
+                </Text>
               </View>
             </>
           )}
@@ -280,8 +282,10 @@ export default function SessionDetailScreen() {
                   {session.strengthSummary.avgHeartRate != null
                     ? ` · ${session.strengthSummary.avgHeartRate} avg bpm`
                     : ''}
-                  {session.strengthSummary.activeCalories != null
-                    ? ` · ${session.strengthSummary.activeCalories} kcal`
+                  {session.strengthSummary.totalCalories != null
+                    ? ` · ${session.strengthSummary.totalCalories} kcal total`
+                    : session.strengthSummary.activeCalories != null
+                      ? ` · ${session.strengthSummary.activeCalories} kcal active`
                     : ''}
                 </Text>
               </View>
@@ -297,8 +301,10 @@ export default function SessionDetailScreen() {
                   {session.cardioSummary.avgHeartRate != null
                     ? ` · ${session.cardioSummary.avgHeartRate} avg bpm`
                     : ''}
-                  {session.cardioSummary.activeCalories != null
-                    ? ` · ${session.cardioSummary.activeCalories} kcal`
+                  {session.cardioSummary.totalCalories != null
+                    ? ` · ${session.cardioSummary.totalCalories} kcal total`
+                    : session.cardioSummary.activeCalories != null
+                      ? ` · ${session.cardioSummary.activeCalories} kcal active`
                     : ''}
                 </Text>
               </View>

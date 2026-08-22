@@ -136,7 +136,7 @@ export default function TrendsScreen() {
             point.bmi == null ? null : { label: 'BMI', value: point.bmi.toFixed(1) },
             point.source == null
               ? null
-              : { label: 'Source', value: point.source === 'apple-health' ? 'Apple Health' : point.source },
+              : { label: 'Source', value: point.source === 'apple-health' ? 'Apple Health' : point.source === 'health-connect' ? 'Health Connect' : point.source },
           ].filter((detail): detail is { label: string; value: string } => detail !== null);
 
           if (metric === 'bodyFat' && point.bodyFatPercent != null) {

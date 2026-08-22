@@ -121,12 +121,15 @@ function SessionCard({ session, onPress }: SessionCardProps) {
           <Text style={styles.statText}>{session.durationMinutes} min</Text>
         </View>
 
-        {session.activeCalories != null && (
+        {(session.totalCalories != null || session.activeCalories != null) && (
           <>
             <View style={styles.statDot} />
             <View style={styles.statItem}>
               <Ionicons name="flame-outline" size={14} color={Colors.warning} />
-              <Text style={styles.statText}>{session.activeCalories} kcal</Text>
+              <Text style={styles.statText}>
+                {session.totalCalories ?? session.activeCalories} kcal
+                {session.totalCalories != null ? ' total' : ' active'}
+              </Text>
             </View>
           </>
         )}

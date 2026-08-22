@@ -63,12 +63,15 @@ class WorkoutSessionDB(SQLModel, table=True):
     duration_minutes: int
     avg_heart_rate: Optional[int] = None
     active_calories: Optional[int] = None
+    total_calories: Optional[int] = None
     strength_duration_minutes: Optional[int] = None
     strength_avg_heart_rate: Optional[int] = None
     strength_active_calories: Optional[int] = None
+    strength_total_calories: Optional[int] = None
     cardio_duration_minutes: Optional[int] = None
     cardio_avg_heart_rate: Optional[int] = None
     cardio_active_calories: Optional[int] = None
+    cardio_total_calories: Optional[int] = None
     notes: Optional[str] = None
     insight: Optional[str] = None
     insight_json: Optional[str] = None
@@ -103,6 +106,7 @@ class AppleHealthDailyDB(SQLModel, table=True):
     hrv_ms: Optional[float] = None
     steps: Optional[int] = None
     active_calories: Optional[float] = None
+    total_calories: Optional[float] = None
     exercise_minutes: Optional[int] = None
     stand_hours: Optional[int] = None
     walking_running_miles: Optional[float] = None
@@ -193,6 +197,7 @@ class ActivitySummary(CamelModel):
     duration_minutes: int
     avg_heart_rate: Optional[int] = None
     active_calories: Optional[int] = None
+    total_calories: Optional[int] = None
 
 
 class CoachNextAction(CamelModel):
@@ -224,6 +229,7 @@ class WorkoutSessionOut(CamelModel):
     duration_minutes: int
     avg_heart_rate: Optional[int] = None
     active_calories: Optional[int] = None
+    total_calories: Optional[int] = None
     strength_summary: Optional[ActivitySummary] = None
     cardio_summary: Optional[ActivitySummary] = None
     notes: Optional[str] = None
@@ -241,6 +247,7 @@ class WorkoutSessionIn(CamelModel):
     duration_minutes: int
     avg_heart_rate: Optional[int] = None
     active_calories: Optional[int] = None
+    total_calories: Optional[int] = None
     strength_summary: Optional[ActivitySummary] = None
     cardio_summary: Optional[ActivitySummary] = None
     notes: Optional[str] = None
@@ -271,7 +278,7 @@ class BodyWeightEntryIn(CamelModel):
     body_fat_percent: Optional[float] = Field(default=None, ge=0, le=100)
     lean_body_mass_lbs: Optional[float] = Field(default=None, gt=0, le=1500)
     bmi: Optional[float] = Field(default=None, ge=5, le=100)
-    source: Optional[Literal["apple-health", "renpho-csv", "manual"]] = None
+    source: Optional[Literal["apple-health", "health-connect", "renpho-csv", "manual"]] = None
     source_record_id: Optional[str] = Field(default=None, max_length=500)
     notes: Optional[str] = None
 
@@ -287,10 +294,11 @@ class AppleHealthDailyOut(CamelModel):
     hrv_ms: Optional[float] = None
     steps: Optional[int] = None
     active_calories: Optional[float] = None
+    total_calories: Optional[float] = None
     exercise_minutes: Optional[int] = None
     stand_hours: Optional[int] = None
     walking_running_miles: Optional[float] = None
-    source: Literal["apple-health"] = "apple-health"
+    source: Literal["apple-health", "health-connect"] = "apple-health"
     updated_at: str
 
 
@@ -305,6 +313,7 @@ class AppleHealthDailyIn(CamelModel):
     hrv_ms: Optional[float] = Field(default=None, ge=0, le=1000)
     steps: Optional[int] = Field(default=None, ge=0, le=200000)
     active_calories: Optional[float] = Field(default=None, ge=0, le=20000)
+    total_calories: Optional[float] = Field(default=None, ge=0, le=20000)
     exercise_minutes: Optional[int] = Field(default=None, ge=0, le=1440)
     stand_hours: Optional[int] = Field(default=None, ge=0, le=24)
     walking_running_miles: Optional[float] = Field(default=None, ge=0, le=200)
@@ -320,6 +329,28 @@ class AppleHealthDailyIn(CamelModel):
         if parsed.isoformat() != value:
             raise ValueError("date must use YYYY-MM-DD")
         return value
+
+
+class HealthConnectDailyIn(CamelModel):
+    date: str
+    sleep_minutes: Optional[int] = Field(default=None, ge=0, le=1440)
+    deep_sleep_minutes: Optional[int] = Field(default=None, ge=0, le=1440)
+    light_sleep_minutes: Optional[int] = Field(default=None, ge=0, le=1440)
+    rem_sleep_minutes: Optional[int] = Field(default=None, ge=0, le=1440)
+    awake_minutes: Optional[int] = Field(default=None, ge=0, le=1440)
+    resting_heart_rate_bpm: Optional[float] = Field(default=None, ge=20, le=250)
+    hrv_ms: Optional[float] = Field(default=None, ge=0, le=1000)
+    steps: Optional[int] = Field(default=None, ge=0, le=200000)
+    distance_miles: Optional[float] = Field(default=None, ge=0, le=200)
+    active_calories: Optional[float] = Field(default=None, ge=0, le=20000)
+    total_calories: Optional[float] = Field(default=None, ge=0, le=20000)
+    exercise_minutes: Optional[int] = Field(default=None, ge=0, le=1440)
+    source: Literal["health-connect"] = "health-connect"
+
+    @field_validator("date")
+    @classmethod
+    def validate_date(cls, value: str) -> str:
+        return AppleHealthDailyIn.validate_date(value)
 
 
 class HealthAutoExportImportOut(CamelModel):
@@ -445,9 +476,12 @@ async def lifespan(_: FastAPI):
             "ALTER TABLE workout_session ADD COLUMN strength_duration_minutes INTEGER",
             "ALTER TABLE workout_session ADD COLUMN strength_avg_heart_rate INTEGER",
             "ALTER TABLE workout_session ADD COLUMN strength_active_calories INTEGER",
+            "ALTER TABLE workout_session ADD COLUMN total_calories INTEGER",
+            "ALTER TABLE workout_session ADD COLUMN strength_total_calories INTEGER",
             "ALTER TABLE workout_session ADD COLUMN cardio_duration_minutes INTEGER",
             "ALTER TABLE workout_session ADD COLUMN cardio_avg_heart_rate INTEGER",
             "ALTER TABLE workout_session ADD COLUMN cardio_active_calories INTEGER",
+            "ALTER TABLE workout_session ADD COLUMN cardio_total_calories INTEGER",
             "ALTER TABLE workout_session ADD COLUMN insight_json TEXT",
             "ALTER TABLE workout_session ADD COLUMN template_id TEXT",
             "ALTER TABLE workout_session ADD COLUMN effort TEXT",
@@ -460,6 +494,7 @@ async def lifespan(_: FastAPI):
             "ALTER TABLE body_weight_entry ADD COLUMN source_record_id TEXT",
             "ALTER TABLE goal ADD COLUMN minimum_value REAL",
             "ALTER TABLE goal ADD COLUMN maximum_value REAL",
+            "ALTER TABLE apple_health_daily ADD COLUMN total_calories REAL",
         ]
         for statement in migrations:
             try:
@@ -547,6 +582,7 @@ def _to_out(s: WorkoutSessionDB) -> WorkoutSessionOut:
             duration_minutes=s.strength_duration_minutes,
             avg_heart_rate=s.strength_avg_heart_rate,
             active_calories=s.strength_active_calories,
+            total_calories=s.strength_total_calories,
         )
         if s.strength_duration_minutes is not None
         else None
@@ -556,6 +592,7 @@ def _to_out(s: WorkoutSessionDB) -> WorkoutSessionOut:
             duration_minutes=s.cardio_duration_minutes,
             avg_heart_rate=s.cardio_avg_heart_rate,
             active_calories=s.cardio_active_calories,
+            total_calories=s.cardio_total_calories,
         )
         if s.cardio_duration_minutes is not None
         else None
@@ -567,6 +604,7 @@ def _to_out(s: WorkoutSessionDB) -> WorkoutSessionOut:
         duration_minutes=s.duration_minutes,
         avg_heart_rate=s.avg_heart_rate,
         active_calories=s.active_calories,
+        total_calories=s.total_calories,
         strength_summary=strength_summary,
         cardio_summary=cardio_summary,
         notes=s.notes,
@@ -806,19 +844,25 @@ def _format_session(s: WorkoutSessionDB, label: str) -> str:
         details = [f"{s.strength_duration_minutes} min"]
         if s.strength_avg_heart_rate is not None:
             details.append(f"Avg HR {s.strength_avg_heart_rate} bpm")
-        if s.strength_active_calories is not None:
+        if s.strength_total_calories is not None:
+            details.append(f"Total calories {s.strength_total_calories} kcal")
+        elif s.strength_active_calories is not None:
             details.append(f"{s.strength_active_calories} kcal")
         lines.append(f"  Strength session: {', '.join(details)}")
     if s.cardio_duration_minutes is not None:
         details = [f"{s.cardio_duration_minutes} min"]
         if s.cardio_avg_heart_rate is not None:
             details.append(f"Avg HR {s.cardio_avg_heart_rate} bpm")
-        if s.cardio_active_calories is not None:
+        if s.cardio_total_calories is not None:
+            details.append(f"Total calories {s.cardio_total_calories} kcal")
+        elif s.cardio_active_calories is not None:
             details.append(f"{s.cardio_active_calories} kcal")
         lines.append(f"  Cardio session: {', '.join(details)}")
     if s.avg_heart_rate:
         lines.append(f"  Avg HR: {s.avg_heart_rate} bpm")
-    if s.active_calories:
+    if s.total_calories:
+        lines.append(f"  Total calories: {s.total_calories} kcal")
+    elif s.active_calories:
         lines.append(f"  Calories: {s.active_calories} kcal")
     if s.template_id:
         lines.append(f"  Workout plan: {s.template_id}")
@@ -1352,6 +1396,8 @@ def get_apple_health_daily(date: str, db: Session = Depends(get_db)):
 def _upsert_apple_health_daily(
     payload: AppleHealthDailyIn,
     db: Session,
+    *,
+    source: Literal["apple-health", "health-connect"] = "apple-health",
 ) -> tuple[AppleHealthDailyDB, bool]:
     metrics = payload.model_dump(exclude={"date", "source"}, exclude_none=True)
     if not metrics:
@@ -1361,7 +1407,7 @@ def _upsert_apple_health_daily(
     updated_at = datetime.now(timezone.utc).isoformat()
     insert_statement = sqlite_insert(AppleHealthDailyDB).values(
         date=payload.date,
-        source=payload.source,
+        source=source,
         updated_at=updated_at,
         **metrics,
     )
@@ -1404,6 +1450,10 @@ def _upsert_apple_health_daily(
                 insert_statement.excluded.active_calories,
                 AppleHealthDailyDB.active_calories,
             ),
+            "total_calories": func.coalesce(
+                insert_statement.excluded.total_calories,
+                AppleHealthDailyDB.total_calories,
+            ),
             "exercise_minutes": func.coalesce(
                 insert_statement.excluded.exercise_minutes,
                 AppleHealthDailyDB.exercise_minutes,
@@ -1439,6 +1489,35 @@ def import_apple_health_daily(
 ):
     row, created = _upsert_apple_health_daily(payload, db)
     db.commit()
+    response.status_code = 201 if created else 200
+    return _apple_health_daily_to_out(row)
+
+
+@app.post(
+    "/health-connect/daily/import",
+    response_model=AppleHealthDailyOut,
+    response_model_by_alias=True,
+    dependencies=[Depends(require_native_health_import)],
+    responses={201: {"model": AppleHealthDailyOut, "description": "Daily summary created"}},
+)
+def import_health_connect_daily(
+    payload: HealthConnectDailyIn,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    # Health Connect LIGHT is the closest equivalent to the app's existing CORE
+    # sleep field. Android has no defensible Apple Stand Hours equivalent.
+    apple_shape = AppleHealthDailyIn(
+        **payload.model_dump(
+            exclude={"light_sleep_minutes", "distance_miles", "source"},
+            exclude_none=True,
+        ),
+        core_sleep_minutes=payload.light_sleep_minutes,
+        walking_running_miles=payload.distance_miles,
+    )
+    row, created = _upsert_apple_health_daily(apple_shape, db, source="health-connect")
+    db.commit()
+    db.refresh(row)
     response.status_code = 201 if created else 200
     return _apple_health_daily_to_out(row)
 
@@ -1784,6 +1863,7 @@ def create_workout(payload: WorkoutSessionIn, db: Session = Depends(get_db)):
         duration_minutes=payload.duration_minutes,
         avg_heart_rate=payload.avg_heart_rate,
         active_calories=payload.active_calories,
+        total_calories=payload.total_calories,
         strength_duration_minutes=(
             payload.strength_summary.duration_minutes if payload.strength_summary else None
         ),
@@ -1793,6 +1873,9 @@ def create_workout(payload: WorkoutSessionIn, db: Session = Depends(get_db)):
         strength_active_calories=(
             payload.strength_summary.active_calories if payload.strength_summary else None
         ),
+        strength_total_calories=(
+            payload.strength_summary.total_calories if payload.strength_summary else None
+        ),
         cardio_duration_minutes=(
             payload.cardio_summary.duration_minutes if payload.cardio_summary else None
         ),
@@ -1801,6 +1884,9 @@ def create_workout(payload: WorkoutSessionIn, db: Session = Depends(get_db)):
         ),
         cardio_active_calories=(
             payload.cardio_summary.active_calories if payload.cardio_summary else None
+        ),
+        cardio_total_calories=(
+            payload.cardio_summary.total_calories if payload.cardio_summary else None
         ),
         notes=payload.notes,
         template_id=payload.template_id,
