@@ -10,9 +10,12 @@ import {
   buildHealthConnectDailyPayload,
   buildHealthConnectWeightPayload,
   collectPaginatedRecords,
+  FITBIT_DATA_ORIGIN,
   nearestRecordWithin,
+  preferredDataOriginRecords,
   preferredFitbitDataOriginFilter,
   recentLocalDateKeys,
+  RENPHO_DATA_ORIGIN,
   selectBestSleepSession,
   sleepSessionsEndingOnDate,
   stepTotalFromAggregate,
@@ -134,36 +137,34 @@ async function syncDate(day: string): Promise<number> {
     })),
   }));
   const selectedSleep = selectBestSleepSession(sleep);
-  const selectedSleepOrigin = selectedSleep?.metadata?.dataOrigin;
-  const sleepAggregate = selectedSleep && selectedSleepOrigin
-    ? await aggregateRecord({
-      recordType: 'SleepSession',
-      timeRangeFilter: {
-        operator: 'between',
-        startTime: selectedSleep.startTime,
-        endTime: selectedSleep.endTime,
-      },
-      dataOriginFilter: [selectedSleepOrigin],
-    })
-    : undefined;
-  const sleepDurationSeconds = sleepAggregate?.dataOrigins?.length
-    ? sleepAggregate.SLEEP_DURATION_TOTAL
-    : undefined;
+  const fitbitDistance = preferredDataOriginRecords(distance, FITBIT_DATA_ORIGIN);
+  const fitbitActiveCalories = preferredDataOriginRecords(calories, FITBIT_DATA_ORIGIN);
+  const fitbitTotalCalories = preferredDataOriginRecords(totalCalories, FITBIT_DATA_ORIGIN);
+  const fitbitRestingHr = preferredDataOriginRecords(restingHr, FITBIT_DATA_ORIGIN);
+  const fitbitHrv = preferredDataOriginRecords(hrv, FITBIT_DATA_ORIGIN);
+  const fitbitExercise = preferredDataOriginRecords(exercise, FITBIT_DATA_ORIGIN);
+  const renphoWeights = preferredDataOriginRecords(weights, RENPHO_DATA_ORIGIN);
   const daily = buildHealthConnectDailyPayload(day, {
     stepsTotal: stepTotalFromAggregate(stepsAggregate),
-    distancesMeters: distance.map(item => item.distance.inMeters),
-    activeCalories: calories.map(item => item.energy.inKilocalories),
-    totalCalories: totalCalories.map(item => item.energy.inKilocalories),
-    sleepDurationSeconds,
+    distancesMeters: fitbitDistance.map(item => item.distance.inMeters),
+    activeCalories: fitbitActiveCalories.map(item => item.energy.inKilocalories),
+    totalCalories: fitbitTotalCalories.map(item => item.energy.inKilocalories),
     sleepStages: selectedSleep?.stages,
-    restingHeartRates: restingHr.map(item => item.beatsPerMinute),
-    hrvMs: hrv.map(item => item.heartRateVariabilityMillis),
-    exerciseDurationsMinutes: exercise.map(item => minutesBetween(item.startTime, item.endTime)),
+    restingHeartRates: fitbitRestingHr.map(item => item.beatsPerMinute),
+    hrvMs: fitbitHrv.map(item => item.heartRateVariabilityMillis),
+    exerciseDurationsMinutes: fitbitExercise.map(item => minutesBetween(item.startTime, item.endTime)),
   });
   await post('/health-connect/daily/import', daily);
-  for (const weight of weights) {
-    const fat = nearestRecordWithin(bodyFat, weight.time, 15);
-    const lean = nearestRecordWithin(leanMass, weight.time, 15);
+  for (const weight of renphoWeights) {
+    const weightOrigin = weight.metadata?.dataOrigin;
+    const matchingBodyFat = weightOrigin
+      ? bodyFat.filter(item => item.metadata?.dataOrigin === weightOrigin)
+      : bodyFat;
+    const matchingLeanMass = weightOrigin
+      ? leanMass.filter(item => item.metadata?.dataOrigin === weightOrigin)
+      : leanMass;
+    const fat = nearestRecordWithin(matchingBodyFat, weight.time, 15);
+    const lean = nearestRecordWithin(matchingLeanMass, weight.time, 15);
     const height = nearestRecordWithin(heights, weight.time, 24 * 60);
     await post('/body-weight/import', buildHealthConnectWeightPayload({
       id: weight.metadata?.id ?? weight.time,
@@ -174,7 +175,7 @@ async function syncDate(day: string): Promise<number> {
       heightMeters: height?.height?.inMeters,
     }));
   }
-  return weights.length;
+  return renphoWeights.length;
 }
 
 /**

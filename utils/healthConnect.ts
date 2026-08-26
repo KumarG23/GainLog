@@ -44,6 +44,14 @@ export function stepTotalFromAggregate(aggregate: {
 }
 
 export const FITBIT_DATA_ORIGIN = 'com.fitbit.FitbitMobile';
+export const RENPHO_DATA_ORIGIN = 'com.renpho.health';
+
+export function preferredDataOriginRecords<
+  T extends { metadata?: { dataOrigin?: string } },
+>(records: T[], preferredOrigin: string): T[] {
+  const preferred = records.filter(record => record.metadata?.dataOrigin === preferredOrigin);
+  return preferred.length ? preferred : records;
+}
 
 export function preferredFitbitDataOriginFilter(
   records: Array<{ metadata?: { dataOrigin?: string } }>,

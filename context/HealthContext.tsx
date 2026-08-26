@@ -9,9 +9,9 @@ import { API_URL } from '../constants/api';
 import { localDateKey } from '../utils/date';
 import {
   deleteNutritionEntryFromHealthConnect,
-  syncNutritionEntriesToHealthConnect,
   writeNutritionEntryToHealthConnect,
 } from '../utils/healthConnectNutritionBridge';
+import { repairAllNutritionToHealthConnect } from '../utils/healthConnectNutritionAutoSync';
 import {
   BodyWeightEntry,
   CoachStatus,
@@ -188,10 +188,9 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
 
   const syncNutritionToHealthConnect = useCallback(async () => {
     try {
-      const entries = await apiFetch<NutritionEntry[]>('/nutrition/');
-      const result = await syncNutritionEntriesToHealthConnect(entries);
+      const written = await repairAllNutritionToHealthConnect();
       setNutritionHealthConnectError(null);
-      return result.written;
+      return written;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Health Connect nutrition sync failed.';
       setNutritionHealthConnectError(message);

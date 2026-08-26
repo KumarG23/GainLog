@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, List, Literal, Optional, cast
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 from pydantic.alias_generators import to_camel
@@ -141,6 +141,14 @@ class NutritionEntryDB(SQLModel, table=True):
     fat_g: float = 0
     fiber_g: float = 0
     notes: Optional[str] = None
+
+
+class NutritionSyncEventDB(SQLModel, table=True):
+    __tablename__ = "nutrition_sync_event"
+    cursor: Optional[int] = Field(default=None, primary_key=True)
+    operation: str
+    entry_id: str
+    payload_json: Optional[str] = None
 
 
 class DailyReviewDB(SQLModel, table=True):
@@ -422,6 +430,37 @@ class NutritionEntryIn(CamelModel):
     fat_g: float = 0
     fiber_g: float = 0
     notes: Optional[str] = None
+
+
+class NutritionEntryPatch(CamelModel):
+    date: Optional[str] = None
+    meal: Optional[str] = None
+    name: Optional[str] = None
+    calories: Optional[int] = None
+    protein_g: Optional[float] = None
+    carbs_g: Optional[float] = None
+    fat_g: Optional[float] = None
+    fiber_g: Optional[float] = None
+    notes: Optional[str] = None
+
+
+class NutritionSyncEventOut(CamelModel):
+    cursor: int
+    operation: Literal["upsert", "delete"]
+    entry_id: str
+    entry: Optional[NutritionEntryOut] = None
+
+
+class NutritionSyncFeedOut(CamelModel):
+    events: List[NutritionSyncEventOut]
+    next_cursor: int
+    latest_cursor: int
+    has_more: bool
+
+
+class NutritionSyncBootstrapOut(CamelModel):
+    entries: List[NutritionEntryOut]
+    latest_cursor: int
 
 
 class NutritionTotals(CamelModel):
@@ -749,6 +788,27 @@ def _nutrition_to_out(entry: NutritionEntryDB) -> NutritionEntryOut:
         fat_g=entry.fat_g,
         fiber_g=entry.fiber_g,
         notes=entry.notes,
+    )
+
+
+def _queue_nutrition_sync_event(
+    db: Session,
+    operation: Literal["upsert", "delete"],
+    entry_id: str,
+    entry: Optional[NutritionEntryDB] = None,
+) -> None:
+    payload_json = None
+    if entry is not None:
+        payload_json = json.dumps(
+            _nutrition_to_out(entry).model_dump(by_alias=True),
+            separators=(",", ":"),
+        )
+    db.add(
+        NutritionSyncEventDB(
+            operation=operation,
+            entry_id=entry_id,
+            payload_json=payload_json,
+        )
     )
 
 
@@ -1798,9 +1858,70 @@ def create_nutrition(payload: NutritionEntryIn, db: Session = Depends(get_db)):
         notes=payload.notes,
     )
     db.add(row)
+    _queue_nutrition_sync_event(db, "upsert", entry_id, row)
     db.commit()
     row = db.get(NutritionEntryDB, entry_id)
     return _nutrition_to_out(row)
+
+
+@app.get(
+    "/nutrition/sync/bootstrap",
+    response_model=NutritionSyncBootstrapOut,
+    response_model_by_alias=True,
+)
+def get_nutrition_sync_bootstrap(
+    since: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    db: Session = Depends(get_db),
+):
+    # Capture the high-water mark first. Any mutation committed after this read
+    # remains above the returned cursor and is picked up by incremental sync.
+    latest_cursor = db.exec(select(func.max(NutritionSyncEventDB.cursor))).one() or 0
+    rows = db.exec(
+        select(NutritionEntryDB)
+        .where(NutritionEntryDB.date >= since)
+        .order_by(NutritionEntryDB.date.desc())
+    ).all()
+    return NutritionSyncBootstrapOut(
+        entries=[_nutrition_to_out(row) for row in rows],
+        latest_cursor=latest_cursor,
+    )
+
+
+@app.get("/nutrition/sync", response_model=NutritionSyncFeedOut, response_model_by_alias=True)
+def get_nutrition_sync_feed(
+    after: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    rows = db.exec(
+        select(NutritionSyncEventDB)
+        .where(NutritionSyncEventDB.cursor > after)
+        .order_by(NutritionSyncEventDB.cursor)
+        .limit(limit + 1)
+    ).all()
+    has_more = len(rows) > limit
+    page = rows[:limit]
+    latest_cursor = db.exec(select(func.max(NutritionSyncEventDB.cursor))).one() or 0
+    next_cursor = cast(int, page[-1].cursor) if page else after
+    events = []
+    for row in page:
+        entry = None
+        if row.payload_json is not None:
+            entry = NutritionEntryOut.model_validate(json.loads(row.payload_json))
+        events.append(
+            NutritionSyncEventOut(
+                cursor=cast(int, row.cursor),
+                operation=cast(Literal["upsert", "delete"], row.operation),
+                entry_id=row.entry_id,
+                entry=entry,
+            )
+        )
+    return NutritionSyncFeedOut(
+        events=events,
+        next_cursor=next_cursor,
+        latest_cursor=latest_cursor,
+        has_more=has_more,
+    )
 
 
 @app.get("/nutrition/{entry_id}", response_model=NutritionEntryOut, response_model_by_alias=True)
@@ -1811,12 +1932,31 @@ def get_nutrition(entry_id: str, db: Session = Depends(get_db)):
     return _nutrition_to_out(row)
 
 
+@app.patch("/nutrition/{entry_id}", response_model=NutritionEntryOut, response_model_by_alias=True)
+def update_nutrition(
+    entry_id: str,
+    payload: NutritionEntryPatch,
+    db: Session = Depends(get_db),
+):
+    row = db.get(NutritionEntryDB, entry_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Nutrition entry not found")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(row, field, value)
+    db.add(row)
+    _queue_nutrition_sync_event(db, "upsert", entry_id, row)
+    db.commit()
+    db.refresh(row)
+    return _nutrition_to_out(row)
+
+
 @app.delete("/nutrition/{entry_id}", status_code=204)
 def delete_nutrition(entry_id: str, db: Session = Depends(get_db)):
     row = db.get(NutritionEntryDB, entry_id)
     if not row:
         raise HTTPException(status_code=404, detail="Nutrition entry not found")
     db.delete(row)
+    _queue_nutrition_sync_event(db, "delete", entry_id)
     db.commit()
 
 

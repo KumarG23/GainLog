@@ -181,8 +181,8 @@ export default function NutritionScreen() {
     try {
       const written = await syncNutritionToHealthConnect();
       Alert.alert(
-        'Nutrition synced',
-        `Wrote ${written} GainLog meal${written === 1 ? '' : 's'} to Health Connect.`,
+        'Nutrition repair complete',
+        `Reconciled ${written} GainLog meal${written === 1 ? '' : 's'} with Health Connect.`,
       );
     } catch (err) {
       Alert.alert(
@@ -246,7 +246,7 @@ export default function NutritionScreen() {
               style={[styles.primaryButton, syncingNutrition && styles.buttonDisabled]}
               onPress={handleNutritionSync}
               disabled={syncingNutrition}
-              accessibilityLabel="Sync GainLog nutrition to Health Connect"
+              accessibilityLabel="Repair all GainLog nutrition in Health Connect"
             >
               {syncingNutrition ? (
                 <ActivityIndicator size="small" color={Colors.text} />
@@ -254,7 +254,7 @@ export default function NutritionScreen() {
                 <Ionicons name="sync-outline" size={16} color={Colors.text} />
               )}
               <Text style={styles.primaryButtonText}>
-                {syncingNutrition ? 'Syncing nutrition' : 'Sync nutrition to Health Connect'}
+                {syncingNutrition ? 'Repairing nutrition' : 'Repair all nutrition in Health Connect'}
               </Text>
             </TouchableOpacity>
           )}

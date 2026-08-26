@@ -6,18 +6,28 @@ import { AppState, Platform } from 'react-native';
 import { useHealth } from '../context/HealthContext';
 import {
   AUTO_SYNC_INTERVAL_MS,
-  shouldAttemptHealthConnectAutoSync,
+  runIndependentAutoSyncLanes,
+  type AutoSyncLaneResult,
 } from '../utils/healthConnectAutoSync';
+import {
+  hasNutritionAutoSyncAccess,
+  syncIncrementalNutritionToHealthConnect,
+} from '../utils/healthConnectNutritionAutoSync';
 import {
   hasHealthConnectBackgroundAccess,
   syncHealthConnect,
 } from '../utils/healthConnectSync';
 
 const TASK_NAME = 'gainlog-health-connect-auto-sync';
-const LAST_SUCCESS_KEY = 'gainlog.healthConnect.lastSuccessfulAutoSync';
+const HEALTH_SUCCESS_KEY = 'gainlog.healthConnect.lastSuccessfulAutoSync';
+const NUTRITION_SUCCESS_KEY = 'gainlog.healthConnect.lastSuccessfulNutritionAutoSync';
+const SUCCESS_KEYS: Record<string, string> = {
+  health: HEALTH_SUCCESS_KEY,
+  nutrition: NUTRITION_SUCCESS_KEY,
+};
 const BACKGROUND_INTERVAL_MINUTES = AUTO_SYNC_INTERVAL_MS / 60_000;
 
-let activeSync: Promise<boolean> | null = null;
+let activeSync: Promise<AutoSyncLaneResult> | null = null;
 
 async function performAutoSync({
   requestPermissions,
@@ -25,25 +35,54 @@ async function performAutoSync({
 }: {
   requestPermissions: boolean;
   force?: boolean;
-}): Promise<boolean> {
-  if (Platform.OS !== 'android') return false;
+}): Promise<AutoSyncLaneResult> {
+  if (Platform.OS !== 'android') {
+    return { attempted: [], succeeded: [], failed: [] };
+  }
   if (activeSync) return activeSync;
 
   activeSync = (async () => {
-    const lastSuccessValue = await AsyncStorage.getItem(LAST_SUCCESS_KEY);
-    const lastSuccessMs = lastSuccessValue == null ? null : Number(lastSuccessValue);
-    if (!force && !shouldAttemptHealthConnectAutoSync({
-      nowMs: Date.now(),
-      lastSuccessMs,
-    })) return false;
+    const [hasHealthAccess, hasNutritionAccess] = await Promise.all([
+      requestPermissions ? Promise.resolve(true) : hasHealthConnectBackgroundAccess(),
+      hasNutritionAutoSyncAccess(),
+    ]);
+    const laneNames = [
+      ...(hasHealthAccess ? ['health'] : []),
+      ...(hasNutritionAccess ? ['nutrition'] : []),
+    ];
+    const lastSuccessValues = await Promise.all(
+      laneNames.map(name => AsyncStorage.getItem(SUCCESS_KEYS[name])),
+    );
+    const lastSuccessByName = new Map(
+      laneNames.map((name, index) => {
+        const value = lastSuccessValues[index];
+        return [name, value == null ? null : Number(value)] as const;
+      }),
+    );
 
-    await syncHealthConnect({
-      requestPermissions,
-      requestBackgroundAccess: requestPermissions,
-      days: 2,
+    return runIndependentAutoSyncLanes({
+      nowMs: Date.now(),
+      force,
+      lanes: [
+        ...(hasHealthAccess ? [{
+          name: 'health',
+          lastSuccessMs: lastSuccessByName.get('health') ?? null,
+          run: async () => {
+            await syncHealthConnect({
+              requestPermissions,
+              requestBackgroundAccess: requestPermissions,
+              days: 2,
+            });
+          },
+        }] : []),
+        ...(hasNutritionAccess ? [{
+          name: 'nutrition',
+          lastSuccessMs: lastSuccessByName.get('nutrition') ?? null,
+          run: async () => { await syncIncrementalNutritionToHealthConnect(); },
+        }] : []),
+      ],
+      saveSuccess: (name, nowMs) => AsyncStorage.setItem(SUCCESS_KEYS[name], String(nowMs)),
     });
-    await AsyncStorage.setItem(LAST_SUCCESS_KEY, String(Date.now()));
-    return true;
   })();
 
   try {
@@ -56,11 +95,10 @@ async function performAutoSync({
 if (Platform.OS === 'android' && !TaskManager.isTaskDefined(TASK_NAME)) {
   TaskManager.defineTask(TASK_NAME, async () => {
     try {
-      if (!await hasHealthConnectBackgroundAccess()) {
-        return BackgroundTask.BackgroundTaskResult.Success;
-      }
-      await performAutoSync({ requestPermissions: false });
-      return BackgroundTask.BackgroundTaskResult.Success;
+      const result = await performAutoSync({ requestPermissions: false });
+      return result.failed.length > 0
+        ? BackgroundTask.BackgroundTaskResult.Failed
+        : BackgroundTask.BackgroundTaskResult.Success;
     } catch (error) {
       console.warn('Background Health Connect sync failed', error);
       return BackgroundTask.BackgroundTaskResult.Failed;
@@ -72,7 +110,11 @@ async function registerBackgroundSyncIfAllowed() {
   if (Platform.OS !== 'android') return;
   if (!await TaskManager.isAvailableAsync()) return;
   if (await BackgroundTask.getStatusAsync() !== BackgroundTask.BackgroundTaskStatus.Available) return;
-  if (!await hasHealthConnectBackgroundAccess()) return;
+  const [hasHealthAccess, hasNutritionAccess] = await Promise.all([
+    hasHealthConnectBackgroundAccess(),
+    hasNutritionAutoSyncAccess(),
+  ]);
+  if (!hasHealthAccess && !hasNutritionAccess) return;
   await BackgroundTask.registerTaskAsync(TASK_NAME, {
     minimumInterval: BACKGROUND_INTERVAL_MINUTES,
   });
@@ -84,8 +126,11 @@ export function HealthConnectSyncCoordinator() {
   const syncWhenActive = useCallback(async () => {
     if (Platform.OS !== 'android') return;
     try {
-      const synced = await performAutoSync({ requestPermissions: true });
-      if (synced) await refresh();
+      const result = await performAutoSync({ requestPermissions: true });
+      if (result.succeeded.includes('health')) await refresh();
+      if (result.failed.length > 0) {
+        console.warn('Automatic Health Connect sync lanes failed', result.failed);
+      }
       try {
         await registerBackgroundSyncIfAllowed();
       } catch (error) {

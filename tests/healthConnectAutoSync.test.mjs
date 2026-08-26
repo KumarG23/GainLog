@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   AUTO_SYNC_INTERVAL_MS,
+  runIndependentAutoSyncLanes,
   shouldAttemptHealthConnectAutoSync,
 } from '../utils/healthConnectAutoSync.ts';
 
@@ -38,4 +39,62 @@ test('a failed sync is not recorded as a successful throttle point', () => {
     nowMs,
     lastSuccessMs: null,
   }), true);
+});
+
+test('a failed health import does not block the independent nutrition export lane', async () => {
+  const ran = [];
+  const saved = [];
+  const result = await runIndependentAutoSyncLanes({
+    nowMs: 1234,
+    force: false,
+    lanes: [
+      {
+        name: 'health',
+        lastSuccessMs: null,
+        run: async () => {
+          ran.push('health');
+          throw new Error('health import failed');
+        },
+      },
+      {
+        name: 'nutrition',
+        lastSuccessMs: null,
+        run: async () => { ran.push('nutrition'); },
+      },
+    ],
+    saveSuccess: async (name, value) => { saved.push([name, value]); },
+  });
+
+  assert.deepEqual(ran, ['health', 'nutrition']);
+  assert.deepEqual(saved, [['nutrition', 1234]]);
+  assert.deepEqual(result, {
+    attempted: ['health', 'nutrition'],
+    succeeded: ['nutrition'],
+    failed: ['health'],
+  });
+});
+
+test('each automatic sync lane uses its own freshness timestamp', async () => {
+  const nowMs = Date.parse('2026-08-21T09:00:00-04:00');
+  const ran = [];
+  const result = await runIndependentAutoSyncLanes({
+    nowMs,
+    force: false,
+    lanes: [
+      {
+        name: 'health',
+        lastSuccessMs: nowMs - 1,
+        run: async () => { ran.push('health'); },
+      },
+      {
+        name: 'nutrition',
+        lastSuccessMs: null,
+        run: async () => { ran.push('nutrition'); },
+      },
+    ],
+    saveSuccess: async () => {},
+  });
+
+  assert.deepEqual(ran, ['nutrition']);
+  assert.deepEqual(result.succeeded, ['nutrition']);
 });

@@ -5,8 +5,10 @@ import {
   buildHealthConnectWeightPayload,
   collectPaginatedRecords,
   nearestRecordWithin,
+  preferredDataOriginRecords,
   preferredFitbitDataOriginFilter,
   recentLocalDateKeys,
+  RENPHO_DATA_ORIGIN,
   selectBestSleepSession,
   sleepSessionsEndingOnDate,
   stepTotalFromAggregate,
@@ -28,6 +30,26 @@ test('Fitbit is selected as the authoritative origin when its records are availa
   assert.equal(preferredFitbitDataOriginFilter([
     { metadata: { dataOrigin: 'com.google.android.apps.fitness' } },
   ]), undefined);
+});
+
+test('watch metrics prefer Fitbit records without discarding a valid fallback', () => {
+  const google = { value: 10, metadata: { dataOrigin: 'com.google.android.apps.fitness' } };
+  const fitbit = { value: 20, metadata: { dataOrigin: 'com.fitbit.FitbitMobile' } };
+  assert.deepEqual(
+    preferredDataOriginRecords([google, fitbit], 'com.fitbit.FitbitMobile'),
+    [fitbit],
+  );
+  assert.deepEqual(
+    preferredDataOriginRecords([google], 'com.fitbit.FitbitMobile'),
+    [google],
+  );
+});
+
+test('body composition recognizes RENPHO as the authoritative scale source', () => {
+  assert.equal(RENPHO_DATA_ORIGIN, 'com.renpho.health');
+  const phone = { metadata: { dataOrigin: 'com.google.android.apps.fitness' } };
+  const renpho = { metadata: { dataOrigin: RENPHO_DATA_ORIGIN } };
+  assert.deepEqual(preferredDataOriginRecords([phone, renpho], RENPHO_DATA_ORIGIN), [renpho]);
 });
 
 test('Health Connect mapper uses the deduplicated aggregate step total', () => {
