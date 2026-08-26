@@ -196,8 +196,6 @@ def parse_sleep_summary(record: dict[str, Any]) -> dict[str, int | str | None]:
         if "minutesAwake" in record
         else stages.get("AWAKE")
     )
-    if awake is not None and "AWAKE" in stages and awake != stages["AWAKE"]:
-        raise GoogleHealthDataError("conflicting awake sleep summaries")
 
     return {
         "date": end_date,

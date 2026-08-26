@@ -80,6 +80,31 @@ def test_google_health_parses_reconciled_sleep_fixture_with_int64_strings():
                       "deep_sleep_minutes": 82, "rem_sleep_minutes": 99, "awake_minutes": 55}
 
 
+def test_google_health_sleep_uses_summary_awake_when_stage_rounding_differs():
+    from backend.google_health import parse_reconciled_sleep
+
+    parsed = parse_reconciled_sleep({
+        "dataPointName": "users/me/dataTypes/sleep/dataPoints/sleep-rounded",
+        "sleep": {
+            "interval": {"endTime": "2026-08-26T07:30:00-04:00"},
+            "metadata": {"mainSleep": True, "processed": True, "nap": False},
+            "summary": {
+                "minutesAsleep": "440",
+                "minutesAwake": "55",
+                "stagesSummary": [
+                    {"type": "LIGHT", "minutes": "259"},
+                    {"type": "DEEP", "minutes": "82"},
+                    {"type": "REM", "minutes": "99"},
+                    {"type": "AWAKE", "minutes": "54"},
+                ],
+            },
+        },
+    })
+
+    assert parsed["sleep_minutes"] == 440
+    assert parsed["awake_minutes"] == 55
+
+
 def test_google_health_sync_range_is_bounded_and_uses_closed_open_dates():
     from backend.google_health import google_health_sync_range
 
