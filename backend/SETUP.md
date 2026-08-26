@@ -10,22 +10,22 @@ sudo apt update && sudo apt install -y python3 python3-venv python3-pip
 
 ```bash
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin gainlog
-sudo mkdir -p /opt/gainlog/backend/data
+sudo mkdir -p /opt/gainlog/backend-git/data
 sudo chown -R gainlog:gainlog /opt/gainlog
 ```
 
 ## 3. Copy the backend files
 
 ```bash
-sudo cp -r backend/* /opt/gainlog/backend/
+sudo cp -r backend/* /opt/gainlog/backend-git/
 ```
 
 ## 4. Create a virtual environment and install dependencies
 
 ```bash
-sudo -u gainlog python3 -m venv /opt/gainlog/venv
-sudo -u gainlog /opt/gainlog/venv/bin/pip install --upgrade pip
-sudo -u gainlog /opt/gainlog/venv/bin/pip install -r /opt/gainlog/backend/requirements.txt
+sudo -u gainlog python3 -m venv /opt/gainlog/venv-new
+sudo -u gainlog /opt/gainlog/venv-new/bin/pip install --upgrade pip
+sudo -u gainlog /opt/gainlog/venv-new/bin/pip install -r /opt/gainlog/backend-git/requirements.txt
 ```
 
 ## 5. Local AI Coach with Ollama
@@ -38,6 +38,7 @@ Environment variables are loaded by systemd from `/etc/gainlog.env`:
 sudo install -m 600 -o root -g root /dev/null /etc/gainlog.env
 sudo tee /etc/gainlog.env >/dev/null <<'EOF'
 GAINLOG_COACH_PROVIDER=ollama
+GAINLOG_DATABASE_URL=sqlite:////opt/gainlog/backend-git/data/gainlog.db
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen2.5:7b
 OLLAMA_TIMEOUT_SECONDS=60
@@ -74,10 +75,11 @@ ANTHROPIC_MODEL=claude-sonnet-4-20250514
 ## 6. Install and enable the systemd service
 
 ```bash
-sudo cp /opt/gainlog/backend/gainlog.service /etc/systemd/system/gainlog.service
+sudo cp /opt/gainlog/backend-git/gainlog.service /etc/systemd/system/gainlog.service
+sudo cp /opt/gainlog/backend-git/gainlog-google-health-sync.service /etc/systemd/system/
+sudo cp /opt/gainlog/backend-git/gainlog-google-health-sync.timer /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable gainlog
-sudo systemctl start gainlog
+sudo systemctl enable --now gainlog.service gainlog-google-health-sync.timer
 ```
 
 ## 7. Verify it's running
@@ -108,7 +110,7 @@ sudo journalctl -u gainlog -f
 sudo systemctl restart gainlog
 
 # Database location
-/opt/gainlog/backend/data/gainlog.db
+/opt/gainlog/backend-git/data/gainlog.db
 ```
 
 ## Firewall (ufw)

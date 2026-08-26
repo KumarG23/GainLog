@@ -1,0 +1,21 @@
+[Unit]
+Description=GainLog bounded Google Health reconciliation
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=gainlog
+Group=gainlog
+WorkingDirectory=/opt/gainlog/backend-git
+EnvironmentFile=/etc/gainlog.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment="GAINLOG_DATABASE_URL=sqlite:////opt/gainlog/backend-git/data/gainlog.db"
+ExecStart=/opt/gainlog/venv-new/bin/python -m google_health_sync
+TimeoutStartSec=2min
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/gainlog/backend-git/data

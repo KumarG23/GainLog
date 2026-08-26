@@ -25,7 +25,7 @@ export interface HealthDaily {
   exerciseMinutes?: number;
   standHours?: number;
   walkingRunningMiles?: number;
-  source: 'apple-health' | 'health-connect';
+  source: 'apple-health' | 'health-connect' | 'google-health';
   updatedAt: string;
 }
 

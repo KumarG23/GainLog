@@ -1,9 +1,10 @@
 import json
 import math
 import os
+import secrets
 import uuid
 from contextlib import asynccontextmanager
-from datetime import date as date_cls, datetime, timezone
+from datetime import date as date_cls, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, List, Literal, Optional, cast
 
@@ -15,6 +16,20 @@ from pydantic.alias_generators import to_camel
 from sqlalchemy import func, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Field, Relationship, Session, SQLModel, create_engine, select
+import requests
+
+try:
+    from .google_health import (
+        GOOGLE_HEALTH_CALLBACK_URL, GOOGLE_OWNED_FIELDS,
+        GoogleHealthConfigurationError, GoogleHealthDataError, build_authorization_url,
+        require_google_health_config, sync_google_health as run_google_health_sync,
+    )
+except ImportError:
+    from google_health import (
+        GOOGLE_HEALTH_CALLBACK_URL, GOOGLE_OWNED_FIELDS,
+        GoogleHealthConfigurationError, GoogleHealthDataError, build_authorization_url,
+        require_google_health_config, sync_google_health as run_google_health_sync,
+    )
 
 try:
     from .coach import get_coach_provider
@@ -156,6 +171,45 @@ class DailyReviewDB(SQLModel, table=True):
     date: str = Field(primary_key=True)
     review: str
     generated_at: str
+
+
+class GoogleHealthOAuthStateDB(SQLModel, table=True):
+    __tablename__ = "google_health_oauth_state"
+    state: str = Field(primary_key=True)
+    code_verifier: str
+    expires_at: str
+    consumed_at: Optional[str] = None
+
+
+class GoogleHealthConnectionDB(SQLModel, table=True):
+    __tablename__ = "google_health_connection"
+    id: str = Field(default="primary", primary_key=True)
+    encrypted_refresh_token: Optional[str] = None
+    status: str = "disconnected"
+    last_success_at: Optional[str] = None
+    last_attempt_at: Optional[str] = None
+    last_error: Optional[str] = None
+    last_sync_count: int = 0
+    last_sync_start: Optional[str] = None
+    last_sync_end: Optional[str] = None
+
+
+class GoogleHealthDailySnapshotDB(SQLModel, table=True):
+    __tablename__ = "google_health_daily_snapshot"
+    date: str = Field(primary_key=True)
+    sleep_minutes: Optional[int] = None
+    deep_sleep_minutes: Optional[int] = None
+    core_sleep_minutes: Optional[int] = None
+    rem_sleep_minutes: Optional[int] = None
+    awake_minutes: Optional[int] = None
+    resting_heart_rate_bpm: Optional[float] = None
+    hrv_ms: Optional[float] = None
+    steps: Optional[int] = None
+    active_calories: Optional[float] = None
+    total_calories: Optional[float] = None
+    exercise_minutes: Optional[int] = None
+    walking_running_miles: Optional[float] = None
+    source_updated_at: str
 
 
 def get_db():
@@ -306,7 +360,7 @@ class AppleHealthDailyOut(CamelModel):
     exercise_minutes: Optional[int] = None
     stand_hours: Optional[int] = None
     walking_running_miles: Optional[float] = None
-    source: Literal["apple-health", "health-connect"] = "apple-health"
+    source: Literal["apple-health", "health-connect", "google-health"] = "apple-health"
     updated_at: str
 
 
@@ -353,6 +407,7 @@ class HealthConnectDailyIn(CamelModel):
     active_calories: Optional[float] = Field(default=None, ge=0, le=20000)
     total_calories: Optional[float] = Field(default=None, ge=0, le=20000)
     exercise_minutes: Optional[int] = Field(default=None, ge=0, le=1440)
+    replace_existing: bool = False
     source: Literal["health-connect"] = "health-connect"
 
     @field_validator("date")
@@ -491,6 +546,30 @@ class CoachStatusOut(CamelModel):
 class InsightResponse(CamelModel):
     insight: str
     coach_insight: CoachInsight
+
+
+class GoogleHealthStatusOut(CamelModel):
+    connected: bool
+    configured: bool
+    last_success_at: Optional[str] = None
+    last_attempt_at: Optional[str] = None
+    last_error: Optional[str] = None
+    last_sync_count: int = 0
+    last_sync_start: Optional[str] = None
+    last_sync_end: Optional[str] = None
+
+
+class GoogleHealthSyncIn(CamelModel):
+    # Routine reconciliation remains bounded; historical import is explicit.
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    backfill: bool = False
+
+
+class GoogleHealthSyncOut(CamelModel):
+    synced_days: int
+    start_date: str
+    end_date: str
 
 
 class DailyReviewOut(CamelModel):
@@ -1199,6 +1278,113 @@ def health():
     return {"status": "ok"}
 
 
+def _google_health_status(db: Session) -> GoogleHealthStatusOut:
+    row = db.get(GoogleHealthConnectionDB, "primary")
+    try:
+        require_google_health_config()
+        configured = True
+    except GoogleHealthConfigurationError:
+        configured = False
+    return GoogleHealthStatusOut(
+        connected=bool(row and row.status == "connected" and row.encrypted_refresh_token),
+        configured=configured,
+        last_success_at=row.last_success_at if row else None,
+        last_attempt_at=row.last_attempt_at if row else None,
+        last_error=row.last_error if row else None,
+        last_sync_count=row.last_sync_count if row else 0,
+        last_sync_start=row.last_sync_start if row else None,
+        last_sync_end=row.last_sync_end if row else None,
+    )
+
+
+@app.get("/integrations/google-health/oauth/start")
+def google_health_oauth_start(db: Session = Depends(get_db)):
+    try:
+        client_id, _, _ = require_google_health_config()
+    except GoogleHealthConfigurationError as exc:
+        raise HTTPException(status_code=503, detail="Google Health integration is not configured") from exc
+    state = secrets.token_urlsafe(32)
+    url, verifier = build_authorization_url(state, client_id)
+    db.add(GoogleHealthOAuthStateDB(
+        state=state, code_verifier=verifier,
+        expires_at=(datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+    ))
+    db.commit()
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url, status_code=307)
+
+
+@app.get("/integrations/google-health/oauth/callback")
+def google_health_oauth_callback(
+    state: str = "", code: str = "", error: str = "", db: Session = Depends(get_db)
+):
+    from fastapi.responses import HTMLResponse
+    safe_failure = "<!doctype html><title>GainLog connection failed</title><p>Connection could not be completed. Return to GainLog and try again.</p>"
+    if error or not state or not code:
+        return HTMLResponse(safe_failure, status_code=400)
+    row = db.get(GoogleHealthOAuthStateDB, state)
+    now = datetime.now(timezone.utc)
+    if not row or row.consumed_at or datetime.fromisoformat(row.expires_at) <= now:
+        return HTMLResponse(safe_failure, status_code=400)
+    # Mark consumed before the network exchange so callback replay cannot exchange twice.
+    row.consumed_at = now.isoformat()
+    db.add(row); db.commit()
+    try:
+        client_id, client_secret, cipher = require_google_health_config()
+        response = requests.post(
+            "https://oauth2.googleapis.com/token",
+            data={"code": code, "client_id": client_id, "client_secret": client_secret,
+                  "redirect_uri": GOOGLE_HEALTH_CALLBACK_URL,
+                  "grant_type": "authorization_code", "code_verifier": row.code_verifier},
+            timeout=15,
+        )
+        payload = response.json() if response.ok else {}
+        refresh_token = payload.get("refresh_token")
+        if not isinstance(refresh_token, str) or not refresh_token:
+            raise ValueError("refresh token unavailable")
+        connection = db.get(GoogleHealthConnectionDB, "primary") or GoogleHealthConnectionDB()
+        connection.encrypted_refresh_token = cipher.encrypt(refresh_token)
+        connection.status = "connected"; connection.last_error = None
+        db.add(connection); db.commit()
+    except Exception:
+        # Never include provider responses, authorization code, or tokens in output/logs.
+        connection = db.get(GoogleHealthConnectionDB, "primary") or GoogleHealthConnectionDB()
+        connection.status = "error"; connection.last_error = "Authorization exchange failed"
+        db.add(connection); db.commit()
+        return HTMLResponse(safe_failure, status_code=400)
+    return HTMLResponse("<!doctype html><title>GainLog connected</title><p>Google Health connected. You may return to GainLog.</p>")
+
+
+@app.get("/integrations/google-health/status", response_model=GoogleHealthStatusOut, response_model_by_alias=True)
+def google_health_status(db: Session = Depends(get_db)):
+    return _google_health_status(db)
+
+
+@app.post("/integrations/google-health/sync", response_model=GoogleHealthSyncOut, response_model_by_alias=True)
+def google_health_sync(payload: GoogleHealthSyncIn, db: Session = Depends(get_db)):
+    try:
+        return run_google_health_sync(db, start_date=payload.start_date, end_date=payload.end_date, backfill=payload.backfill)
+    except GoogleHealthDataError as exc:
+        status = 409 if str(exc) == "Google Health is not connected" else 503
+        raise HTTPException(status_code=status, detail="Google Health synchronization failed" if status == 503 else str(exc)) from exc
+
+
+@app.delete("/integrations/google-health/connection", status_code=204)
+def google_health_disconnect(db: Session = Depends(get_db)):
+    row = db.get(GoogleHealthConnectionDB, "primary")
+    if not row:
+        return Response(status_code=204)
+    # Revocation is deliberately best-effort; deleting local access is authoritative.
+    try:
+        _, _, cipher = require_google_health_config()
+        if row.encrypted_refresh_token:
+            requests.post("https://oauth2.googleapis.com/revoke", params={"token": cipher.decrypt(row.encrypted_refresh_token)}, timeout=10)
+    except Exception:
+        pass
+    db.delete(row); db.commit()
+    return Response(status_code=204)
+
+
 @app.get("/coach/status", response_model=CoachStatusOut, response_model_by_alias=True)
 def get_coach_status():
     return _get_coach_status()
@@ -1457,17 +1643,55 @@ def _upsert_apple_health_daily(
     payload: AppleHealthDailyIn,
     db: Session,
     *,
-    source: Literal["apple-health", "health-connect"] = "apple-health",
+    source: Literal["apple-health", "health-connect", "google-health"] = "apple-health",
+    replace_existing: bool = False,
 ) -> tuple[AppleHealthDailyDB, bool]:
     metrics = payload.model_dump(exclude={"date", "source"}, exclude_none=True)
-    if not metrics:
+    if not metrics and not replace_existing:
         raise HTTPException(status_code=422, detail="At least one health metric is required")
 
     existing = db.get(AppleHealthDailyDB, payload.date)
+    if replace_existing:
+        metrics = {
+            field: getattr(payload, field)
+            for field in AppleHealthDailyIn.model_fields
+            if field not in {"date", "source"}
+        }
+
+    # Google owns only the wearable fields it actually reconciled. Health
+    # Connect and Apple Health remain fallback sources for missing fields, but
+    # cannot overwrite an authoritative Google value on a later sync.
+    effective_source = source
+    google_connection = db.get(GoogleHealthConnectionDB, "primary")
+    google_authority_active = bool(
+        google_connection and google_connection.encrypted_refresh_token
+    )
+    if source != "google-health" and google_authority_active:
+        snapshot = db.get(GoogleHealthDailySnapshotDB, payload.date)
+        authoritative = snapshot
+        if authoritative is None and existing and existing.source == "google-health":
+            authoritative = existing
+        google_values = {
+            field: getattr(authoritative, field)
+            for field in GOOGLE_OWNED_FIELDS
+            if authoritative is not None and getattr(authoritative, field) is not None
+        }
+        if google_values:
+            metrics.update(google_values)
+            effective_source = "google-health"
+
     updated_at = datetime.now(timezone.utc).isoformat()
+    if replace_existing and existing:
+        for field, value in metrics.items():
+            setattr(existing, field, value)
+        existing.source = effective_source
+        existing.updated_at = updated_at
+        db.add(existing)
+        return existing, False
+
     insert_statement = sqlite_insert(AppleHealthDailyDB).values(
         date=payload.date,
-        source=source,
+        source=effective_source,
         updated_at=updated_at,
         **metrics,
     )
@@ -1569,13 +1793,18 @@ def import_health_connect_daily(
     # sleep field. Android has no defensible Apple Stand Hours equivalent.
     apple_shape = AppleHealthDailyIn(
         **payload.model_dump(
-            exclude={"light_sleep_minutes", "distance_miles", "source"},
+            exclude={"light_sleep_minutes", "distance_miles", "replace_existing", "source"},
             exclude_none=True,
         ),
         core_sleep_minutes=payload.light_sleep_minutes,
         walking_running_miles=payload.distance_miles,
     )
-    row, created = _upsert_apple_health_daily(apple_shape, db, source="health-connect")
+    row, created = _upsert_apple_health_daily(
+        apple_shape,
+        db,
+        source="health-connect",
+        replace_existing=payload.replace_existing,
+    )
     db.commit()
     db.refresh(row)
     response.status_code = 201 if created else 200

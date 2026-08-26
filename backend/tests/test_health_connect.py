@@ -80,3 +80,57 @@ def test_health_connect_body_weight_import_uses_stable_source_record_id(client):
     assert corrected.json()["id"] == created.json()["id"]
     assert corrected.json()["weightLbs"] == 200.8
     assert len(client.get("/body-weight/").json()) == 1
+
+
+def test_health_connect_reconciliation_replaces_removed_daily_metrics(client):
+    created = client.post(
+        "/health-connect/daily/import",
+        json={
+            "date": "2026-08-22",
+            "sleepMinutes": 440,
+            "steps": 8100,
+            "activeCalories": 500,
+            "source": "health-connect",
+        },
+    )
+    assert created.status_code == 201
+
+    replaced = client.post(
+        "/health-connect/daily/import",
+        json={
+            "date": "2026-08-22",
+            "steps": 8200,
+            "replaceExisting": True,
+            "source": "health-connect",
+        },
+    )
+
+    assert replaced.status_code == 200
+    assert replaced.json()["steps"] == 8200
+    assert replaced.json()["sleepMinutes"] is None
+    assert replaced.json()["activeCalories"] is None
+
+
+def test_health_connect_reconciliation_can_clear_an_empty_day(client):
+    created = client.post(
+        "/health-connect/daily/import",
+        json={
+            "date": "2026-08-23",
+            "steps": 5000,
+            "source": "health-connect",
+        },
+    )
+    assert created.status_code == 201
+
+    cleared = client.post(
+        "/health-connect/daily/import",
+        json={
+            "date": "2026-08-23",
+            "replaceExisting": True,
+            "source": "health-connect",
+        },
+    )
+
+    assert cleared.status_code == 200
+    assert cleared.json()["steps"] is None
+    assert cleared.json()["sleepMinutes"] is None
