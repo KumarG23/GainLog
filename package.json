@@ -1,7 +1,7 @@
 {
   "name": "gainlog-sdk54",
   "main": "expo-router/entry",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "scripts": {
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
@@ -19,7 +19,8 @@
     "test:health-connect": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/healthConnect.test.mjs",
     "test:health-connect-auto": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/healthConnectAutoSync.test.mjs",
     "test:health-connect-nutrition": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/healthConnectNutrition.test.mjs",
-    "test": "npm run test:notifications && npm run test:nutrition-memory && npm run test:workout-templates && npm run test:workout-history && npm run test:workout-records && npm run test:trends && npm run test:goals && npm run test:health-connect && npm run test:health-connect-auto && npm run test:health-connect-nutrition"
+    "test:api-config": "NODE_NO_WARNINGS=1 node --test tests/apiConfig.test.mjs",
+    "test": "npm run test:notifications && npm run test:nutrition-memory && npm run test:workout-templates && npm run test:workout-history && npm run test:workout-records && npm run test:trends && npm run test:goals && npm run test:health-connect && npm run test:health-connect-auto && npm run test:health-connect-nutrition && npm run test:api-config"
   },
   "dependencies": {
     "@expo/ngrok": "^4.1.3",
