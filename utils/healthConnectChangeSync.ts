@@ -174,18 +174,51 @@ export function indexHealthConnectRecords(
   return index;
 }
 
+export function stampHealthConnectRecordType<
+  T extends Omit<HealthConnectChangeRecord, 'recordType'>,
+>(recordType: string, records: T[]): Array<T & { recordType: string }> {
+  return records.map(record => ({ ...record, recordType }));
+}
+
+export function indexHealthConnectWeightRecords(
+  records: Omit<HealthConnectChangeRecord, 'recordType'>[],
+): Record<string, HealthConnectRecordIndexEntry> {
+  return indexHealthConnectRecords(stampHealthConnectRecordType('Weight', records));
+}
+
 export function buildHealthConnectWeightReconcilePayload(
   records: Record<string, HealthConnectRecordIndexEntry>,
   startTime: string,
   endTime: string,
+  observedRecordCount: number,
 ) {
   return {
     startTime,
     endTime,
+    observedRecordCount,
     sourceRecordIds: Object.entries(records)
       .filter(([, entry]) => entry.recordType === 'Weight')
       .map(([recordId]) => `health-connect:weight:${recordId}`)
       .sort(),
+  };
+}
+
+export function prepareHealthConnectWeightReconciliation<
+  T extends Omit<HealthConnectChangeRecord, 'recordType'>,
+>(observedRecords: T[], startTime: string, endTime: string) {
+  const records = observedRecords.filter(
+    (record): record is T & { metadata: { id: string } } => (
+      typeof record.metadata?.id === 'string' && record.metadata.id.length > 0
+    ),
+  );
+  return {
+    records,
+    payload: buildHealthConnectWeightReconcilePayload(
+      indexHealthConnectWeightRecords(records),
+      startTime,
+      endTime,
+      observedRecords.length,
+    ),
   };
 }
 

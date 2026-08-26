@@ -9,7 +9,13 @@ Group=gainlog
 WorkingDirectory=/opt/gainlog/backend-git
 EnvironmentFile=/etc/gainlog.env
 Environment="GAINLOG_DATABASE_URL=sqlite:////opt/gainlog/backend-git/data/gainlog.db"
-ExecStart=/opt/gainlog/venv-new/bin/uvicorn main:app --host 127.0.0.1 --port 8000
+ExecStart=/opt/gainlog/venv-new/bin/uvicorn main:app --host 127.0.0.1 --port 8000 --no-access-log
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/gainlog/backend-git/data
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1

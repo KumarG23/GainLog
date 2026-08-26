@@ -15,7 +15,6 @@ import {
   FITBIT_DATA_ORIGIN,
   healthConnectInitialBootstrapRequiresRepair,
   healthConnectRepairDateKeys,
-  healthConnectRecordsWithStableIds,
   nearestRecordWithin,
   preferredDataOriginRecords,
   preferredFitbitDataOriginFilter,
@@ -27,13 +26,14 @@ import {
   type HealthConnectRepairState,
 } from './healthConnect';
 import {
-  buildHealthConnectWeightReconcilePayload,
   createSerialTaskRunner,
   HealthConnectRepairRequiredError,
   indexHealthConnectRecords,
   loadHealthConnectSyncState,
   parseHealthConnectSyncState,
+  prepareHealthConnectWeightReconciliation,
   runHealthConnectChangeSync,
+  stampHealthConnectRecordType,
   type HealthConnectChangePage,
   type HealthConnectChangeRecord,
 } from './healthConnectChangeSync';
@@ -102,7 +102,10 @@ const records = async (recordType: any, timeRangeFilter: any) => collectPaginate
       pageSize: 1000,
       pageToken,
     });
-    return { records: page.records as any[], pageToken: page.pageToken };
+    return {
+      records: stampHealthConnectRecordType(recordType, page.records as any[]),
+      pageToken: page.pageToken,
+    };
   },
 );
 const minutesBetween = (start: string, end: string) => Math.max(
@@ -175,9 +178,16 @@ async function syncDate(day: string): Promise<{
   const fitbitRestingHr = preferredDataOriginRecords(restingHr, FITBIT_DATA_ORIGIN);
   const fitbitHrv = preferredDataOriginRecords(hrv, FITBIT_DATA_ORIGIN);
   const fitbitExercise = preferredDataOriginRecords(exercise, FITBIT_DATA_ORIGIN);
-  const renphoWeights = healthConnectRecordsWithStableIds(
-    preferredDataOriginRecords(weights, RENPHO_DATA_ORIGIN),
+  const observedRenphoWeights = preferredDataOriginRecords(weights, RENPHO_DATA_ORIGIN);
+  const reconcileStart = new Date(`${day}T00:00:00`);
+  const reconcileEnd = new Date(reconcileStart);
+  reconcileEnd.setDate(reconcileEnd.getDate() + 1);
+  const weightReconciliation = prepareHealthConnectWeightReconciliation(
+    observedRenphoWeights,
+    reconcileStart.toISOString(),
+    reconcileEnd.toISOString(),
   );
+  const renphoWeights = weightReconciliation.records;
   const daily = buildHealthConnectDailyPayload(day, {
     stepsTotal: stepTotalFromAggregate(stepsAggregate),
     distancesMeters: fitbitDistance.map(item => item.distance.inMeters),
@@ -209,15 +219,9 @@ async function syncDate(day: string): Promise<{
       heightMeters: height?.height?.inMeters,
     }));
   }
-  const reconcileEnd = new Date(`${day}T00:00:00`);
-  reconcileEnd.setDate(reconcileEnd.getDate() + 1);
   await post(
     '/health-connect/body-weight/reconcile',
-    buildHealthConnectWeightReconcilePayload(
-      indexHealthConnectRecords(renphoWeights as HealthConnectChangeRecord[]),
-      new Date(`${day}T00:00:00`).toISOString(),
-      reconcileEnd.toISOString(),
-    ),
+    weightReconciliation.payload,
   );
   return {
     bodyMeasurements: renphoWeights.length,

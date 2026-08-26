@@ -22,7 +22,24 @@ def test_production_units_pin_the_same_database_url(unit_name: str) -> None:
 def test_api_unit_accepts_traffic_only_from_the_local_tailnet_proxy() -> None:
     unit = (BACKEND_DIR / "gainlog.service").read_text()
 
-    assert "uvicorn main:app --host 127.0.0.1 --port 8000" in unit
+    assert (
+        "uvicorn main:app --host 127.0.0.1 --port 8000 --no-access-log"
+        in unit
+    )
+
+
+def test_api_unit_limits_write_access_and_process_privileges() -> None:
+    unit = (BACKEND_DIR / "gainlog.service").read_text()
+
+    for directive in (
+        "UMask=0077",
+        "NoNewPrivileges=true",
+        "PrivateTmp=true",
+        "ProtectHome=true",
+        "ProtectSystem=strict",
+        "ReadWritePaths=/opt/gainlog/backend-git/data",
+    ):
+        assert directive in unit
 
 
 def test_documented_deployment_never_copies_the_mutable_database() -> None:

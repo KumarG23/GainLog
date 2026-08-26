@@ -164,6 +164,7 @@ def test_health_connect_body_weight_range_reconciliation_prunes_unknown_tombston
         "startTime": "2026-08-21T00:00:00-04:00",
         "endTime": "2026-08-23T00:00:00-04:00",
         "sourceRecordIds": ["health-connect:weight:keep"],
+        "observedRecordCount": 1,
     }
     first = client.post("/health-connect/body-weight/reconcile", json=payload)
     second = client.post("/health-connect/body-weight/reconcile", json=payload)
@@ -176,6 +177,145 @@ def test_health_connect_body_weight_range_reconciliation_prunes_unknown_tombston
         "health-connect:weight:outside",
         "health-connect:weight:keep",
     }
+
+
+def test_health_connect_legacy_empty_reconcile_cannot_delete_populated_range(client):
+    imported = client.post(
+        "/body-weight/import",
+        json={
+            "date": "2026-08-21T07:00:00-04:00",
+            "weightLbs": 200,
+            "source": "health-connect",
+            "sourceRecordId": "health-connect:weight:must-survive",
+        },
+    )
+    assert imported.status_code == 201
+
+    rejected = client.post(
+        "/health-connect/body-weight/reconcile",
+        json={
+            "startTime": "2026-08-21T00:00:00-04:00",
+            "endTime": "2026-08-22T00:00:00-04:00",
+            "sourceRecordIds": [],
+        },
+    )
+
+    assert rejected.status_code == 409
+    assert [
+        row["sourceRecordId"] for row in client.get("/body-weight/").json()
+    ] == ["health-connect:weight:must-survive"]
+
+
+def test_health_connect_legacy_partial_reconcile_cannot_delete_omitted_rows(client):
+    for record_id in ("keep", "must-survive"):
+        imported = client.post(
+            "/body-weight/import",
+            json={
+                "date": "2026-08-21T07:00:00-04:00",
+                "weightLbs": 200,
+                "source": "health-connect",
+                "sourceRecordId": f"health-connect:weight:{record_id}",
+            },
+        )
+        assert imported.status_code == 201
+
+    rejected = client.post(
+        "/health-connect/body-weight/reconcile",
+        json={
+            "startTime": "2026-08-21T00:00:00-04:00",
+            "endTime": "2026-08-22T00:00:00-04:00",
+            "sourceRecordIds": ["health-connect:weight:keep"],
+        },
+    )
+
+    assert rejected.status_code == 409
+    assert {row["sourceRecordId"] for row in client.get("/body-weight/").json()} == {
+        "health-connect:weight:keep",
+        "health-connect:weight:must-survive",
+    }
+
+
+def test_health_connect_legacy_full_retain_reconcile_remains_a_noop(client):
+    imported = client.post(
+        "/body-weight/import",
+        json={
+            "date": "2026-08-21T07:00:00-04:00",
+            "weightLbs": 200,
+            "source": "health-connect",
+            "sourceRecordId": "health-connect:weight:keep",
+        },
+    )
+    assert imported.status_code == 201
+
+    reconciled = client.post(
+        "/health-connect/body-weight/reconcile",
+        json={
+            "startTime": "2026-08-21T00:00:00-04:00",
+            "endTime": "2026-08-22T00:00:00-04:00",
+            "sourceRecordIds": ["health-connect:weight:keep"],
+        },
+    )
+
+    assert reconciled.status_code == 200
+    assert reconciled.json() == {"deleted": 0}
+    assert [
+        row["sourceRecordId"] for row in client.get("/body-weight/").json()
+    ] == ["health-connect:weight:keep"]
+
+
+def test_health_connect_authoritative_zero_can_prune_a_populated_range(client):
+    imported = client.post(
+        "/body-weight/import",
+        json={
+            "date": "2026-08-21T07:00:00-04:00",
+            "weightLbs": 200,
+            "source": "health-connect",
+            "sourceRecordId": "health-connect:weight:deleted-on-device",
+        },
+    )
+    assert imported.status_code == 201
+
+    reconciled = client.post(
+        "/health-connect/body-weight/reconcile",
+        json={
+            "startTime": "2026-08-21T00:00:00-04:00",
+            "endTime": "2026-08-22T00:00:00-04:00",
+            "sourceRecordIds": [],
+            "observedRecordCount": 0,
+        },
+    )
+
+    assert reconciled.status_code == 200
+    assert reconciled.json() == {"deleted": 1}
+    assert client.get("/body-weight/").json() == []
+
+
+def test_health_connect_reconcile_rejects_incomplete_retained_ids(client):
+    imported = client.post(
+        "/body-weight/import",
+        json={
+            "date": "2026-08-21T07:00:00-04:00",
+            "weightLbs": 200,
+            "source": "health-connect",
+            "sourceRecordId": "health-connect:weight:must-survive",
+        },
+    )
+    assert imported.status_code == 201
+
+    rejected = client.post(
+        "/health-connect/body-weight/reconcile",
+        json={
+            "startTime": "2026-08-21T00:00:00-04:00",
+            "endTime": "2026-08-22T00:00:00-04:00",
+            "sourceRecordIds": [],
+            "observedRecordCount": 1,
+        },
+    )
+
+    assert rejected.status_code == 409
+    assert [
+        row["sourceRecordId"] for row in client.get("/body-weight/").json()
+    ] == ["health-connect:weight:must-survive"]
 
 
 def test_health_connect_reconciliation_replaces_removed_daily_metrics(client):

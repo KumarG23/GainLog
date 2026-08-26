@@ -275,6 +275,7 @@ def test_google_health_sync_matches_v4_transport_and_persists_authoritative_metr
     for _, call in rollup_calls:
         assert call["json"]["dataSourceFamily"] == GOOGLE_WEARABLES
         assert call["json"]["windowSizeDays"] == 1
+        assert "pageSize" not in call["json"]
         assert call["json"]["range"] == {
             "start": {"date": {"year": 2026, "month": 8, "day": 26}},
             "end": {"date": {"year": 2026, "month": 8, "day": 27}},

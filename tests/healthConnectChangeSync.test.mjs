@@ -7,11 +7,14 @@ import {
   createSerialTaskRunner,
   HealthConnectRepairRequiredError,
   indexHealthConnectRecords,
+  indexHealthConnectWeightRecords,
   loadHealthConnectSyncState,
   parseHealthConnectSyncState,
   planHealthConnectChangePage,
+  prepareHealthConnectWeightReconciliation,
   reconcileHealthConnectChangePages,
   runHealthConnectChangeSync,
+  stampHealthConnectRecordType,
 } from '../utils/healthConnectChangeSync.ts';
 
 
@@ -501,13 +504,75 @@ test('weight repair payload retains only Health Connect weight identities', () =
     },
     '2026-08-21T04:00:00.000Z',
     '2026-08-23T04:00:00.000Z',
+    2,
   ), {
     startTime: '2026-08-21T04:00:00.000Z',
     endTime: '2026-08-23T04:00:00.000Z',
+    observedRecordCount: 2,
     sourceRecordIds: [
       'health-connect:weight:weight-1',
       'health-connect:weight:weight-2',
     ],
+  });
+});
+
+
+test('raw weight baselines are indexed with the Weight discriminator', () => {
+  const index = indexHealthConnectWeightRecords([{
+    metadata: { id: 'renpho-weight-1' },
+    time: '2026-08-26T07:00:00-04:00',
+  }]);
+
+  assert.deepEqual(index, {
+    'renpho-weight-1': {
+      recordType: 'Weight',
+      dates: ['2026-08-26'],
+    },
+  });
+  assert.deepEqual(buildHealthConnectWeightReconcilePayload(
+    index,
+    '2026-08-26T04:00:00.000Z',
+    '2026-08-27T04:00:00.000Z',
+    1,
+  ).sourceRecordIds, ['health-connect:weight:renpho-weight-1']);
+});
+
+
+test('read-record baselines are stamped and survive a durable state round trip', () => {
+  const records = stampHealthConnectRecordType('Weight', [{
+    metadata: { id: 'renpho-weight-1' },
+    time: '2026-08-26T07:00:00-04:00',
+  }]);
+  const state = {
+    version: 1,
+    changesToken: 'token-1',
+    records: indexHealthConnectRecords(records),
+  };
+
+  assert.deepEqual(parseHealthConnectSyncState(JSON.stringify(state)), state);
+});
+
+
+test('an observed weight without an id cannot authorize destructive reconciliation', () => {
+  const identified = {
+    metadata: { id: 'renpho-weight-1' },
+    time: '2026-08-26T07:00:00-04:00',
+  };
+  const prepared = prepareHealthConnectWeightReconciliation(
+    [identified, {
+      metadata: {},
+      time: '2026-08-26T07:01:00-04:00',
+    }],
+    '2026-08-26T04:00:00.000Z',
+    '2026-08-27T04:00:00.000Z',
+  );
+
+  assert.deepEqual(prepared.records, [identified]);
+  assert.deepEqual(prepared.payload, {
+    startTime: '2026-08-26T04:00:00.000Z',
+    endTime: '2026-08-27T04:00:00.000Z',
+    observedRecordCount: 2,
+    sourceRecordIds: ['health-connect:weight:renpho-weight-1'],
   });
 });
 

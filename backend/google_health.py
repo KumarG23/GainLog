@@ -363,7 +363,6 @@ def _collect_rollups(
                 },
                 "dataSourceFamily": GOOGLE_WEARABLES,
                 "windowSizeDays": 1,
-                "pageSize": 10_000,
             }
             response = http.post(
                 f"{GOOGLE_HEALTH_API}/users/me/dataTypes/{kind}/dataPoints:dailyRollUp",

@@ -355,6 +355,7 @@ class HealthConnectBodyWeightReconcileIn(CamelModel):
     start_time: str
     end_time: str
     source_record_ids: list[str] = Field(default_factory=list, max_length=5000)
+    observed_record_count: Optional[int] = Field(default=None, ge=0, le=5000)
 
 
 class AppleHealthDailyOut(CamelModel):
@@ -1685,10 +1686,20 @@ def reconcile_health_connect_body_weights(
         raise HTTPException(status_code=422, detail="Invalid Health Connect source record ID")
 
     retained_ids = set(payload.source_record_ids)
+    if len(retained_ids) != len(payload.source_record_ids):
+        raise HTTPException(status_code=422, detail="Duplicate Health Connect source record ID")
+    if (
+        payload.observed_record_count is not None
+        and payload.observed_record_count != len(retained_ids)
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Health Connect weight reconciliation is incomplete",
+        )
     rows = db.exec(
         select(BodyWeightEntryDB).where(BodyWeightEntryDB.source == "health-connect")
     ).all()
-    deleted = 0
+    rows_in_range: list[BodyWeightEntryDB] = []
     for row in rows:
         try:
             recorded_at = datetime.fromisoformat(row.date.replace("Z", "+00:00"))
@@ -1696,7 +1707,20 @@ def reconcile_health_connect_body_weights(
             continue
         if recorded_at.tzinfo is None or recorded_at.utcoffset() is None:
             continue
-        if start <= recorded_at < end and row.source_record_id not in retained_ids:
+        if start <= recorded_at < end:
+            rows_in_range.append(row)
+    would_delete = any(
+        row.source_record_id not in retained_ids for row in rows_in_range
+    )
+    if would_delete and payload.observed_record_count is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Health Connect weight reconciliation requires an authoritative count",
+        )
+
+    deleted = 0
+    for row in rows_in_range:
+        if row.source_record_id not in retained_ids:
             db.delete(row)
             deleted += 1
     db.commit()
