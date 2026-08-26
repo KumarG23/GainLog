@@ -75,7 +75,7 @@ interface SleepSessionCandidate {
 export function selectBestSleepSession<T extends SleepSessionCandidate>(sessions: T[]): T | undefined {
   const asleepMinutes = (session: T) => sum(
     session.stages
-      ?.filter(stage => stage.stage === 4 || stage.stage === 5 || stage.stage === 6)
+      ?.filter(stage => stage.stage === 2 || stage.stage === 4 || stage.stage === 5 || stage.stage === 6)
       .map(stage => stage.durationMinutes),
   ) ?? 0;
   const sessionMinutes = (session: T) => Math.max(
@@ -99,18 +99,24 @@ export function selectBestSleepSession<T extends SleepSessionCandidate>(sessions
   }, undefined);
 }
 
-/** Maps Android stage codes: awake=1, light=4, deep=5, REM=6. */
+/** Maps Android stage codes: awake=1, sleeping/unspecified=2, light=4, deep=5, REM=6. */
 export function buildHealthConnectDailyPayload(
   date: string,
   input: HealthConnectDailyInput,
 ): HealthConnectDailyPayload {
   const stages = input.sleepStages ?? [];
   const stageMinutes = (stage: number) => sum(stages.filter(item => item.stage === stage).map(item => item.durationMinutes));
+  const unspecifiedSleepMinutes = stageMinutes(2);
   const deepSleepMinutes = stageMinutes(5);
   const lightSleepMinutes = stageMinutes(4);
   const remSleepMinutes = stageMinutes(6);
   const awakeMinutes = stageMinutes(1);
-  const sleepMinutes = sum([deepSleepMinutes, lightSleepMinutes, remSleepMinutes].filter((value): value is number => value != null));
+  const sleepMinutes = sum([
+    unspecifiedSleepMinutes,
+    deepSleepMinutes,
+    lightSleepMinutes,
+    remSleepMinutes,
+  ].filter((value): value is number => value != null));
 
   const payload: HealthConnectDailyPayload = {
     date,

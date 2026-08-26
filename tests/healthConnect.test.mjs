@@ -126,6 +126,24 @@ test('empty Health Connect collections remain absent instead of becoming zeroes'
   });
 });
 
+test('generic sleeping stages contribute to total sleep without changing detailed stages', () => {
+  const daily = buildHealthConnectDailyPayload('2026-08-26', {
+    sleepStages: [
+      { stage: 2, durationMinutes: 9 },
+      { stage: 4, durationMinutes: 246 },
+      { stage: 5, durationMinutes: 84 },
+      { stage: 6, durationMinutes: 101 },
+      { stage: 1, durationMinutes: 80 },
+    ],
+  });
+
+  assert.equal(daily.sleepMinutes, 440);
+  assert.equal(daily.lightSleepMinutes, 246);
+  assert.equal(daily.deepSleepMinutes, 84);
+  assert.equal(daily.remSleepMinutes, 101);
+  assert.equal(daily.awakeMinutes, 80);
+});
+
 test('Health Connect mapper retains Fitbit total calories separately from active calories', () => {
   const daily = buildHealthConnectDailyPayload('2026-08-21', {
     totalCalories: [420.5, 380.25],
@@ -183,6 +201,27 @@ test('sleep selection prefers Fitbit over a longer duplicate provider session', 
   };
 
   assert.equal(selectBestSleepSession([duplicateSession, fitbitSession]), fitbitSession);
+});
+
+test('sleep selection treats generic sleeping stages as usable sleep', () => {
+  const fitbitSession = {
+    startTime: '2026-08-25T22:30:00-04:00',
+    endTime: '2026-08-26T07:10:00-04:00',
+    metadata: { dataOrigin: 'com.fitbit.FitbitMobile' },
+    stages: [{ stage: 2, durationMinutes: 440 }],
+  };
+  const duplicateSession = {
+    startTime: '2026-08-25T22:35:00-04:00',
+    endTime: '2026-08-26T07:05:00-04:00',
+    metadata: { dataOrigin: 'com.google.android.apps.fitness' },
+    stages: [
+      { stage: 5, durationMinutes: 84 },
+      { stage: 4, durationMinutes: 246 },
+      { stage: 6, durationMinutes: 101 },
+    ],
+  };
+
+  assert.equal(selectBestSleepSession([fitbitSession, duplicateSession]), fitbitSession);
 });
 
 test('sleep selection falls back when a Fitbit session has no usable asleep stages', () => {
