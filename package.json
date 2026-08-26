@@ -64,5 +64,8 @@
     "expo-build-properties": "~1.0.10",
     "typescript": "~5.9.2"
   },
-  "private": true
+  "private": true,
+  "overrides": {
+    "shell-quote": "1.10.0"
+  }
 }
