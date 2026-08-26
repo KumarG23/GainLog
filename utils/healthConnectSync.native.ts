@@ -1,4 +1,5 @@
 import {
+  aggregateRecord,
   getGrantedPermissions,
   initialize,
   readRecords,
@@ -10,7 +11,9 @@ import {
   buildHealthConnectWeightPayload,
   nearestRecordWithin,
   recentLocalDateKeys,
+  selectBestSleepSession,
   sleepSessionsEndingOnDate,
+  stepTotalFromAggregate,
 } from './healthConnect';
 
 export interface HealthConnectSyncResult {
@@ -50,7 +53,7 @@ const post = async (path: string, body: unknown) => {
 const localRangeForDate = (day: string) => {
   const start = new Date(`${day}T00:00:00`);
   const end = new Date(`${day}T23:59:59.999`);
-  return { startTime: start.toISOString(), endTime: end.toISOString() };
+  return { operator: 'between' as const, startTime: start.toISOString(), endTime: end.toISOString() };
 };
 const sleepRangeEndingOnDate = (day: string) => {
   const end = new Date(`${day}T23:59:59.999`);
@@ -78,7 +81,7 @@ export async function hasHealthConnectBackgroundAccess(): Promise<boolean> {
 async function syncDate(day: string): Promise<number> {
   const timeRangeFilter = localRangeForDate(day);
   const [
-    steps,
+    stepsAggregate,
     distance,
     calories,
     totalCalories,
@@ -91,7 +94,7 @@ async function syncDate(day: string): Promise<number> {
     leanMass,
     heights,
   ] = await Promise.all([
-    records('Steps', timeRangeFilter),
+    aggregateRecord({ recordType: 'Steps', timeRangeFilter }),
     records('Distance', timeRangeFilter),
     records('ActiveCaloriesBurned', timeRangeFilter),
     records('TotalCaloriesBurned', timeRangeFilter),
@@ -104,16 +107,20 @@ async function syncDate(day: string): Promise<number> {
     records('LeanBodyMass', timeRangeFilter),
     records('Height', timeRangeFilter),
   ]);
-  const sleep = sleepSessionsEndingOnDate(sleepRecords, day);
+  const sleep = sleepSessionsEndingOnDate(sleepRecords, day).map((session: any) => ({
+    ...session,
+    stages: (session.stages ?? []).map((stage: any) => ({
+      stage: stage.stage,
+      durationMinutes: minutesBetween(stage.startTime, stage.endTime),
+    })),
+  }));
+  const selectedSleep = selectBestSleepSession(sleep);
   const daily = buildHealthConnectDailyPayload(day, {
-    steps: steps.map(item => ({ count: item.count })),
+    stepsTotal: stepTotalFromAggregate(stepsAggregate),
     distancesMeters: distance.map(item => item.distance.inMeters),
     activeCalories: calories.map(item => item.energy.inKilocalories),
     totalCalories: totalCalories.map(item => item.energy.inKilocalories),
-    sleepStages: sleep.flatMap(item => (item.stages ?? []).map((stage: any) => ({
-      stage: stage.stage,
-      durationMinutes: minutesBetween(stage.startTime, stage.endTime),
-    }))),
+    sleepStages: selectedSleep?.stages,
     restingHeartRates: restingHr.map(item => item.beatsPerMinute),
     hrvMs: hrv.map(item => item.heartRateVariabilityMillis),
     exerciseDurationsMinutes: exercise.map(item => minutesBetween(item.startTime, item.endTime)),

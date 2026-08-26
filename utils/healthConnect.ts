@@ -1,5 +1,5 @@
 export interface HealthConnectDailyInput {
-  steps?: Array<{ count: number }>;
+  stepsTotal?: number;
   distancesMeters?: number[];
   activeCalories?: number[];
   totalCalories?: number[];
@@ -35,6 +35,40 @@ const average = (values: number[] | undefined) => {
 const rounded = (value: number | undefined, digits = 2) =>
   value == null ? undefined : Number(value.toFixed(digits));
 
+export function stepTotalFromAggregate(aggregate: {
+  COUNT_TOTAL: number;
+  dataOrigins: string[];
+}): number | undefined {
+  return aggregate.dataOrigins.length ? aggregate.COUNT_TOTAL : undefined;
+}
+
+interface SleepSessionCandidate {
+  startTime: string;
+  endTime: string;
+  stages?: Array<{ stage: number; durationMinutes: number }>;
+}
+
+export function selectBestSleepSession<T extends SleepSessionCandidate>(sessions: T[]): T | undefined {
+  const asleepMinutes = (session: T) => sum(
+    session.stages
+      ?.filter(stage => stage.stage === 4 || stage.stage === 5 || stage.stage === 6)
+      .map(stage => stage.durationMinutes),
+  ) ?? 0;
+  const sessionMinutes = (session: T) => Math.max(
+    0,
+    (Date.parse(session.endTime) - Date.parse(session.startTime)) / 60_000,
+  );
+
+  return sessions.reduce<T | undefined>((best, session) => {
+    if (!best) return session;
+    const asleepDifference = asleepMinutes(session) - asleepMinutes(best);
+    if (asleepDifference !== 0) return asleepDifference > 0 ? session : best;
+    const durationDifference = sessionMinutes(session) - sessionMinutes(best);
+    if (durationDifference !== 0) return durationDifference > 0 ? session : best;
+    return Date.parse(session.endTime) > Date.parse(best.endTime) ? session : best;
+  }, undefined);
+}
+
 /** Maps Android stage codes: awake=1, light=4, deep=5, REM=6. */
 export function buildHealthConnectDailyPayload(
   date: string,
@@ -51,7 +85,7 @@ export function buildHealthConnectDailyPayload(
   const payload: HealthConnectDailyPayload = {
     date,
     source: 'health-connect',
-    steps: sum(input.steps?.map(item => item.count)),
+    steps: input.stepsTotal,
     distanceMiles: rounded(sum(input.distancesMeters)?.valueOf() ? sum(input.distancesMeters)! / 1609.344 : undefined),
     activeCalories: rounded(sum(input.activeCalories)),
     totalCalories: rounded(sum(input.totalCalories)),

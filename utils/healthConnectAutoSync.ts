@@ -1,4 +1,4 @@
-export const AUTO_SYNC_INTERVAL_MS = 4 * 60 * 60 * 1000;
+export const AUTO_SYNC_INTERVAL_MS = 60 * 60 * 1000;
 
 export function shouldAttemptHealthConnectAutoSync({
   nowMs,

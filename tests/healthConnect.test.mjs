@@ -5,12 +5,30 @@ import {
   buildHealthConnectWeightPayload,
   nearestRecordWithin,
   recentLocalDateKeys,
+  selectBestSleepSession,
   sleepSessionsEndingOnDate,
+  stepTotalFromAggregate,
 } from '../utils/healthConnect.ts';
+
+test('step aggregate stays absent when Health Connect reports no contributing origin', () => {
+  assert.equal(stepTotalFromAggregate({ COUNT_TOTAL: 0, dataOrigins: [] }), undefined);
+});
+
+test('step aggregate preserves a legitimate zero from a contributing origin', () => {
+  assert.equal(stepTotalFromAggregate({ COUNT_TOTAL: 0, dataOrigins: ['com.fitbit.FitbitMobile'] }), 0);
+});
+
+test('Health Connect mapper uses the deduplicated aggregate step total', () => {
+  const daily = buildHealthConnectDailyPayload('2026-08-21', {
+    stepsTotal: 5354,
+  });
+
+  assert.equal(daily.steps, 5354);
+});
 
 test('Health Connect mapper totals activity, maps light sleep to core, and leaves stand hours absent', () => {
   const daily = buildHealthConnectDailyPayload('2026-08-21', {
-    steps: [{ count: 3000 }, { count: 5100 }],
+    stepsTotal: 8100,
     distancesMeters: [1609.344, 3218.688],
     activeCalories: [100.5, 200.25],
     sleepStages: [
@@ -85,7 +103,6 @@ test('body-composition pairing ignores records outside the tolerance window', ()
 
 test('empty Health Connect collections remain absent instead of becoming zeroes', () => {
   assert.deepEqual(buildHealthConnectDailyPayload('2026-08-21', {
-    steps: [],
     distancesMeters: [],
     activeCalories: [],
     totalCalories: [],
@@ -104,6 +121,30 @@ test('Health Connect mapper retains Fitbit total calories separately from active
 
   assert.equal(daily.totalCalories, 800.75);
   assert.equal(daily.activeCalories, undefined);
+});
+
+test('sleep selection keeps one coherent session instead of mixing overlapping providers', () => {
+  const staleSession = {
+    startTime: '2026-08-24T23:22:00-04:00',
+    endTime: '2026-08-25T06:40:00-04:00',
+    stages: [
+      { stage: 5, durationMinutes: 76 },
+      { stage: 4, durationMinutes: 207 },
+      { stage: 6, durationMinutes: 129 },
+    ],
+  };
+  const fitbitSession = {
+    startTime: '2026-08-24T23:22:00-04:00',
+    endTime: '2026-08-25T06:40:00-04:00',
+    stages: [
+      { stage: 5, durationMinutes: 74 },
+      { stage: 4, durationMinutes: 220 },
+      { stage: 6, durationMinutes: 127 },
+      { stage: 1, durationMinutes: 8 },
+    ],
+  };
+
+  assert.equal(selectBestSleepSession([staleSession, fitbitSession]), fitbitSession);
 });
 
 test('overnight sleep is assigned to the local date when the session ends', () => {
