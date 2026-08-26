@@ -134,11 +134,27 @@ async function syncDate(day: string): Promise<number> {
     })),
   }));
   const selectedSleep = selectBestSleepSession(sleep);
+  const selectedSleepOrigin = selectedSleep?.metadata?.dataOrigin;
+  const sleepAggregate = selectedSleep && selectedSleepOrigin
+    ? await aggregateRecord({
+      recordType: 'SleepSession',
+      timeRangeFilter: {
+        operator: 'between',
+        startTime: selectedSleep.startTime,
+        endTime: selectedSleep.endTime,
+      },
+      dataOriginFilter: [selectedSleepOrigin],
+    })
+    : undefined;
+  const sleepDurationSeconds = sleepAggregate?.dataOrigins?.length
+    ? sleepAggregate.SLEEP_DURATION_TOTAL
+    : undefined;
   const daily = buildHealthConnectDailyPayload(day, {
     stepsTotal: stepTotalFromAggregate(stepsAggregate),
     distancesMeters: distance.map(item => item.distance.inMeters),
     activeCalories: calories.map(item => item.energy.inKilocalories),
     totalCalories: totalCalories.map(item => item.energy.inKilocalories),
+    sleepDurationSeconds,
     sleepStages: selectedSleep?.stages,
     restingHeartRates: restingHr.map(item => item.beatsPerMinute),
     hrvMs: hrv.map(item => item.heartRateVariabilityMillis),

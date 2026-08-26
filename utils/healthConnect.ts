@@ -3,6 +3,7 @@ export interface HealthConnectDailyInput {
   distancesMeters?: number[];
   activeCalories?: number[];
   totalCalories?: number[];
+  sleepDurationSeconds?: number;
   sleepStages?: Array<{ stage: number; durationMinutes: number }>;
   restingHeartRates?: number[];
   hrvMs?: number[];
@@ -111,12 +112,15 @@ export function buildHealthConnectDailyPayload(
   const lightSleepMinutes = stageMinutes(4);
   const remSleepMinutes = stageMinutes(6);
   const awakeMinutes = stageMinutes(1);
-  const sleepMinutes = sum([
+  const stagedSleepMinutes = sum([
     unspecifiedSleepMinutes,
     deepSleepMinutes,
     lightSleepMinutes,
     remSleepMinutes,
   ].filter((value): value is number => value != null));
+  const sleepMinutes = input.sleepDurationSeconds == null
+    ? stagedSleepMinutes
+    : Math.round(input.sleepDurationSeconds / 60);
 
   const payload: HealthConnectDailyPayload = {
     date,
