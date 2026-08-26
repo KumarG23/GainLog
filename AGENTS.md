@@ -1,5 +1,11 @@
 # Repository Working Agreement
 
+## Model ownership
+
+GPT-5.6 Sol at high reasoning effort owns all application work: architecture, implementation, refactoring, debugging, tests, integration, review, builds, deployment, and release gating. Do not assign app-building work to Terra. If historical Terra output exists, treat it only as an untrusted candidate diff that Sol must inspect, correct, and verify before acceptance.
+
+Subagents may be used only when they also run GPT-5.6 Sol at high effort. Sol remains responsible for inspecting the complete result and producing real test/build/deployment evidence.
+
 ## Definition of done
 
 A code change is not complete merely because it works locally. Before ending a work session or reporting completion:
