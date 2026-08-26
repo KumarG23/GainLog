@@ -20,7 +20,7 @@ import { useHealth } from '../../context/HealthContext';
 import { formatVolume } from '../../utils/stats';
 import { localDateKey, localIsoTimestamp } from '../../utils/date';
 import { formatGoalTarget } from '../../utils/goals';
-import { syncHealthConnect } from '../../utils/healthConnectSync';
+import { repairHealthConnect, syncHealthConnect } from '../../utils/healthConnectSync';
 import { beginGoogleHealthConnection, disconnectGoogleHealth, getGoogleHealthStatus, syncGoogleHealth, type GoogleHealthStatus } from '../../utils/googleHealth';
 
 type GoalKind = 'weight' | 'calories' | 'protein' | 'fiber' | 'workout_frequency';
@@ -250,6 +250,22 @@ export default function HealthScreen() {
     }
   };
 
+  const handleHealthConnectRepair = async () => {
+    setSyncingHealthConnect(true);
+    try {
+      const result = await repairHealthConnect();
+      await refresh();
+      Alert.alert(
+        'Health Connect repaired',
+        `Reconciled ${result.dailyImports} days and ${result.bodyMeasurements} body measurement${result.bodyMeasurements === 1 ? '' : 's'}.`,
+      );
+    } catch (err) {
+      Alert.alert('Health Connect repair unavailable', err instanceof Error ? err.message : 'Unable to repair Health Connect.');
+    } finally {
+      setSyncingHealthConnect(false);
+    }
+  };
+
   const handleGoogleHealthConnection = async () => {
     setGoogleHealthBusy(true);
     try {
@@ -429,6 +445,18 @@ export default function HealthScreen() {
               accessibilityLabel="Sync Health Connect now"
             >
               {syncingHealthConnect ? <ActivityIndicator color={Colors.background} /> : <Text style={styles.primaryButtonText}>Sync now</Text>}
+            </TouchableOpacity>
+            <Text style={styles.compositionHint}>
+              If incremental sync reports an expired cursor or unknown deletion, repair reconciles every previously imported Health Connect date plus a 90-day backfill, then replaces the saved cursor.
+            </Text>
+            <TouchableOpacity
+              style={[styles.primaryButton, styles.repairButton]}
+              onPress={handleHealthConnectRepair}
+              disabled={syncingHealthConnect}
+              accessibilityRole="button"
+              accessibilityLabel="Repair imported Health Connect history"
+            >
+              {syncingHealthConnect ? <ActivityIndicator color={Colors.primary} /> : <Text style={styles.repairButtonText}>Repair imported history</Text>}
             </TouchableOpacity>
           </View>
 
@@ -963,6 +991,16 @@ const styles = StyleSheet.create({
   buttonDisabled: { opacity: 0.6 },
   primaryButtonText: {
     color: Colors.text,
+    fontSize: FontSize.base,
+    fontWeight: '800',
+  },
+  repairButton: {
+    backgroundColor: Colors.surface,
+    borderColor: Colors.primary,
+    borderWidth: 1,
+  },
+  repairButtonText: {
+    color: Colors.primary,
     fontSize: FontSize.base,
     fontWeight: '800',
   },

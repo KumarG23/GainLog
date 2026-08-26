@@ -82,6 +82,102 @@ def test_health_connect_body_weight_import_uses_stable_source_record_id(client):
     assert len(client.get("/body-weight/").json()) == 1
 
 
+def test_health_connect_body_weight_reconciliation_clears_removed_composition(client):
+    payload = {
+        "date": "2026-08-21T07:00:00-04:00",
+        "weightLbs": 201.2,
+        "bodyFatPercent": 22.4,
+        "leanBodyMassLbs": 156.1,
+        "bmi": 28.1,
+        "source": "health-connect",
+        "sourceRecordId": "health-connect:weight:replacement",
+    }
+    assert client.post("/body-weight/import", json=payload).status_code == 201
+
+    replaced = client.post(
+        "/body-weight/import",
+        json={
+            "date": payload["date"],
+            "weightLbs": 200.8,
+            "source": "health-connect",
+            "sourceRecordId": payload["sourceRecordId"],
+            "replaceExisting": True,
+        },
+    )
+
+    assert replaced.status_code == 200
+    assert replaced.json()["weightLbs"] == 200.8
+    assert replaced.json()["bodyFatPercent"] is None
+    assert replaced.json()["leanBodyMassLbs"] is None
+    assert replaced.json()["bmi"] is None
+
+
+def test_health_connect_body_weight_delete_is_scoped_and_idempotent(client):
+    first = {
+        "date": "2026-08-21T07:00:00-04:00",
+        "weightLbs": 201.2,
+        "source": "health-connect",
+        "sourceRecordId": "health-connect:weight:delete-me",
+    }
+    second = {
+        "date": "2026-08-22T07:00:00-04:00",
+        "weightLbs": 200.8,
+        "source": "health-connect",
+        "sourceRecordId": "health-connect:weight:keep-me",
+    }
+    assert client.post("/body-weight/import", json=first).status_code == 201
+    assert client.post("/body-weight/import", json=second).status_code == 201
+
+    deleted = client.delete(
+        "/health-connect/body-weight/health-connect%3Aweight%3Adelete-me",
+    )
+    replayed = client.delete(
+        "/health-connect/body-weight/health-connect%3Aweight%3Adelete-me",
+    )
+
+    assert deleted.status_code == 204
+    assert replayed.status_code == 204
+    remaining = client.get("/body-weight/").json()
+    assert [entry["sourceRecordId"] for entry in remaining] == [
+        "health-connect:weight:keep-me",
+    ]
+
+
+def test_health_connect_body_weight_range_reconciliation_prunes_unknown_tombstones(client):
+    for day, record_id in [
+        ("2026-08-20", "outside"),
+        ("2026-08-21", "stale"),
+        ("2026-08-22", "keep"),
+    ]:
+        response = client.post(
+            "/body-weight/import",
+            json={
+                "date": f"{day}T07:00:00-04:00",
+                "weightLbs": 200,
+                "source": "health-connect",
+                "sourceRecordId": f"health-connect:weight:{record_id}",
+            },
+        )
+        assert response.status_code == 201
+
+    payload = {
+        "startTime": "2026-08-21T00:00:00-04:00",
+        "endTime": "2026-08-23T00:00:00-04:00",
+        "sourceRecordIds": ["health-connect:weight:keep"],
+    }
+    first = client.post("/health-connect/body-weight/reconcile", json=payload)
+    second = client.post("/health-connect/body-weight/reconcile", json=payload)
+
+    assert first.status_code == 200
+    assert first.json() == {"deleted": 1}
+    assert second.status_code == 200
+    assert second.json() == {"deleted": 0}
+    assert {row["sourceRecordId"] for row in client.get("/body-weight/").json()} == {
+        "health-connect:weight:outside",
+        "health-connect:weight:keep",
+    }
+
+
 def test_health_connect_reconciliation_replaces_removed_daily_metrics(client):
     created = client.post(
         "/health-connect/daily/import",
@@ -134,3 +230,69 @@ def test_health_connect_reconciliation_can_clear_an_empty_day(client):
     assert cleared.status_code == 200
     assert cleared.json()["steps"] is None
     assert cleared.json()["sleepMinutes"] is None
+
+
+def test_health_connect_repair_state_tracks_every_imported_date(client):
+    for day in ["2026-01-15", "2026-08-23"]:
+        response = client.post(
+            "/health-connect/daily/import",
+            json={
+                "date": day,
+                "steps": 5000,
+                "replaceExisting": True,
+                "source": "health-connect",
+            },
+        )
+        assert response.status_code == 201
+
+    assert client.post(
+        "/apple-health/daily/import",
+        json={"date": "2025-12-01", "steps": 4000, "source": "apple-health"},
+    ).status_code == 201
+    assert client.post(
+        "/body-weight/import",
+        json={
+            "date": "2026-02-20T07:00:00-05:00",
+            "weightLbs": 200,
+            "source": "health-connect",
+            "sourceRecordId": "health-connect:weight:repair-state",
+        },
+    ).status_code == 201
+
+    response = client.get("/health-connect/repair-state")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "dailyDates": ["2026-01-15", "2026-08-23"],
+        "bodyWeightInstants": ["2026-02-20T07:00:00-05:00"],
+    }
+
+
+def test_startup_backfills_legacy_health_connect_daily_ownership():
+    from fastapi.testclient import TestClient
+    from sqlmodel import Session, SQLModel
+
+    from backend.main import AppleHealthDailyDB, app, engine
+    from backend.tests.conftest import TEST_DB
+
+    engine.dispose()
+    if TEST_DB.exists():
+        TEST_DB.unlink()
+    SQLModel.metadata.create_all(engine)
+    with Session(engine) as db:
+        db.add(AppleHealthDailyDB(
+            date="2026-03-04",
+            steps=6100,
+            source="health-connect",
+            updated_at="2026-03-04T12:00:00+00:00",
+        ))
+        db.commit()
+
+    with TestClient(app) as legacy_client:
+        response = legacy_client.get("/health-connect/repair-state")
+
+    assert response.status_code == 200
+    assert response.json()["dailyDates"] == ["2026-03-04"]
+    engine.dispose()
+    if TEST_DB.exists():
+        TEST_DB.unlink()

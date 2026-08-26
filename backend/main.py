@@ -129,6 +129,11 @@ class AppleHealthDailyDB(SQLModel, table=True):
     updated_at: str
 
 
+class HealthConnectDailyOwnershipDB(SQLModel, table=True):
+    __tablename__ = "health_connect_daily_ownership"
+    date: str = Field(primary_key=True)
+
+
 class GoalDB(SQLModel, table=True):
     __tablename__ = "goal"
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
@@ -343,6 +348,13 @@ class BodyWeightEntryIn(CamelModel):
     source: Optional[Literal["apple-health", "health-connect", "renpho-csv", "manual"]] = None
     source_record_id: Optional[str] = Field(default=None, max_length=500)
     notes: Optional[str] = None
+    replace_existing: bool = False
+
+
+class HealthConnectBodyWeightReconcileIn(CamelModel):
+    start_time: str
+    end_time: str
+    source_record_ids: list[str] = Field(default_factory=list, max_length=5000)
 
 
 class AppleHealthDailyOut(CamelModel):
@@ -624,6 +636,12 @@ async def lifespan(_: FastAPI):
             text(
                 "CREATE UNIQUE INDEX IF NOT EXISTS ux_body_weight_source_record "
                 "ON body_weight_entry (source, source_record_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT OR IGNORE INTO health_connect_daily_ownership (date) "
+                "SELECT date FROM apple_health_daily WHERE source = 'health-connect'"
             )
         )
         conn.commit()
@@ -1544,15 +1562,27 @@ def _upsert_sourced_body_weight(
         set_={
             "date": insert_statement.excluded.date,
             "weight_lbs": insert_statement.excluded.weight_lbs,
-            "body_fat_percent": func.coalesce(
-                insert_statement.excluded.body_fat_percent,
-                BodyWeightEntryDB.body_fat_percent,
+            "body_fat_percent": (
+                insert_statement.excluded.body_fat_percent
+                if payload.replace_existing
+                else func.coalesce(
+                    insert_statement.excluded.body_fat_percent,
+                    BodyWeightEntryDB.body_fat_percent,
+                )
             ),
-            "lean_body_mass_lbs": func.coalesce(
-                insert_statement.excluded.lean_body_mass_lbs,
-                BodyWeightEntryDB.lean_body_mass_lbs,
+            "lean_body_mass_lbs": (
+                insert_statement.excluded.lean_body_mass_lbs
+                if payload.replace_existing
+                else func.coalesce(
+                    insert_statement.excluded.lean_body_mass_lbs,
+                    BodyWeightEntryDB.lean_body_mass_lbs,
+                )
             ),
-            "bmi": func.coalesce(insert_statement.excluded.bmi, BodyWeightEntryDB.bmi),
+            "bmi": (
+                insert_statement.excluded.bmi
+                if payload.replace_existing
+                else func.coalesce(insert_statement.excluded.bmi, BodyWeightEntryDB.bmi)
+            ),
             "notes": func.coalesce(insert_statement.excluded.notes, BodyWeightEntryDB.notes),
         },
     )
@@ -1625,6 +1655,94 @@ def import_body_weight(
     db.commit()
     response.status_code = 201 if created else 200
     return _body_weight_to_out(row)
+
+
+@app.post(
+    "/health-connect/body-weight/reconcile",
+    dependencies=[Depends(require_native_health_import)],
+)
+def reconcile_health_connect_body_weights(
+    payload: HealthConnectBodyWeightReconcileIn,
+    db: Session = Depends(get_db),
+):
+    def parse_boundary(value: str, label: str) -> datetime:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=f"Invalid {label}") from exc
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            raise HTTPException(status_code=422, detail=f"{label} must include a timezone")
+        return parsed
+
+    start = parse_boundary(payload.start_time, "startTime")
+    end = parse_boundary(payload.end_time, "endTime")
+    if end <= start or end - start > timedelta(days=366):
+        raise HTTPException(status_code=422, detail="Invalid Health Connect repair range")
+    if any(
+        not record_id.startswith("health-connect:weight:")
+        for record_id in payload.source_record_ids
+    ):
+        raise HTTPException(status_code=422, detail="Invalid Health Connect source record ID")
+
+    retained_ids = set(payload.source_record_ids)
+    rows = db.exec(
+        select(BodyWeightEntryDB).where(BodyWeightEntryDB.source == "health-connect")
+    ).all()
+    deleted = 0
+    for row in rows:
+        try:
+            recorded_at = datetime.fromisoformat(row.date.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if recorded_at.tzinfo is None or recorded_at.utcoffset() is None:
+            continue
+        if start <= recorded_at < end and row.source_record_id not in retained_ids:
+            db.delete(row)
+            deleted += 1
+    db.commit()
+    return {"deleted": deleted}
+
+
+@app.get(
+    "/health-connect/repair-state",
+    dependencies=[Depends(require_native_health_import)],
+)
+def get_health_connect_repair_state(db: Session = Depends(get_db)):
+    daily_dates = sorted(
+        row.date for row in db.exec(select(HealthConnectDailyOwnershipDB)).all()
+    )
+    body_weight_instants = sorted({
+        row.date
+        for row in db.exec(
+            select(BodyWeightEntryDB).where(BodyWeightEntryDB.source == "health-connect")
+        ).all()
+        if row.date
+    })
+    return {
+        "dailyDates": daily_dates,
+        "bodyWeightInstants": body_weight_instants,
+    }
+
+
+@app.delete(
+    "/health-connect/body-weight/{source_record_id}",
+    status_code=204,
+    dependencies=[Depends(require_native_health_import)],
+)
+def delete_health_connect_body_weight(
+    source_record_id: str,
+    db: Session = Depends(get_db),
+):
+    row = db.exec(
+        select(BodyWeightEntryDB).where(
+            BodyWeightEntryDB.source == "health-connect",
+            BodyWeightEntryDB.source_record_id == source_record_id,
+        )
+    ).first()
+    if row:
+        db.delete(row)
+        db.commit()
+    return Response(status_code=204)
 
 
 @app.get(
@@ -1805,6 +1923,7 @@ def import_health_connect_daily(
         source="health-connect",
         replace_existing=payload.replace_existing,
     )
+    db.merge(HealthConnectDailyOwnershipDB(date=payload.date))
     db.commit()
     db.refresh(row)
     response.status_code = 201 if created else 200

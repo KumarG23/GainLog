@@ -4,6 +4,9 @@ import {
   buildHealthConnectDailyPayload,
   buildHealthConnectWeightPayload,
   collectPaginatedRecords,
+  healthConnectInitialBootstrapRequiresRepair,
+  healthConnectRepairDateKeys,
+  healthConnectRecordsWithStableIds,
   nearestRecordWithin,
   preferredDataOriginRecords,
   preferredFitbitDataOriginFilter,
@@ -52,12 +55,24 @@ test('body composition recognizes RENPHO as the authoritative scale source', () 
   assert.deepEqual(preferredDataOriginRecords([phone, renpho], RENPHO_DATA_ORIGIN), [renpho]);
 });
 
+
+test('body-weight import skips Health Connect records without stable platform ids', () => {
+  const identified = { metadata: { id: 'weight-1' }, time: '2026-08-26T07:00:00-04:00' };
+  assert.deepEqual(healthConnectRecordsWithStableIds([
+    identified,
+    { metadata: {}, time: '2026-08-26T07:01:00-04:00' },
+    { time: '2026-08-26T07:02:00-04:00' },
+  ]), [identified]);
+});
+
+
 test('Health Connect mapper uses the deduplicated aggregate step total', () => {
   const daily = buildHealthConnectDailyPayload('2026-08-21', {
     stepsTotal: 5354,
   });
 
   assert.equal(daily.steps, 5354);
+  assert.equal(daily.replaceExisting, true);
 });
 
 test('Health Connect mapper totals activity, maps light sleep to core, and leaves stand hours absent', () => {
@@ -79,6 +94,7 @@ test('Health Connect mapper totals activity, maps light sleep to core, and leave
   assert.deepEqual(daily, {
     date: '2026-08-21',
     source: 'health-connect',
+    replaceExisting: true,
     steps: 8100,
     distanceMiles: 3,
     activeCalories: 300.75,
@@ -102,6 +118,7 @@ test('Health Connect mapper prefers direct lean mass and derives BMI from height
     date: '2026-08-21T11:00:00.000Z', weightLbs: 198.416, bodyFatPercent: 24,
     leanBodyMassLbs: 143.3, bmi: 27.67, source: 'health-connect',
     sourceRecordId: 'health-connect:weight:weight-abc',
+    replaceExisting: true,
   });
 });
 
@@ -117,6 +134,7 @@ test('Health Connect mapper derives lean mass from body fat when no direct recor
   assert.equal(payload.leanBodyMassLbs, 150.796);
   assert.equal(payload.leanBodyMassDerived, true);
   assert.equal(payload.bmi, 27.67);
+  assert.equal(payload.replaceExisting, true);
 });
 
 test('body-composition pairing ignores records outside the tolerance window', () => {
@@ -145,6 +163,7 @@ test('empty Health Connect collections remain absent instead of becoming zeroes'
   }), {
     date: '2026-08-21',
     source: 'health-connect',
+    replaceExisting: true,
   });
 });
 
@@ -319,4 +338,38 @@ test('automatic Health Connect sync handles month boundaries in local time', () 
     recentLocalDateKeys(new Date('2026-09-01T00:05:00-04:00'), 2),
     ['2026-08-31', '2026-09-01'],
   );
+});
+
+test('Health Connect repair covers all server-owned dates plus the recent backfill', () => {
+  const dates = healthConnectRepairDateKeys(
+    new Date('2026-08-26T12:00:00-04:00'),
+    {
+      dailyDates: ['2026-01-15', '2026-08-25'],
+      bodyWeightInstants: [
+        '2026-02-20T00:30:00+14:00',
+        '2026-08-25T23:30:00-10:00',
+      ],
+    },
+    2,
+  );
+
+  assert.deepEqual(dates, [
+    '2026-01-15',
+    '2026-02-19',
+    '2026-08-25',
+    '2026-08-26',
+  ]);
+});
+
+
+test('initial bootstrap fails closed when the server owns history outside its recent window', () => {
+  const now = new Date('2026-08-26T12:00:00-04:00');
+  assert.equal(healthConnectInitialBootstrapRequiresRepair(now, {
+    dailyDates: ['2026-01-15'],
+    bodyWeightInstants: [],
+  }, 2), true);
+  assert.equal(healthConnectInitialBootstrapRequiresRepair(now, {
+    dailyDates: ['2026-08-25'],
+    bodyWeightInstants: ['2026-08-26T08:00:00-04:00'],
+  }, 2), false);
 });

@@ -13,6 +13,7 @@ export interface HealthConnectDailyInput {
 export interface HealthConnectDailyPayload {
   date: string;
   source: 'health-connect';
+  replaceExisting: true;
   sleepMinutes?: number;
   deepSleepMinutes?: number;
   lightSleepMinutes?: number;
@@ -51,6 +52,16 @@ export function preferredDataOriginRecords<
 >(records: T[], preferredOrigin: string): T[] {
   const preferred = records.filter(record => record.metadata?.dataOrigin === preferredOrigin);
   return preferred.length ? preferred : records;
+}
+
+type StableHealthConnectRecord<T> = T & { metadata: { id: string } };
+
+export function healthConnectRecordsWithStableIds<
+  T extends { metadata?: { id?: string } },
+>(records: T[]): Array<StableHealthConnectRecord<T>> {
+  return records.filter((record): record is StableHealthConnectRecord<T> => (
+    typeof record.metadata?.id === 'string' && record.metadata.id.length > 0
+  ));
 }
 
 export function preferredFitbitDataOriginFilter(
@@ -133,6 +144,7 @@ export function buildHealthConnectDailyPayload(
   const payload: HealthConnectDailyPayload = {
     date,
     source: 'health-connect',
+    replaceExisting: true,
     steps: input.stepsTotal,
     distanceMiles: rounded(sum(input.distancesMeters)?.valueOf() ? sum(input.distancesMeters)! / 1609.344 : undefined),
     activeCalories: rounded(sum(input.activeCalories)),
@@ -194,6 +206,7 @@ export function buildHealthConnectWeightPayload(record: HealthConnectWeightInput
     ...(record.leanMassKg == null && leanMassKg != null ? { leanBodyMassDerived: true } : {}),
     source: 'health-connect' as const,
     sourceRecordId: `health-connect:weight:${record.id}`,
+    replaceExisting: true,
   };
 }
 
@@ -223,4 +236,46 @@ export function recentLocalDateKeys(now = new Date(), count = 2): string[] {
     dates.push(`${year}-${month}-${day}`);
   }
   return dates;
+}
+
+export interface HealthConnectRepairState {
+  dailyDates: string[];
+  bodyWeightInstants: string[];
+}
+
+function localDateKeyForInstant(timestamp: string): string {
+  const value = new Date(timestamp);
+  if (!Number.isFinite(value.getTime())) {
+    throw new Error('Health Connect repair state contains an invalid weight instant.');
+  }
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export function healthConnectRepairDateKeys(
+  now: Date,
+  state: HealthConnectRepairState,
+  minimumDays = 90,
+): string[] {
+  const dates = [
+    ...recentLocalDateKeys(now, minimumDays),
+    ...state.dailyDates,
+    ...state.bodyWeightInstants.map(localDateKeyForInstant),
+  ];
+  if (!dates.every(value => /^\d{4}-\d{2}-\d{2}$/.test(value))) {
+    throw new Error('Health Connect repair state contains an invalid date.');
+  }
+  return [...new Set(dates)].sort();
+}
+
+export function healthConnectInitialBootstrapRequiresRepair(
+  now: Date,
+  state: HealthConnectRepairState,
+  recentDays = 2,
+): boolean {
+  const recentDates = new Set(recentLocalDateKeys(now, recentDays));
+  return healthConnectRepairDateKeys(now, state, recentDays)
+    .some(date => !recentDates.has(date));
 }

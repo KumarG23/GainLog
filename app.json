@@ -37,7 +37,8 @@
         "android.permission.health.READ_LEAN_BODY_MASS",
         "android.permission.health.READ_HEIGHT",
         "android.permission.health.READ_EXERCISE",
-        "android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND"
+        "android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND",
+        "android.permission.health.READ_HEALTH_DATA_HISTORY"
       ],
       "versionCode": 14,
       "edgeToEdgeEnabled": true,

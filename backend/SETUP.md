@@ -3,7 +3,7 @@
 ## 1. System prerequisites
 
 ```bash
-sudo apt update && sudo apt install -y python3 python3-venv python3-pip
+sudo apt update && sudo apt install -y python3 python3-venv python3-pip rsync
 ```
 
 ## 2. Create a dedicated user and directory
@@ -14,11 +14,16 @@ sudo mkdir -p /opt/gainlog/backend-git/data
 sudo chown -R gainlog:gainlog /opt/gainlog
 ```
 
-## 3. Copy the backend files
+## 3. Synchronize the backend files
 
 ```bash
-sudo cp -r backend/* /opt/gainlog/backend-git/
+sudo rsync -a --delete --exclude='data/' --exclude='__pycache__/' \
+  backend/ /opt/gainlog/backend-git/
+sudo chown -R gainlog:gainlog /opt/gainlog/backend-git
 ```
+
+The `data/` exclusion is mandatory: deployment must never overwrite or delete
+the production SQLite database.
 
 ## 4. Create a virtual environment and install dependencies
 
@@ -90,7 +95,9 @@ curl http://localhost:8000/health
 curl http://localhost:8000/workouts/
 ```
 
-The API docs (Swagger UI) are available at http://<server-ip>:8000/docs
+Uvicorn listens only on localhost. Reach the API through the private Tailscale
+Serve endpoint; Swagger UI is available at
+`https://gainlog-api.tailc88c35.ts.net/docs` from the tailnet.
 
 ## Local verification
 

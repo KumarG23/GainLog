@@ -16,7 +16,7 @@
     "test:workout-records": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/workoutRecords.test.mjs",
     "test:trends": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/trends.test.mjs",
     "test:goals": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/goals.test.mjs",
-    "test:health-connect": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/healthConnect.test.mjs",
+    "test:health-connect": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/healthConnect.test.mjs tests/healthConnectChangeSync.test.mjs tests/healthConnectSyncWeb.test.mjs tests/healthConnectRepairUi.test.mjs",
     "test:health-connect-auto": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/healthConnectAutoSync.test.mjs",
     "test:health-connect-nutrition": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/healthConnectNutrition.test.mjs tests/nutritionIncrementalSync.test.mjs",
     "test:api-config": "NODE_NO_WARNINGS=1 node --test tests/apiConfig.test.mjs",

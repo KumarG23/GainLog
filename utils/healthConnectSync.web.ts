@@ -9,6 +9,12 @@ export async function syncHealthConnect(
   throw new Error('Health Connect sync is available only in the Android GainLog app.');
 }
 
+export async function repairHealthConnect(
+  _days = 90,
+): Promise<HealthConnectSyncResult> {
+  throw new Error('Health Connect sync is available only in the Android GainLog app.');
+}
+
 export async function hasHealthConnectBackgroundAccess(): Promise<boolean> {
   return false;
 }
