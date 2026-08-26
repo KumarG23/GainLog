@@ -9,7 +9,9 @@ import { API_URL } from '../constants/api';
 import {
   buildHealthConnectDailyPayload,
   buildHealthConnectWeightPayload,
+  collectPaginatedRecords,
   nearestRecordWithin,
+  preferredFitbitDataOriginFilter,
   recentLocalDateKeys,
   selectBestSleepSession,
   sleepSessionsEndingOnDate,
@@ -61,9 +63,16 @@ const sleepRangeEndingOnDate = (day: string) => {
   start.setDate(start.getDate() - 1);
   return { startTime: start.toISOString(), endTime: end.toISOString() };
 };
-const records = async (recordType: any, timeRangeFilter: any) => (
-  await readRecords(recordType, { timeRangeFilter, pageSize: 1000 })
-).records as any[];
+const records = async (recordType: any, timeRangeFilter: any) => collectPaginatedRecords<any>(
+  async pageToken => {
+    const page = await readRecords(recordType, {
+      timeRangeFilter,
+      pageSize: 1000,
+      pageToken,
+    });
+    return { records: page.records as any[], pageToken: page.pageToken };
+  },
+);
 const minutesBetween = (start: string, end: string) => Math.max(
   0,
   Math.round((Date.parse(end) - Date.parse(start)) / 60000),
@@ -81,7 +90,8 @@ export async function hasHealthConnectBackgroundAccess(): Promise<boolean> {
 async function syncDate(day: string): Promise<number> {
   const timeRangeFilter = localRangeForDate(day);
   const [
-    stepsAggregate,
+    stepsAggregateAll,
+    stepRecords,
     distance,
     calories,
     totalCalories,
@@ -95,6 +105,7 @@ async function syncDate(day: string): Promise<number> {
     heights,
   ] = await Promise.all([
     aggregateRecord({ recordType: 'Steps', timeRangeFilter }),
+    records('Steps', timeRangeFilter),
     records('Distance', timeRangeFilter),
     records('ActiveCaloriesBurned', timeRangeFilter),
     records('TotalCaloriesBurned', timeRangeFilter),
@@ -107,6 +118,14 @@ async function syncDate(day: string): Promise<number> {
     records('LeanBodyMass', timeRangeFilter),
     records('Height', timeRangeFilter),
   ]);
+  const stepOriginFilter = preferredFitbitDataOriginFilter(stepRecords);
+  const stepsAggregate = stepOriginFilter
+    ? await aggregateRecord({
+      recordType: 'Steps',
+      timeRangeFilter,
+      dataOriginFilter: stepOriginFilter,
+    })
+    : stepsAggregateAll;
   const sleep = sleepSessionsEndingOnDate(sleepRecords, day).map((session: any) => ({
     ...session,
     stages: (session.stages ?? []).map((stage: any) => ({

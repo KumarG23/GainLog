@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import {
   buildHealthConnectDailyPayload,
   buildHealthConnectWeightPayload,
+  collectPaginatedRecords,
   nearestRecordWithin,
+  preferredFitbitDataOriginFilter,
   recentLocalDateKeys,
   selectBestSleepSession,
   sleepSessionsEndingOnDate,
@@ -16,6 +18,16 @@ test('step aggregate stays absent when Health Connect reports no contributing or
 
 test('step aggregate preserves a legitimate zero from a contributing origin', () => {
   assert.equal(stepTotalFromAggregate({ COUNT_TOTAL: 0, dataOrigins: ['com.fitbit.FitbitMobile'] }), 0);
+});
+
+test('Fitbit is selected as the authoritative origin when its records are available', () => {
+  assert.deepEqual(preferredFitbitDataOriginFilter([
+    { metadata: { dataOrigin: 'com.google.android.apps.fitness' } },
+    { metadata: { dataOrigin: 'com.fitbit.FitbitMobile' } },
+  ]), ['com.fitbit.FitbitMobile']);
+  assert.equal(preferredFitbitDataOriginFilter([
+    { metadata: { dataOrigin: 'com.google.android.apps.fitness' } },
+  ]), undefined);
 });
 
 test('Health Connect mapper uses the deduplicated aggregate step total', () => {
@@ -145,6 +157,66 @@ test('sleep selection keeps one coherent session instead of mixing overlapping p
   };
 
   assert.equal(selectBestSleepSession([staleSession, fitbitSession]), fitbitSession);
+});
+
+test('sleep selection prefers Fitbit over a longer duplicate provider session', () => {
+  const duplicateSession = {
+    startTime: '2026-08-24T23:20:00-04:00',
+    endTime: '2026-08-25T06:45:00-04:00',
+    metadata: { dataOrigin: 'com.google.android.apps.fitness' },
+    stages: [
+      { stage: 5, durationMinutes: 80 },
+      { stage: 4, durationMinutes: 225 },
+      { stage: 6, durationMinutes: 130 },
+    ],
+  };
+  const fitbitSession = {
+    startTime: '2026-08-24T23:22:00-04:00',
+    endTime: '2026-08-25T06:40:00-04:00',
+    metadata: { dataOrigin: 'com.fitbit.FitbitMobile' },
+    stages: [
+      { stage: 5, durationMinutes: 74 },
+      { stage: 4, durationMinutes: 220 },
+      { stage: 6, durationMinutes: 127 },
+      { stage: 1, durationMinutes: 8 },
+    ],
+  };
+
+  assert.equal(selectBestSleepSession([duplicateSession, fitbitSession]), fitbitSession);
+});
+
+test('sleep selection falls back when a Fitbit session has no usable asleep stages', () => {
+  const fitbitShell = {
+    startTime: '2026-08-24T23:22:00-04:00',
+    endTime: '2026-08-25T06:40:00-04:00',
+    metadata: { dataOrigin: 'com.fitbit.FitbitMobile' },
+    stages: [{ stage: 0, durationMinutes: 438 }],
+  };
+  const usableSession = {
+    startTime: '2026-08-24T23:25:00-04:00',
+    endTime: '2026-08-25T06:35:00-04:00',
+    metadata: { dataOrigin: 'com.google.android.apps.fitness' },
+    stages: [
+      { stage: 5, durationMinutes: 74 },
+      { stage: 4, durationMinutes: 220 },
+      { stage: 6, durationMinutes: 127 },
+    ],
+  };
+
+  assert.equal(selectBestSleepSession([fitbitShell, usableSession]), usableSession);
+});
+
+test('paginated Health Connect reads include records beyond the first page', async () => {
+  const requestedTokens = [];
+  const records = await collectPaginatedRecords(async pageToken => {
+    requestedTokens.push(pageToken);
+    return pageToken == null
+      ? { records: [{ id: 'first' }], pageToken: 'next-page' }
+      : { records: [{ id: 'fitbit-later' }] };
+  });
+
+  assert.deepEqual(records, [{ id: 'first' }, { id: 'fitbit-later' }]);
+  assert.deepEqual(requestedTokens, [undefined, 'next-page']);
 });
 
 test('overnight sleep is assigned to the local date when the session ends', () => {

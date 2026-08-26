@@ -42,9 +42,33 @@ export function stepTotalFromAggregate(aggregate: {
   return aggregate.dataOrigins.length ? aggregate.COUNT_TOTAL : undefined;
 }
 
+export const FITBIT_DATA_ORIGIN = 'com.fitbit.FitbitMobile';
+
+export function preferredFitbitDataOriginFilter(
+  records: Array<{ metadata?: { dataOrigin?: string } }>,
+): string[] | undefined {
+  return records.some(record => record.metadata?.dataOrigin === FITBIT_DATA_ORIGIN)
+    ? [FITBIT_DATA_ORIGIN]
+    : undefined;
+}
+
+export async function collectPaginatedRecords<T>(
+  readPage: (pageToken?: string) => Promise<{ records: T[]; pageToken?: string }>,
+): Promise<T[]> {
+  const collected: T[] = [];
+  let pageToken: string | undefined;
+  do {
+    const page = await readPage(pageToken);
+    collected.push(...page.records);
+    pageToken = page.pageToken;
+  } while (pageToken);
+  return collected;
+}
+
 interface SleepSessionCandidate {
   startTime: string;
   endTime: string;
+  metadata?: { dataOrigin?: string };
   stages?: Array<{ stage: number; durationMinutes: number }>;
 }
 
@@ -58,8 +82,14 @@ export function selectBestSleepSession<T extends SleepSessionCandidate>(sessions
     0,
     (Date.parse(session.endTime) - Date.parse(session.startTime)) / 60_000,
   );
+  const usableSessions = sessions.filter(session => asleepMinutes(session) > 0);
+  const fallbackCandidates = usableSessions.length ? usableSessions : sessions;
+  const preferredOrigin = preferredFitbitDataOriginFilter(fallbackCandidates);
+  const candidates = preferredOrigin
+    ? fallbackCandidates.filter(session => session.metadata?.dataOrigin === preferredOrigin[0])
+    : fallbackCandidates;
 
-  return sessions.reduce<T | undefined>((best, session) => {
+  return candidates.reduce<T | undefined>((best, session) => {
     if (!best) return session;
     const asleepDifference = asleepMinutes(session) - asleepMinutes(best);
     if (asleepDifference !== 0) return asleepDifference > 0 ? session : best;
