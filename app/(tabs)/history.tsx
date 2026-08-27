@@ -83,7 +83,7 @@ function SessionCard({ session, onPress }: SessionCardProps) {
       <Text style={styles.cardDate}>{formatShortDate(session.date)}</Text>
 
       {/* Stats row */}
-      <View style={styles.cardStats}>
+      <View style={styles.cardStatsGrid}>
         <View style={styles.statItem}>
           <Ionicons name="barbell-outline" size={14} color={Colors.textMuted} />
           <Text style={styles.statText}>
@@ -301,14 +301,19 @@ const styles = StyleSheet.create({
   },
 
   // Stats
-  cardStats: {
+  cardStatsGrid: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
-    gap: Spacing.xs,
+    justifyContent: 'space-between',
+    gap: Spacing.sm,
+    backgroundColor: Colors.inputBg,
+    borderRadius: Radius.sm,
+    padding: Spacing.sm,
     marginBottom: Spacing.sm,
   },
   statItem: {
+    width: '47%',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
@@ -318,10 +323,7 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
   },
   statDot: {
-    width: 3,
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: Colors.textMuted,
+    display: 'none',
   },
 
   // Volume

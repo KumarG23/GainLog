@@ -514,6 +514,16 @@ export default function LogScreen() {
   const suggestedTemplateId = getSuggestedTemplateId(now.getDay());
   const planHistoryCutoff = getWorkoutPlanWeekStart(now);
   const canLoadTemplate = canLoadWorkoutTemplate(workoutsLoading, workoutsError);
+  const planScrollRef = useRef<ScrollView>(null);
+  const positionedSuggestedTemplate = useRef<WorkoutTemplateId | null>(null);
+  const handlePlanContentSizeChange = useCallback(() => {
+    if (!suggestedTemplateId || positionedSuggestedTemplate.current === suggestedTemplateId) return;
+    const index = PLANET_FITNESS_TEMPLATES.findIndex(template => template.id === suggestedTemplateId);
+    if (index > 0) {
+      planScrollRef.current?.scrollTo({ x: index * (168 + Spacing.sm), animated: false });
+    }
+    positionedSuggestedTemplate.current = suggestedTemplateId;
+  }, [suggestedTemplateId]);
 
   // -- Exercise mutations ---------------------------------------------------
 
@@ -925,7 +935,9 @@ export default function LogScreen() {
             <View style={styles.planHeader}>
               <View>
                 <Text style={styles.planEyebrow}>PLANET FITNESS PLAN</Text>
-                <Text style={styles.planTitle}>Adaptive weekly plan</Text>
+                <Text style={styles.planTitle}>
+                  {suggestedTemplateId ? "Today's workout" : 'Adaptive weekly plan'}
+                </Text>
               </View>
               <Ionicons name="calendar-outline" size={22} color={Colors.primary} />
             </View>
@@ -949,9 +961,11 @@ export default function LogScreen() {
               </View>
             )}
             <ScrollView
+              ref={planScrollRef}
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.planCards}
+              onContentSizeChange={handlePlanContentSizeChange}
             >
               {PLANET_FITNESS_TEMPLATES.map(template => {
                 const selected = selectedTemplateId === template.id;
@@ -963,6 +977,7 @@ export default function LogScreen() {
                     style={[
                       styles.planCard,
                       !canLoadTemplate && styles.planCardDisabled,
+                      suggested && styles.planCardSuggested,
                       selected && styles.planCardSelected,
                     ]}
                     onPress={() => loadTemplate(template.id)}
@@ -1342,6 +1357,10 @@ const styles = StyleSheet.create({
   },
   planCardDisabled: {
     opacity: 0.5,
+  },
+  planCardSuggested: {
+    backgroundColor: Colors.surfaceRaised,
+    borderColor: Colors.primary,
   },
   planCardSelected: {
     backgroundColor: Colors.primaryDim,

@@ -1,6 +1,7 @@
 export const Colors = {
   background: '#0D0D0D',
   surface: '#1C1C1E',
+  surfaceRaised: '#222225',
   card: '#2C2C2E',
   cardBorder: '#3A3A3C',
 
@@ -17,9 +18,10 @@ export const Colors = {
 
   text: '#FFFFFF',
   textSecondary: '#AEAEB2',
-  textMuted: '#636366',
+  textMuted: '#8E8E93',
 
   border: '#3A3A3C',
+  borderSubtle: '#303033',
   inputBg: '#1C1C1E',
   tabBar: '#111111',
   separator: '#2C2C2E',

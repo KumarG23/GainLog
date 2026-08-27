@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize, Radius, Spacing } from '../constants/theme';
 import { useHealth } from '../context/HealthContext';
 import { repairHealthConnect, syncHealthConnect } from '../utils/healthConnectSync';
+import { formatSyncTimestamp } from '../utils/settingsDisplay';
 import {
   beginGoogleHealthConnection,
   disconnectGoogleHealth,
@@ -29,6 +30,7 @@ export default function SettingsScreen() {
   const [syncingNutrition, setSyncingNutrition] = useState(false);
   const [googleHealthStatus, setGoogleHealthStatus] = useState<GoogleHealthStatus | null>(null);
   const [googleHealthBusy, setGoogleHealthBusy] = useState(false);
+  const [showRecoveryTools, setShowRecoveryTools] = useState(false);
 
   const loadGoogleHealthStatus = useCallback(async () => {
     try {
@@ -162,34 +164,46 @@ export default function SettingsScreen() {
           </View>
           <Text style={styles.hint}>
             {googleHealthStatus?.connected
-              ? `Direct Fitbit/Pixel Watch reconciliation is connected${googleHealthStatus.lastSuccessAt ? ` · Last success ${googleHealthStatus.lastSuccessAt}` : ''}.`
+              ? `Direct Fitbit/Pixel Watch reconciliation is connected${googleHealthStatus.lastSuccessAt ? ` · Last success ${formatSyncTimestamp(googleHealthStatus.lastSuccessAt)}` : ''}.`
               : googleHealthStatus?.configured
                 ? 'Connect Fitbit or Pixel Watch data in your browser. Credentials stay on the server.'
                 : 'Google Health is not configured on this server.'}
           </Text>
           {googleHealthStatus?.lastError && <Text style={styles.errorText}>{googleHealthStatus.lastError}</Text>}
-          <TouchableOpacity
-            style={[styles.primaryButton, googleHealthBusy && styles.buttonDisabled]}
-            onPress={handleGoogleHealthConnection}
-            disabled={googleHealthBusy || !googleHealthStatus?.configured}
-            accessibilityRole="button"
-            accessibilityLabel={googleHealthStatus?.connected ? 'Disconnect Google Health' : 'Connect Google Health'}
-          >
-            {googleHealthBusy && <ActivityIndicator size="small" color={Colors.text} />}
-            <Text style={styles.primaryButtonText}>
-              {googleHealthStatus?.connected ? 'Disconnect' : 'Connect Google Health'}
-            </Text>
-          </TouchableOpacity>
-          {googleHealthStatus?.connected && (
+          {googleHealthStatus?.connected ? (
+            <>
+              <TouchableOpacity
+                style={[styles.primaryButton, googleHealthBusy && styles.buttonDisabled]}
+                onPress={handleGoogleHealthSync}
+                disabled={googleHealthBusy}
+                accessibilityRole="button"
+                accessibilityLabel="Sync Google Health now"
+              >
+                {googleHealthBusy
+                  ? <ActivityIndicator size="small" color={Colors.text} />
+                  : <Ionicons name="refresh-outline" size={17} color={Colors.text} />}
+                <Text style={styles.primaryButtonText}>Sync now</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.destructiveButton, googleHealthBusy && styles.buttonDisabled]}
+                onPress={handleGoogleHealthConnection}
+                disabled={googleHealthBusy}
+                accessibilityRole="button"
+                accessibilityLabel="Disconnect Google Health"
+              >
+                <Text style={styles.destructiveButtonText}>Disconnect Google Health</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
             <TouchableOpacity
-              style={[styles.secondaryButton, googleHealthBusy && styles.buttonDisabled]}
-              onPress={handleGoogleHealthSync}
-              disabled={googleHealthBusy}
+              style={[styles.primaryButton, googleHealthBusy && styles.buttonDisabled]}
+              onPress={handleGoogleHealthConnection}
+              disabled={googleHealthBusy || !googleHealthStatus?.configured}
               accessibilityRole="button"
-              accessibilityLabel="Sync Google Health now"
+              accessibilityLabel="Connect Google Health"
             >
-              <Ionicons name="refresh-outline" size={17} color={Colors.primary} />
-              <Text style={styles.secondaryButtonText}>Sync now</Text>
+              {googleHealthBusy && <ActivityIndicator size="small" color={Colors.text} />}
+              <Text style={styles.primaryButtonText}>Connect Google Health</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -203,7 +217,12 @@ export default function SettingsScreen() {
             RENPHO weight and body composition sync automatically on app foreground and approximately hourly in the background. A repair is needed only when Android invalidates the incremental cursor.
           </Text>
           <TouchableOpacity
-            style={[styles.primaryButton, syncingHealthConnect && styles.buttonDisabled]}
+            style={[
+              styles.primaryButton,
+              syncingHealthConnect && styles.buttonDisabled,
+              Platform.OS !== 'android' && styles.buttonDisabled,
+              Platform.OS !== 'android' && styles.platformUnavailableButton,
+            ]}
             onPress={handleHealthConnectSync}
             disabled={syncingHealthConnect || Platform.OS !== 'android'}
             accessibilityRole="button"
@@ -215,39 +234,72 @@ export default function SettingsScreen() {
             <Text style={styles.primaryButtonText}>Sync now</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.secondaryButton, syncingHealthConnect && styles.buttonDisabled]}
-            onPress={handleHealthConnectRepair}
-            disabled={syncingHealthConnect || Platform.OS !== 'android'}
+            style={styles.recoveryDisclosure}
+            onPress={() => setShowRecoveryTools(value => !value)}
             accessibilityRole="button"
-            accessibilityLabel="Repair imported Health Connect history"
+            accessibilityLabel={`${showRecoveryTools ? 'Hide' : 'Show'} Health Connect recovery tools`}
           >
-            <Ionicons name="construct-outline" size={17} color={Colors.primary} />
-            <Text style={styles.secondaryButtonText}>Repair imported history</Text>
+            <View style={styles.recoveryDisclosureCopy}>
+              <Ionicons name="construct-outline" size={17} color={Colors.textMuted} />
+              <View>
+                <Text style={styles.recoveryDisclosureTitle}>Recovery tools</Text>
+                <Text style={styles.recoveryDisclosureHint}>Repairs only · normal sync is automatic</Text>
+              </View>
+            </View>
+            <Ionicons
+              name={showRecoveryTools ? 'chevron-up' : 'chevron-down'}
+              size={17}
+              color={Colors.textMuted}
+            />
           </TouchableOpacity>
+          {showRecoveryTools && (
+            <TouchableOpacity
+              style={[
+                styles.secondaryButton,
+                syncingHealthConnect && styles.buttonDisabled,
+                Platform.OS !== 'android' && styles.buttonDisabled,
+                Platform.OS !== 'android' && styles.platformUnavailableButton,
+              ]}
+              onPress={handleHealthConnectRepair}
+              disabled={syncingHealthConnect || Platform.OS !== 'android'}
+              accessibilityRole="button"
+              accessibilityLabel="Repair imported Health Connect history"
+            >
+              <Ionicons name="construct-outline" size={17} color={Colors.primary} />
+              <Text style={styles.secondaryButtonText}>Repair imported history</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Nutrition maintenance</Text>
-            <Text style={styles.badge}>Recovery</Text>
+        {showRecoveryTools && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Nutrition maintenance</Text>
+              <Text style={styles.badge}>Recovery</Text>
+            </View>
+            <Text style={styles.hint}>
+              Normal meal additions and deletions mirror automatically. Run this only to reconcile older or previously failed entries.
+            </Text>
+            {nutritionHealthConnectError && <Text style={styles.errorText}>{nutritionHealthConnectError}</Text>}
+            <TouchableOpacity
+              style={[
+                styles.secondaryButton,
+                syncingNutrition && styles.buttonDisabled,
+                Platform.OS !== 'android' && styles.buttonDisabled,
+                Platform.OS !== 'android' && styles.platformUnavailableButton,
+              ]}
+              onPress={handleNutritionRepair}
+              disabled={syncingNutrition || Platform.OS !== 'android'}
+              accessibilityRole="button"
+              accessibilityLabel="Repair all GainLog nutrition in Health Connect"
+            >
+              {syncingNutrition
+                ? <ActivityIndicator size="small" color={Colors.primary} />
+                : <Ionicons name="restaurant-outline" size={17} color={Colors.primary} />}
+              <Text style={styles.secondaryButtonText}>Repair all nutrition</Text>
+            </TouchableOpacity>
           </View>
-          <Text style={styles.hint}>
-            Normal meal additions and deletions mirror automatically. Run this only to reconcile older or previously failed entries.
-          </Text>
-          {nutritionHealthConnectError && <Text style={styles.errorText}>{nutritionHealthConnectError}</Text>}
-          <TouchableOpacity
-            style={[styles.secondaryButton, syncingNutrition && styles.buttonDisabled]}
-            onPress={handleNutritionRepair}
-            disabled={syncingNutrition || Platform.OS !== 'android'}
-            accessibilityRole="button"
-            accessibilityLabel="Repair all GainLog nutrition in Health Connect"
-          >
-            {syncingNutrition
-              ? <ActivityIndicator size="small" color={Colors.primary} />
-              : <Ionicons name="restaurant-outline" size={17} color={Colors.primary} />}
-            <Text style={styles.secondaryButtonText}>Repair all nutrition</Text>
-          </TouchableOpacity>
-        </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -312,5 +364,45 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   secondaryButtonText: { color: Colors.primary, fontSize: FontSize.base, fontWeight: '800' },
+  recoveryDisclosure: {
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: Colors.borderSubtle,
+    paddingTop: Spacing.md,
+  },
+  recoveryDisclosureCopy: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  recoveryDisclosureTitle: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.sm,
+    fontWeight: '800',
+  },
+  recoveryDisclosureHint: {
+    color: Colors.textMuted,
+    fontSize: FontSize.xs,
+    marginTop: 2,
+  },
+  destructiveButton: {
+    minHeight: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  destructiveButtonText: {
+    color: Colors.danger,
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+  },
+  platformUnavailableButton: {
+    backgroundColor: Colors.card,
+    borderColor: Colors.borderSubtle,
+    opacity: 0.7,
+  },
   buttonDisabled: { opacity: 0.55 },
 });

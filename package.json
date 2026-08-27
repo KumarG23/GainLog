@@ -1,7 +1,7 @@
 {
   "name": "gainlog-sdk54",
   "main": "expo-router/entry",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "scripts": {
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
@@ -11,6 +11,7 @@
     "lint": "expo lint",
     "test:notifications": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/mealReminderPlan.test.mjs",
     "test:nutrition-memory": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/nutritionMemory.test.mjs",
+    "test:visual": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/nutritionDisplay.test.mjs tests/nutritionUi.test.mjs tests/settingsDisplay.test.mjs tests/visualRefinementUi.test.mjs",
     "test:workout-templates": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/workoutTemplates.test.mjs",
     "test:workout-history": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/workoutHistoryHints.test.mjs",
     "test:workout-records": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/workoutRecords.test.mjs",
@@ -21,7 +22,7 @@
     "test:health-connect-auto": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/healthConnectAutoSync.test.mjs",
     "test:health-connect-nutrition": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/healthConnectNutrition.test.mjs tests/nutritionIncrementalSync.test.mjs",
     "test:api-config": "NODE_NO_WARNINGS=1 node --test tests/apiConfig.test.mjs",
-    "test": "npm run test:notifications && npm run test:nutrition-memory && npm run test:workout-templates && npm run test:workout-history && npm run test:workout-records && npm run test:trends && npm run test:goals && npm run test:health-display && npm run test:health-connect && npm run test:health-connect-auto && npm run test:health-connect-nutrition && npm run test:api-config"
+    "test": "npm run test:notifications && npm run test:nutrition-memory && npm run test:visual && npm run test:workout-templates && npm run test:workout-history && npm run test:workout-records && npm run test:trends && npm run test:goals && npm run test:health-display && npm run test:health-connect && npm run test:health-connect-auto && npm run test:health-connect-nutrition && npm run test:api-config"
   },
   "dependencies": {
     "@expo/ngrok": "^4.1.3",

@@ -112,6 +112,25 @@ function StatCard({ stat, rank }: StatCardProps) {
   );
 }
 
+function CompactStatRow({ stat, rank }: StatCardProps) {
+  const best = stat.bestSet.weight > 0
+    ? `${stat.bestSet.weight} lbs × ${stat.bestSet.reps}`
+    : `${stat.bestSet.reps} reps (BW)`;
+
+  return (
+    <View style={styles.compactStatRow}>
+      <Text style={styles.compactRank}>{rank}</Text>
+      <View style={styles.compactStatBody}>
+        <Text style={styles.compactStatName} numberOfLines={1}>{stat.name}</Text>
+        <Text style={styles.compactStatMeta}>
+          {best} · {formatVolume(stat.totalVolume)} volume
+        </Text>
+      </View>
+      <Text style={styles.compactSessions}>{stat.sessionCount}×</Text>
+    </View>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Empty state
 // ---------------------------------------------------------------------------
@@ -211,7 +230,9 @@ export default function StatsScreen() {
           </>
         }
         renderItem={({ item, index }) => (
-          <StatCard stat={item} rank={index + 1} />
+          index < 3
+            ? <StatCard stat={item} rank={index + 1} />
+            : <CompactStatRow stat={item} rank={index + 1} />
         )}
         ItemSeparatorComponent={() => <View style={{ height: Spacing.sm }} />}
         ListFooterComponent={<View style={{ height: Spacing.xxxl }} />}
@@ -324,6 +345,37 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     fontWeight: '700',
     color: Colors.textSecondary,
+  },
+  compactStatRow: {
+    minHeight: 64,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.borderSubtle,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+  },
+  compactRank: {
+    width: 24,
+    color: Colors.textMuted,
+    fontSize: FontSize.sm,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  compactStatBody: { flex: 1, gap: 3 },
+  compactStatName: {
+    color: Colors.text,
+    fontSize: FontSize.base,
+    fontWeight: '700',
+  },
+  compactStatMeta: { color: Colors.textSecondary, fontSize: FontSize.xs },
+  compactSessions: {
+    color: Colors.primary,
+    fontSize: FontSize.sm,
+    fontWeight: '800',
   },
 
   // Metrics

@@ -273,6 +273,7 @@ export default function HealthScreen() {
             </View>
           )}
 
+          <Text style={styles.sectionEyebrow}>Daily dashboard</Text>
           <View style={styles.summaryGrid}>
             <SummaryTile
               icon="scale-outline"
@@ -452,6 +453,7 @@ export default function HealthScreen() {
             </TouchableOpacity>
           )}
 
+          <Text style={styles.sectionEyebrow}>Coaching & reviews</Text>
           <View style={styles.section}>
             <View style={styles.coachRow}>
               <View style={styles.coachIcon}>
@@ -554,6 +556,7 @@ export default function HealthScreen() {
             </TouchableOpacity>
           </View>
 
+          <Text style={styles.sectionEyebrow}>Tracking & goals</Text>
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Today’s Macros</Text>
@@ -745,6 +748,14 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
   },
   errorText: { flex: 1, color: Colors.text, fontSize: FontSize.sm },
+  sectionEyebrow: {
+    color: Colors.textMuted,
+    fontSize: FontSize.xs,
+    fontWeight: '900',
+    letterSpacing: 0.9,
+    textTransform: 'uppercase',
+    marginTop: Spacing.sm,
+  },
   summaryGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',

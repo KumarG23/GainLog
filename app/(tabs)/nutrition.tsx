@@ -15,12 +15,19 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize, Radius, Spacing } from '../../constants/theme';
 import { useHealth } from '../../context/HealthContext';
-import { localDateKey, localIsoTimestamp } from '../../utils/date';
+import { localDateKey, localIsoTimestamp, previousLocalDateKey } from '../../utils/date';
 import {
   buildDailyMacroHistory,
   buildQuickAddFoods,
   type QuickAddFood,
 } from '../../utils/nutritionMemory';
+import {
+  averageMacroDays,
+  buildCalorieHistoryScale,
+  formatNutritionProgress,
+  nutritionGoalReferenceValue,
+  selectNutritionGoals,
+} from '../../utils/nutritionDisplay';
 
 const MEALS = ['breakfast', 'lunch', 'dinner', 'snack'];
 
@@ -42,6 +49,7 @@ export default function NutritionScreen() {
   const {
     nutritionEntries,
     dashboardSummary,
+    goals,
     loading,
     error,
     nutritionHealthConnectError,
@@ -59,9 +67,12 @@ export default function NutritionScreen() {
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [quickAdding, setQuickAdding] = useState<string | null>(null);
+  const [showAllQuickAdds, setShowAllQuickAdds] = useState(false);
+  const [showManualForm, setShowManualForm] = useState(false);
   const quickAddLock = useRef(false);
 
   const today = localDateKey();
+  const completedHistoryEnd = previousLocalDateKey(new Date(`${today}T12:00:00`));
   const todayEntries = useMemo(
     () => nutritionEntries.filter(entry => entry.date.startsWith(today)),
     [nutritionEntries, today],
@@ -79,31 +90,27 @@ export default function NutritionScreen() {
     () => buildQuickAddFoods(nutritionEntries, 6),
     [nutritionEntries],
   );
+  const visibleQuickAdds = showAllQuickAdds ? quickAdds : quickAdds.slice(0, 3);
   const macroHistory = useMemo(
     () => buildDailyMacroHistory(nutritionEntries, today, 7),
     [nutritionEntries, today],
   );
-  const macroAverages = useMemo(
-    () => ({
-      calories: Math.round(
-        macroHistory.reduce((sum, day) => sum + day.calories, 0) / macroHistory.length,
-      ),
-      proteinG: Math.round(
-        macroHistory.reduce((sum, day) => sum + day.proteinG, 0) / macroHistory.length,
-      ),
-      carbsG: Math.round(
-        macroHistory.reduce((sum, day) => sum + day.carbsG, 0) / macroHistory.length,
-      ),
-      fatG: Math.round(
-        macroHistory.reduce((sum, day) => sum + day.fatG, 0) / macroHistory.length,
-      ),
-      fiberG: Math.round(
-        macroHistory.reduce((sum, day) => sum + day.fiberG, 0) / macroHistory.length,
-      ),
-    }),
-    [macroHistory],
+  const completedMacroHistory = useMemo(
+    () => buildDailyMacroHistory(nutritionEntries, completedHistoryEnd, 7),
+    [nutritionEntries, completedHistoryEnd],
   );
-  const maxHistoryCalories = Math.max(1, ...macroHistory.map(day => day.calories));
+  const macroAverages = useMemo(
+    () => averageMacroDays(completedMacroHistory),
+    [completedMacroHistory],
+  );
+  const nutritionGoals = useMemo(() => selectNutritionGoals(goals), [goals]);
+  const calorieProgress = formatNutritionProgress(totals.calories, nutritionGoals.calories);
+  const proteinProgress = formatNutritionProgress(totals.proteinG, nutritionGoals.protein);
+  const fiberProgress = formatNutritionProgress(totals.fiberG, nutritionGoals.fiber);
+  const calorieHistoryScale = buildCalorieHistoryScale(
+    macroHistory.map(day => day.calories),
+    nutritionGoalReferenceValue(nutritionGoals.calories),
+  );
 
   const handleQuickAdd = async (food: QuickAddFood) => {
     if (quickAddLock.current) return;
@@ -210,16 +217,70 @@ export default function NutritionScreen() {
           )}
 
           <View style={styles.totalCard}>
-            <View>
-              <Text style={styles.totalLabel}>Today</Text>
-              <Text style={styles.totalValue}>{totals.calories} kcal</Text>
+            <View style={styles.totalHeading}>
+              <View>
+                <Text style={styles.totalLabel}>Today · in progress</Text>
+                <Text style={styles.totalValue}>{totals.calories.toLocaleString()} kcal</Text>
+              </View>
+              {calorieProgress.targetLabel && (
+                <Text style={styles.totalTarget}>{calorieProgress.targetLabel}</Text>
+              )}
             </View>
-            <View style={styles.macroGrid}>
-              <Text style={styles.macroText}>{totals.proteinG}g protein</Text>
-              <Text style={styles.macroText}>{totals.carbsG}g carbs</Text>
-              <Text style={styles.macroText}>{totals.fatG}g fat</Text>
-              <Text style={styles.macroText}>{totals.fiberG}g fiber</Text>
+            {calorieProgress.targetLabel && (
+              <View style={styles.goalTrack}>
+                <View
+                  style={[
+                    styles.goalBar,
+                    { width: `${Math.min(1, calorieProgress.progress) * 100}%` },
+                  ]}
+                />
+              </View>
+            )}
+            <View style={styles.goalGrid}>
+              <View style={styles.goalMetric}>
+                <View style={styles.goalMetricHeading}>
+                  <Text style={styles.goalMetricLabel}>Protein</Text>
+                  <Text style={styles.goalMetricValue}>{proteinProgress.valueLabel}</Text>
+                </View>
+                {proteinProgress.targetLabel && (
+                  <>
+                    <View style={styles.goalTrackSmall}>
+                      <View
+                        style={[
+                          styles.goalBar,
+                          proteinProgress.status === 'within' && styles.goalBarSuccess,
+                          { width: `${Math.min(1, proteinProgress.progress) * 100}%` },
+                        ]}
+                      />
+                    </View>
+                    <Text style={styles.goalMetricTarget}>{proteinProgress.targetLabel}</Text>
+                  </>
+                )}
+              </View>
+              <View style={styles.goalMetric}>
+                <View style={styles.goalMetricHeading}>
+                  <Text style={styles.goalMetricLabel}>Fiber</Text>
+                  <Text style={styles.goalMetricValue}>{fiberProgress.valueLabel}</Text>
+                </View>
+                {fiberProgress.targetLabel && (
+                  <>
+                    <View style={styles.goalTrackSmall}>
+                      <View
+                        style={[
+                          styles.goalBar,
+                          fiberProgress.status === 'within' && styles.goalBarSuccess,
+                          { width: `${Math.min(1, fiberProgress.progress) * 100}%` },
+                        ]}
+                      />
+                    </View>
+                    <Text style={styles.goalMetricTarget}>{fiberProgress.targetLabel}</Text>
+                  </>
+                )}
+              </View>
             </View>
+            <Text style={styles.secondaryMacros}>
+              {totals.carbsG}g carbs · {totals.fatG}g fat
+            </Text>
           </View>
 
 
@@ -235,7 +296,7 @@ export default function NutritionScreen() {
                 <Ionicons name="flash-outline" size={20} color={Colors.primary} />
               </View>
               <View style={styles.quickAddList}>
-                {quickAdds.map(food => {
+                {visibleQuickAdds.map(food => {
                   const key = `${food.meal}:${food.name}`;
                   const isAdding = quickAdding === key;
                   return (
@@ -264,96 +325,132 @@ export default function NutritionScreen() {
                   );
                 })}
               </View>
+              {quickAdds.length > 3 && (
+                <TouchableOpacity
+                  style={styles.disclosureButton}
+                  onPress={() => setShowAllQuickAdds(value => !value)}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: showAllQuickAdds }}
+                >
+                  <Text style={styles.disclosureButtonText}>
+                    {showAllQuickAdds ? 'Show less' : `Show all ${quickAdds.length}`}
+                  </Text>
+                  <Ionicons
+                    name={showAllQuickAdds ? 'chevron-up' : 'chevron-down'}
+                    size={16}
+                    color={Colors.primary}
+                  />
+                </TouchableOpacity>
+              )}
             </View>
           )}
 
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Add Food</Text>
-            <View style={styles.segmented}>
-              {MEALS.map(item => (
+            <TouchableOpacity
+              style={styles.collapsibleHeader}
+              onPress={() => setShowManualForm(value => !value)}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: showManualForm }}
+            >
+              <View style={styles.sectionHeadingCopy}>
+                <Text style={styles.sectionTitle}>Add Food Manually</Text>
+                <Text style={styles.sectionSubtitle}>For meals that are not in Quick Add.</Text>
+              </View>
+              <Ionicons
+                name={showManualForm ? 'remove-circle-outline' : 'add-circle-outline'}
+                size={22}
+                color={Colors.primary}
+              />
+            </TouchableOpacity>
+            {showManualForm && (
+              <View style={styles.manualForm}>
+                <View style={styles.segmented}>
+                  {MEALS.map(item => (
+                    <TouchableOpacity
+                      key={item}
+                      style={[styles.segment, meal === item && styles.segmentActive]}
+                      onPress={() => setMeal(item)}
+                    >
+                      <Text
+                        style={[
+                          styles.segmentText,
+                          meal === item && styles.segmentTextActive,
+                        ]}
+                      >
+                        {item}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <TextInput
+                  style={styles.input}
+                  value={name}
+                  onChangeText={setName}
+                  placeholder="Food name"
+                  placeholderTextColor={Colors.textMuted}
+                />
+                <TextInput
+                  style={styles.input}
+                  value={calories}
+                  onChangeText={setCalories}
+                  placeholder="Calories"
+                  placeholderTextColor={Colors.textMuted}
+                  keyboardType="number-pad"
+                />
+                <View style={styles.macroInputGrid}>
+                  <TextInput
+                    style={[styles.input, styles.macroInput]}
+                    value={protein}
+                    onChangeText={setProtein}
+                    placeholder="Protein"
+                    placeholderTextColor={Colors.textMuted}
+                    keyboardType="decimal-pad"
+                  />
+                  <TextInput
+                    style={[styles.input, styles.macroInput]}
+                    value={carbs}
+                    onChangeText={setCarbs}
+                    placeholder="Carbs"
+                    placeholderTextColor={Colors.textMuted}
+                    keyboardType="decimal-pad"
+                  />
+                  <TextInput
+                    style={[styles.input, styles.macroInput]}
+                    value={fat}
+                    onChangeText={setFat}
+                    placeholder="Fat"
+                    placeholderTextColor={Colors.textMuted}
+                    keyboardType="decimal-pad"
+                  />
+                  <TextInput
+                    style={[styles.input, styles.macroInput]}
+                    value={fiber}
+                    onChangeText={setFiber}
+                    placeholder="Fiber"
+                    placeholderTextColor={Colors.textMuted}
+                    keyboardType="decimal-pad"
+                  />
+                </View>
+                <TextInput
+                  style={[styles.input, styles.multilineInput]}
+                  value={notes}
+                  onChangeText={setNotes}
+                  placeholder="Notes"
+                  placeholderTextColor={Colors.textMuted}
+                  multiline
+                />
                 <TouchableOpacity
-                  key={item}
-                  style={[styles.segment, meal === item && styles.segmentActive]}
-                  onPress={() => setMeal(item)}
+                  style={[styles.primaryButton, saving && styles.buttonDisabled]}
+                  onPress={handleSave}
+                  disabled={saving}
                 >
-                  <Text
-                    style={[
-                      styles.segmentText,
-                      meal === item && styles.segmentTextActive,
-                    ]}
-                  >
-                    {item}
+                  <Ionicons name="save-outline" size={16} color={Colors.text} />
+                  <Text style={styles.primaryButtonText}>
+                    {saving ? 'Saving' : 'Save Food'}
                   </Text>
                 </TouchableOpacity>
-              ))}
-            </View>
-            <TextInput
-              style={styles.input}
-              value={name}
-              onChangeText={setName}
-              placeholder="Food name"
-              placeholderTextColor={Colors.textMuted}
-            />
-            <TextInput
-              style={styles.input}
-              value={calories}
-              onChangeText={setCalories}
-              placeholder="Calories"
-              placeholderTextColor={Colors.textMuted}
-              keyboardType="number-pad"
-            />
-            <View style={styles.row}>
-              <TextInput
-                style={[styles.input, styles.rowInput]}
-                value={protein}
-                onChangeText={setProtein}
-                placeholder="Protein"
-                placeholderTextColor={Colors.textMuted}
-                keyboardType="decimal-pad"
-              />
-              <TextInput
-                style={[styles.input, styles.rowInput]}
-                value={carbs}
-                onChangeText={setCarbs}
-                placeholder="Carbs"
-                placeholderTextColor={Colors.textMuted}
-                keyboardType="decimal-pad"
-              />
-              <TextInput
-                style={[styles.input, styles.rowInput]}
-                value={fat}
-                onChangeText={setFat}
-                placeholder="Fat"
-                placeholderTextColor={Colors.textMuted}
-                keyboardType="decimal-pad"
-              />
-              <TextInput
-                style={[styles.input, styles.rowInput]}
-                value={fiber}
-                onChangeText={setFiber}
-                placeholder="Fiber"
-                placeholderTextColor={Colors.textMuted}
-                keyboardType="decimal-pad"
-              />
-            </View>
-            <TextInput
-              style={[styles.input, styles.multilineInput]}
-              value={notes}
-              onChangeText={setNotes}
-              placeholder="Notes"
-              placeholderTextColor={Colors.textMuted}
-              multiline
-            />
-            <TouchableOpacity
-              style={[styles.primaryButton, saving && styles.buttonDisabled]}
-              onPress={handleSave}
-              disabled={saving}
-            >
-              <Ionicons name="save-outline" size={16} color={Colors.text} />
-              <Text style={styles.primaryButtonText}>
-                {saving ? 'Saving' : 'Save Food'}
-              </Text>
-            </TouchableOpacity>
+              </View>
+            )}
           </View>
 
           <View style={styles.section}>
@@ -389,18 +486,24 @@ export default function NutritionScreen() {
             <View style={styles.sectionHeadingRow}>
               <View style={styles.sectionHeadingCopy}>
                 <Text style={styles.sectionTitle}>Macro History</Text>
-                <Text style={styles.sectionSubtitle}>Rolling seven-day memory.</Text>
+                <Text style={styles.sectionSubtitle}>
+                  Averages use 7 completed days · chart includes today.
+                </Text>
               </View>
               <Ionicons name="calendar-outline" size={20} color={Colors.primary} />
             </View>
+            <View style={styles.averageHero}>
+              <Text style={styles.averageHeroValue}>{macroAverages.calories.toLocaleString()}</Text>
+              <Text style={styles.averageLabel}>avg kcal</Text>
+            </View>
             <View style={styles.averageGrid}>
-              <View style={styles.averageTile}>
-                <Text style={styles.averageValue}>{macroAverages.calories}</Text>
-                <Text style={styles.averageLabel}>avg kcal</Text>
-              </View>
               <View style={styles.averageTile}>
                 <Text style={styles.averageValue}>{macroAverages.proteinG}g</Text>
                 <Text style={styles.averageLabel}>avg protein</Text>
+              </View>
+              <View style={styles.averageTile}>
+                <Text style={styles.averageValue}>{macroAverages.fiberG}g</Text>
+                <Text style={styles.averageLabel}>avg fiber</Text>
               </View>
               <View style={styles.averageTile}>
                 <Text style={styles.averageValue}>{macroAverages.carbsG}g</Text>
@@ -410,17 +513,13 @@ export default function NutritionScreen() {
                 <Text style={styles.averageValue}>{macroAverages.fatG}g</Text>
                 <Text style={styles.averageLabel}>avg fat</Text>
               </View>
-              <View style={styles.averageTile}>
-                <Text style={styles.averageValue}>{macroAverages.fiberG}g</Text>
-                <Text style={styles.averageLabel}>avg fiber</Text>
-              </View>
             </View>
             <View style={styles.historyList}>
               {macroHistory.map(day => (
                 <View key={day.date} style={styles.historyRow}>
                   <View style={styles.historyHeading}>
                     <Text style={styles.historyDate}>
-                      {day.date === today ? 'Today' : formatHistoryDate(day.date)}
+                      {day.date === today ? 'Today · in progress' : formatHistoryDate(day.date)}
                     </Text>
                     <Text style={styles.historyCalories}>{day.calories} kcal</Text>
                   </View>
@@ -428,9 +527,18 @@ export default function NutritionScreen() {
                     <View
                       style={[
                         styles.historyBar,
-                        { width: `${(day.calories / maxHistoryCalories) * 100}%` },
+                        day.date === today && styles.historyBarToday,
+                        { width: `${calorieHistoryScale.barPercent(day.calories) * 100}%` },
                       ]}
                     />
+                    {calorieHistoryScale.targetPercent != null && (
+                      <View
+                        style={[
+                          styles.historyTargetMarker,
+                          { left: `${calorieHistoryScale.targetPercent * 100}%` },
+                        ]}
+                      />
+                    )}
                   </View>
                   <Text style={styles.historyMacros}>
                     P {Math.round(day.proteinG)}g · C {Math.round(day.carbsG)}g · F{' '}
@@ -468,12 +576,17 @@ const styles = StyleSheet.create({
   },
   errorText: { flex: 1, color: Colors.text, fontSize: FontSize.sm },
   totalCard: {
-    minHeight: 128,
     backgroundColor: Colors.surface,
     borderColor: Colors.border,
     borderWidth: 1,
     borderRadius: Radius.md,
     padding: Spacing.base,
+    justifyContent: 'space-between',
+    gap: Spacing.md,
+  },
+  totalHeading: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
     justifyContent: 'space-between',
     gap: Spacing.md,
   },
@@ -488,12 +601,67 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xxxl,
     fontWeight: '900',
   },
-  macroGrid: {
+  totalTarget: {
+    maxWidth: 144,
+    color: Colors.textSecondary,
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    textAlign: 'right',
+  },
+  goalTrack: {
+    height: 8,
+    backgroundColor: Colors.card,
+    borderRadius: Radius.full,
+    overflow: 'hidden',
+  },
+  goalTrackSmall: {
+    height: 5,
+    backgroundColor: Colors.card,
+    borderRadius: Radius.full,
+    overflow: 'hidden',
+  },
+  goalBar: {
+    height: '100%',
+    minWidth: 2,
+    backgroundColor: Colors.primary,
+    borderRadius: Radius.full,
+  },
+  goalBarSuccess: { backgroundColor: Colors.success },
+  goalGrid: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: Spacing.sm,
   },
-  macroText: {
+  goalMetric: {
+    flex: 1,
+    minWidth: 0,
+    backgroundColor: Colors.inputBg,
+    borderRadius: Radius.sm,
+    padding: Spacing.md,
+    gap: Spacing.sm,
+  },
+  goalMetricHeading: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: Spacing.xs,
+  },
+  goalMetricLabel: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.xs,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  goalMetricValue: {
+    color: Colors.text,
+    fontSize: FontSize.base,
+    fontWeight: '900',
+  },
+  goalMetricTarget: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.xs,
+    lineHeight: 16,
+  },
+  secondaryMacros: {
     color: Colors.textSecondary,
     fontSize: FontSize.sm,
     fontWeight: '700',
@@ -546,6 +714,26 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     textTransform: 'capitalize',
   },
+  disclosureButton: {
+    minHeight: 38,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+  },
+  disclosureButtonText: {
+    color: Colors.primary,
+    fontSize: FontSize.sm,
+    fontWeight: '800',
+  },
+  collapsibleHeader: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.md,
+  },
+  manualForm: { gap: Spacing.md },
   segmented: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -585,11 +773,15 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.md,
     textAlignVertical: 'top',
   },
-  row: {
+  macroInputGrid: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: Spacing.sm,
   },
-  rowInput: { flex: 1 },
+  macroInput: {
+    minWidth: '47%',
+    flex: 1,
+  },
   primaryButton: {
     minHeight: 48,
     borderRadius: Radius.sm,
@@ -642,6 +834,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  averageHero: {
+    backgroundColor: Colors.primaryDim,
+    borderRadius: Radius.sm,
+    padding: Spacing.md,
+    gap: 2,
+  },
+  averageHeroValue: {
+    color: Colors.text,
+    fontSize: FontSize.xxl,
+    fontWeight: '900',
+  },
   averageGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -684,6 +887,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   historyTrack: {
+    position: 'relative',
     height: 7,
     backgroundColor: Colors.inputBg,
     borderRadius: Radius.sm,
@@ -695,8 +899,17 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
     borderRadius: Radius.sm,
   },
+  historyBarToday: { opacity: 0.55 },
+  historyTargetMarker: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 2,
+    marginLeft: -1,
+    backgroundColor: Colors.textSecondary,
+  },
   historyMacros: {
-    color: Colors.textMuted,
+    color: Colors.textSecondary,
     fontSize: FontSize.xs,
   },
 });

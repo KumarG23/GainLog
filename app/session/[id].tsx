@@ -218,8 +218,10 @@ export default function SessionDetailScreen() {
             <TouchableOpacity
               onPress={handleDelete}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Delete workout session"
             >
-              <Ionicons name="trash-outline" size={20} color={Colors.danger} />
+              <Ionicons name="trash-outline" size={18} color={Colors.textMuted} />
             </TouchableOpacity>
           ),
         }}

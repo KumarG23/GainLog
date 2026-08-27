@@ -147,9 +147,9 @@ function recoveryMetricUsesCompletedDays(metric: MetricKey): boolean {
   return metric === 'steps' || metric === 'activeCalories' || metric === 'exerciseMinutes';
 }
 
-function SummaryCard({ label, value }: { label: string; value: string }) {
+function SummaryCard({ label, value, emphasis = false }: { label: string; value: string; emphasis?: boolean }) {
   return (
-    <View style={styles.summaryCard}>
+    <View style={[styles.summaryCard, emphasis && styles.summaryCardEmphasis]}>
       <Text style={styles.summaryCardValue} numberOfLines={1}>{value}</Text>
       <Text style={styles.summaryCardLabel}>{label}</Text>
     </View>
@@ -389,6 +389,7 @@ export default function TrendsScreen() {
           {category === 'recovery' ? (
             <>
               <SummaryCard
+                emphasis
                 label={`7D Avg · ${recoveryComparison.currentObservedDays}/7`}
                 value={recoveryComparison.currentAverage == null ? '—' : formatMetricValue(metric, recoveryComparison.currentAverage)}
               />
@@ -406,6 +407,7 @@ export default function TrendsScreen() {
           ) : (
             <>
               <SummaryCard
+                emphasis
                 label={isTraining ? 'Total' : 'Latest'}
                 value={isTraining ? formatMetricValue(metric, total) : latest == null ? '—' : formatMetricValue(metric, latest)}
               />
@@ -506,6 +508,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
     padding: Spacing.md,
+  },
+  summaryCardEmphasis: {
+    backgroundColor: Colors.surfaceRaised,
+    borderColor: Colors.primary,
   },
   summaryCardValue: { color: Colors.text, fontSize: FontSize.md, fontWeight: '800' },
   summaryCardLabel: {
