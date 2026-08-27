@@ -1,11 +1,35 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import {
+import * as workoutTemplates from '../utils/workoutTemplates.ts';
+
+const logScreen = readFileSync(new URL('../app/(tabs)/index.tsx', import.meta.url), 'utf8');
+
+const {
   PLANET_FITNESS_TEMPLATES,
   buildWorkoutTemplateDraft,
   getSuggestedTemplateId,
-} from '../utils/workoutTemplates.ts';
+} = workoutTemplates;
+
+test('workout templates stay locked until history loads successfully', () => {
+  const canLoad = workoutTemplates.canLoadWorkoutTemplate;
+
+  assert.equal(typeof canLoad, 'function');
+  if (typeof canLoad !== 'function') return;
+
+  assert.equal(canLoad(true, null), false);
+  assert.equal(canLoad(false, 'Request failed'), false);
+  assert.equal(canLoad(false, null), true);
+});
+
+test('Log screen exposes failed workout history and a retry instead of a clean baseline', () => {
+  assert.match(logScreen, /error: workoutsError/);
+  assert.match(logScreen, /canLoadWorkoutTemplate\(workoutsLoading, workoutsError\)/);
+  assert.match(logScreen, /disabled=\{!canLoadTemplate\}/);
+  assert.match(logScreen, /Workout history unavailable/);
+  assert.match(logScreen, /onPress=\{\(\) => void refresh\(\)\}/);
+});
 
 test('Planet Fitness plan provides five ordered weekday templates', () => {
   assert.deepEqual(

@@ -38,6 +38,7 @@ import {
 import {
   PLANET_FITNESS_TEMPLATES,
   buildWorkoutTemplateDraft,
+  canLoadWorkoutTemplate,
   getSuggestedTemplateId,
   getWorkoutPlanWeekStart,
   WorkoutTemplateId,
@@ -463,7 +464,14 @@ function SuccessView({
 // ---------------------------------------------------------------------------
 
 export default function LogScreen() {
-  const { sessions, loading: workoutsLoading, addSession, updateFeedback, refresh } = useWorkouts();
+  const {
+    sessions,
+    loading: workoutsLoading,
+    error: workoutsError,
+    addSession,
+    updateFeedback,
+    refresh,
+  } = useWorkouts();
   const { nutritionEntries, loading: healthLoading } = useHealth();
   const router = useRouter();
 
@@ -505,6 +513,7 @@ export default function LogScreen() {
 
   const suggestedTemplateId = getSuggestedTemplateId(now.getDay());
   const planHistoryCutoff = getWorkoutPlanWeekStart(now);
+  const canLoadTemplate = canLoadWorkoutTemplate(workoutsLoading, workoutsError);
 
   // -- Exercise mutations ---------------------------------------------------
 
@@ -614,6 +623,8 @@ export default function LogScreen() {
   );
 
   const loadTemplate = useCallback((templateId: WorkoutTemplateId) => {
+    if (!canLoadTemplate) return;
+
     const applyTemplate = () => {
       const draft = buildWorkoutTemplateDraft(templateId, generateId, sessions, new Date());
       setExercises(draft.exercises);
@@ -641,7 +652,7 @@ export default function LogScreen() {
         { text: 'Replace', style: 'destructive', onPress: applyTemplate },
       ],
     );
-  }, [exercises.length, sessions]);
+  }, [canLoadTemplate, exercises.length, sessions]);
 
   // -- Save -----------------------------------------------------------------
 
@@ -918,6 +929,25 @@ export default function LogScreen() {
               </View>
               <Ionicons name="calendar-outline" size={22} color={Colors.primary} />
             </View>
+            {workoutsError && (
+              <View style={styles.planError}>
+                <Ionicons name="warning-outline" size={18} color={Colors.warning} />
+                <View style={styles.planErrorBody}>
+                  <Text style={styles.planErrorTitle}>Workout history unavailable</Text>
+                  <Text style={styles.planErrorText}>
+                    Recommendations are locked so missing history cannot look like a clean baseline.
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.planRetryButton}
+                  onPress={() => void refresh()}
+                  accessibilityRole="button"
+                  accessibilityLabel="Retry workout history"
+                >
+                  <Text style={styles.planRetryText}>Retry</Text>
+                </TouchableOpacity>
+              </View>
+            )}
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -929,10 +959,10 @@ export default function LogScreen() {
                 return (
                   <TouchableOpacity
                     key={template.id}
-                    disabled={workoutsLoading}
+                    disabled={!canLoadTemplate}
                     style={[
                       styles.planCard,
-                      workoutsLoading && styles.planCardDisabled,
+                      !canLoadTemplate && styles.planCardDisabled,
                       selected && styles.planCardSelected,
                     ]}
                     onPress={() => loadTemplate(template.id)}
@@ -961,7 +991,9 @@ export default function LogScreen() {
             <Text style={styles.planHint}>
               {workoutsLoading
                 ? 'Loading your workout history before generating this week’s plan…'
-                : 'Each week uses your completed GainLog history from before Monday to recommend the next load. Enter what you actually complete. Wednesday is easy cardio only; elliptical counts as cardio, not step-equivalent mileage.'}
+                : workoutsError
+                  ? 'Retry workout history before loading a plan. Your saved workouts remain intact.'
+                  : 'Each week uses your completed GainLog history from before Monday to recommend the next load. Enter what you actually complete. Wednesday is easy cardio only; elliptical counts as cardio, not step-equivalent mileage.'}
             </Text>
           </View>
 
@@ -1257,6 +1289,43 @@ const styles = StyleSheet.create({
     fontSize: FontSize.lg,
     fontWeight: '800',
     marginTop: 2,
+  },
+  planError: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    backgroundColor: Colors.warningDim,
+    borderColor: Colors.warning,
+    borderWidth: 1,
+    borderRadius: Radius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+  },
+  planErrorBody: {
+    flex: 1,
+    gap: 2,
+  },
+  planErrorTitle: {
+    color: Colors.text,
+    fontSize: FontSize.sm,
+    fontWeight: '800',
+  },
+  planErrorText: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.xs,
+    lineHeight: 16,
+  },
+  planRetryButton: {
+    borderColor: Colors.warning,
+    borderWidth: 1,
+    borderRadius: Radius.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+  },
+  planRetryText: {
+    color: Colors.warning,
+    fontSize: FontSize.xs,
+    fontWeight: '800',
   },
   planCards: {
     gap: Spacing.sm,

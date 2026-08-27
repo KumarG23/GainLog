@@ -141,6 +141,13 @@ export function getSuggestedTemplateId(dayOfWeek: number): WorkoutTemplateId | n
   return weekdayIds[dayOfWeek] ?? null;
 }
 
+export function canLoadWorkoutTemplate(
+  historyLoading: boolean,
+  historyError: string | null,
+): boolean {
+  return !historyLoading && historyError == null;
+}
+
 export function buildWorkoutTemplateDraft(
   templateId: string,
   createId: () => string,
