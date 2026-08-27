@@ -12,6 +12,54 @@ export interface AutoSyncLaneResult {
   failed: string[];
 }
 
+export function createForceAwareTaskRunner<
+  Options extends { force?: boolean },
+  Result,
+>(task: (options: Options) => Promise<Result>): (options: Options) => Promise<Result> {
+  let active: Promise<Result> | null = null;
+  let activeIsForced = false;
+  let pendingForced: Promise<Result> | null = null;
+
+  const clearActive = (current: Promise<Result>) => {
+    if (active !== current) return;
+    active = null;
+    activeIsForced = false;
+  };
+  const start = (options: Options): Promise<Result> => {
+    let current: Promise<Result>;
+    try {
+      current = Promise.resolve(task(options));
+    } catch (error) {
+      current = Promise.reject(error);
+    }
+    active = current;
+    activeIsForced = options.force === true;
+    current.then(
+      () => clearActive(current),
+      () => clearActive(current),
+    );
+    return current;
+  };
+
+  return (options: Options): Promise<Result> => {
+    if (!active) return start(options);
+    if (options.force !== true || activeIsForced) return active;
+    if (pendingForced) return pendingForced;
+
+    const current = active;
+    const queued = current.then(
+      () => start(options),
+      () => start(options),
+    );
+    pendingForced = queued;
+    queued.then(
+      () => { if (pendingForced === queued) pendingForced = null; },
+      () => { if (pendingForced === queued) pendingForced = null; },
+    );
+    return queued;
+  };
+}
+
 export function shouldAttemptHealthConnectAutoSync({
   nowMs,
   lastSuccessMs,

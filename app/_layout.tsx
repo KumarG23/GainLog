@@ -42,6 +42,13 @@ export default function RootLayout() {
               headerBackTitle: 'Health',
             }}
           />
+          <Stack.Screen
+            name="settings"
+            options={{
+              title: 'Settings',
+              headerBackTitle: 'Health',
+            }}
+          />
         </Stack>
       </HealthProvider>
     </WorkoutsProvider>

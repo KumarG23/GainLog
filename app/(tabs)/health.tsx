@@ -1,8 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  AppState,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -20,8 +19,6 @@ import { useHealth } from '../../context/HealthContext';
 import { formatVolume } from '../../utils/stats';
 import { localDateKey, localIsoTimestamp, previousLocalDateKey } from '../../utils/date';
 import { formatGoalTarget } from '../../utils/goals';
-import { repairHealthConnect, syncHealthConnect } from '../../utils/healthConnectSync';
-import { beginGoogleHealthConnection, disconnectGoogleHealth, getGoogleHealthStatus, syncGoogleHealth, type GoogleHealthStatus } from '../../utils/googleHealth';
 
 type GoalKind = 'weight' | 'calories' | 'protein' | 'fiber' | 'workout_frequency';
 
@@ -82,7 +79,6 @@ export default function HealthScreen() {
     generateDailyReview,
     generateWeeklyReview,
     updateGoal,
-    refresh,
   } = useHealth();
 
   const [weight, setWeight] = useState('');
@@ -99,17 +95,7 @@ export default function HealthScreen() {
   const [savingGoal, setSavingGoal] = useState(false);
   const [reviewingDay, setReviewingDay] = useState(false);
   const [reviewingWeek, setReviewingWeek] = useState(false);
-  const [syncingHealthConnect, setSyncingHealthConnect] = useState(false);
-  const [googleHealthStatus, setGoogleHealthStatus] = useState<GoogleHealthStatus | null>(null);
-  const [googleHealthBusy, setGoogleHealthBusy] = useState(false);
 
-  useEffect(() => {
-    let mounted = true;
-    const loadStatus = () => getGoogleHealthStatus().then(status => { if (mounted) setGoogleHealthStatus(status); }).catch(() => { if (mounted) setGoogleHealthStatus(null); });
-    loadStatus();
-    const subscription = AppState.addEventListener('change', state => { if (state === 'active') loadStatus(); });
-    return () => { mounted = false; subscription.remove(); };
-  }, []);
 
   const activeGoals = useMemo(
     () => goals.filter(goal => goal.status === 'active'),
@@ -252,66 +238,6 @@ export default function HealthScreen() {
     }
   };
 
-  const handleHealthConnectSync = async () => {
-    setSyncingHealthConnect(true);
-    try {
-      const result = await syncHealthConnect({ requestBackgroundAccess: true });
-      await refresh();
-      Alert.alert(
-        'Health Connect synced',
-        `Refreshed ${result.dailyImports} days of activity and ${result.bodyMeasurements} body measurement${result.bodyMeasurements === 1 ? '' : 's'}.`,
-      );
-    } catch (err) {
-      Alert.alert('Health Connect sync unavailable', err instanceof Error ? err.message : 'Unable to sync Health Connect.');
-    } finally {
-      setSyncingHealthConnect(false);
-    }
-  };
-
-  const handleHealthConnectRepair = async () => {
-    setSyncingHealthConnect(true);
-    try {
-      const result = await repairHealthConnect();
-      await refresh();
-      Alert.alert(
-        'Health Connect repaired',
-        `Reconciled ${result.dailyImports} days and ${result.bodyMeasurements} body measurement${result.bodyMeasurements === 1 ? '' : 's'}.`,
-      );
-    } catch (err) {
-      Alert.alert('Health Connect repair unavailable', err instanceof Error ? err.message : 'Unable to repair Health Connect.');
-    } finally {
-      setSyncingHealthConnect(false);
-    }
-  };
-
-  const handleGoogleHealthConnection = async () => {
-    setGoogleHealthBusy(true);
-    try {
-      if (googleHealthStatus?.connected) {
-        await disconnectGoogleHealth();
-        setGoogleHealthStatus(await getGoogleHealthStatus());
-      } else {
-        await beginGoogleHealthConnection();
-      }
-    } catch (err) {
-      Alert.alert('Google Health unavailable', err instanceof Error ? err.message : 'Unable to update Google Health.');
-    } finally {
-      setGoogleHealthBusy(false);
-    }
-  };
-
-  const handleGoogleHealthSync = async () => {
-    setGoogleHealthBusy(true);
-    try {
-      const result = await syncGoogleHealth();
-      await Promise.all([refresh(), getGoogleHealthStatus().then(setGoogleHealthStatus)]);
-      Alert.alert('Google Health synced', `Refreshed ${result.syncedDays} days of wearable data.`);
-    } catch (err) {
-      Alert.alert('Google Health sync unavailable', err instanceof Error ? err.message : 'Unable to sync Google Health.');
-    } finally {
-      setGoogleHealthBusy(false);
-    }
-  };
 
   if (loading && !dashboardSummary) {
     return (
@@ -420,63 +346,6 @@ export default function HealthScreen() {
             </View>
           )}
 
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Google Health</Text>
-              <Text style={styles.measurementSource}>{googleHealthStatus?.connected ? 'Connected' : 'Server sync'}</Text>
-            </View>
-            <Text style={styles.compositionHint}>
-              {googleHealthStatus?.connected
-                ? `Direct Fitbit/Pixel Watch reconciliation is connected${googleHealthStatus.lastSuccessAt ? ` · Last success ${googleHealthStatus.lastSuccessAt}` : ''}.`
-                : googleHealthStatus?.configured ? 'Connect Fitbit or Pixel Watch data in your browser. Credentials stay on the server.' : 'Google Health is not configured on this server.'}
-            </Text>
-            {googleHealthStatus?.lastError && <Text style={styles.errorText}>{googleHealthStatus.lastError}</Text>}
-            <TouchableOpacity
-              style={styles.primaryButton}
-              onPress={handleGoogleHealthConnection}
-              disabled={googleHealthBusy || !googleHealthStatus?.configured}
-              accessibilityRole="button"
-              accessibilityLabel={googleHealthStatus?.connected ? 'Disconnect Google Health' : 'Connect Google Health'}
-            >
-              {googleHealthBusy ? <ActivityIndicator color={Colors.background} /> : <Text style={styles.primaryButtonText}>{googleHealthStatus?.connected ? 'Disconnect' : 'Connect Google Health'}</Text>}
-            </TouchableOpacity>
-            {googleHealthStatus?.connected && (
-              <TouchableOpacity style={styles.primaryButton} onPress={handleGoogleHealthSync} disabled={googleHealthBusy} accessibilityRole="button" accessibilityLabel="Sync Google Health now">
-                <Text style={styles.primaryButtonText}>Sync now</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Health Connect</Text>
-              <Text style={styles.measurementSource}>Android only</Text>
-            </View>
-            <Text style={styles.compositionHint}>
-              GainLog syncs Health Connect when the app opens and periodically in the background. Android controls the exact background timing; Sync now remains available as a recovery check.
-            </Text>
-            <TouchableOpacity
-              style={styles.primaryButton}
-              onPress={handleHealthConnectSync}
-              disabled={syncingHealthConnect}
-              accessibilityRole="button"
-              accessibilityLabel="Sync Health Connect now"
-            >
-              {syncingHealthConnect ? <ActivityIndicator color={Colors.background} /> : <Text style={styles.primaryButtonText}>Sync now</Text>}
-            </TouchableOpacity>
-            <Text style={styles.compositionHint}>
-              If incremental sync reports an expired cursor or unknown deletion, repair reconciles every previously imported Health Connect date plus a 90-day backfill, then replaces the saved cursor.
-            </Text>
-            <TouchableOpacity
-              style={[styles.primaryButton, styles.repairButton]}
-              onPress={handleHealthConnectRepair}
-              disabled={syncingHealthConnect}
-              accessibilityRole="button"
-              accessibilityLabel="Repair imported Health Connect history"
-            >
-              {syncingHealthConnect ? <ActivityIndicator color={Colors.primary} /> : <Text style={styles.repairButtonText}>Repair imported history</Text>}
-            </TouchableOpacity>
-          </View>
 
           {todayHealth && (
             <TouchableOpacity
@@ -1058,16 +927,7 @@ const styles = StyleSheet.create({
     fontSize: FontSize.base,
     fontWeight: '800',
   },
-  repairButton: {
-    backgroundColor: Colors.surface,
-    borderColor: Colors.primary,
-    borderWidth: 1,
-  },
-  repairButtonText: {
-    color: Colors.primary,
-    fontSize: FontSize.base,
-    fontWeight: '800',
-  },
+
   emptyText: {
     color: Colors.textMuted,
     fontSize: FontSize.sm,

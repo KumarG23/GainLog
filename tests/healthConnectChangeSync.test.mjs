@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as healthConnectChangeSync from '../utils/healthConnectChangeSync.ts';
 
 import {
   bootstrapHealthConnectChangeSync,
@@ -574,6 +575,25 @@ test('an observed weight without an id cannot authorize destructive reconciliati
     observedRecordCount: 2,
     sourceRecordIds: ['health-connect:weight:renpho-weight-1'],
   });
+});
+
+
+test('repair-required foreground sync retries once with a bounded authoritative repair', async () => {
+  const calls = [];
+  const result = await healthConnectChangeSync.runHealthConnectRepairFallback(
+    { repairIfRequired: true, days: 2 },
+    async options => {
+      calls.push(options);
+      if (calls.length === 1) throw new HealthConnectRepairRequiredError();
+      return 'repaired';
+    },
+  );
+
+  assert.equal(result, 'repaired');
+  assert.deepEqual(calls, [
+    { repairIfRequired: true, days: 2 },
+    { repairIfRequired: false, repair: true, days: 90 },
+  ]);
 });
 
 

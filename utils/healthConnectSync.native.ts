@@ -33,6 +33,7 @@ import {
   parseHealthConnectSyncState,
   prepareHealthConnectWeightReconciliation,
   runHealthConnectChangeSync,
+  runHealthConnectRepairFallback,
   stampHealthConnectRecordType,
   type HealthConnectChangePage,
   type HealthConnectChangeRecord,
@@ -49,6 +50,7 @@ export interface HealthConnectSyncOptions {
   requestBackgroundAccess?: boolean;
   days?: number;
   repair?: boolean;
+  repairIfRequired?: boolean;
 }
 
 const readPermissions = [
@@ -332,7 +334,12 @@ async function syncHealthConnectUnsafe(
   };
 }
 
-const runHealthConnectSyncSerially = createSerialTaskRunner(syncHealthConnectUnsafe);
+const runHealthConnectSyncSerially = createSerialTaskRunner(
+  (options: HealthConnectSyncOptions) => runHealthConnectRepairFallback(
+    options,
+    syncHealthConnectUnsafe,
+  ),
+);
 
 export function syncHealthConnect(
   options: HealthConnectSyncOptions = {},

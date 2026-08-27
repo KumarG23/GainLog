@@ -47,7 +47,6 @@ export default function NutritionScreen() {
     nutritionHealthConnectError,
     addNutritionEntry,
     deleteNutritionEntry,
-    syncNutritionToHealthConnect,
   } = useHealth();
 
   const [meal, setMeal] = useState('breakfast');
@@ -59,7 +58,6 @@ export default function NutritionScreen() {
   const [fiber, setFiber] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
-  const [syncingNutrition, setSyncingNutrition] = useState(false);
   const [quickAdding, setQuickAdding] = useState<string | null>(null);
   const quickAddLock = useRef(false);
 
@@ -176,23 +174,6 @@ export default function NutritionScreen() {
     }
   };
 
-  const handleNutritionSync = async () => {
-    setSyncingNutrition(true);
-    try {
-      const written = await syncNutritionToHealthConnect();
-      Alert.alert(
-        'Nutrition repair complete',
-        `Reconciled ${written} GainLog meal${written === 1 ? '' : 's'} with Health Connect.`,
-      );
-    } catch (err) {
-      Alert.alert(
-        'Nutrition sync failed',
-        err instanceof Error ? err.message : 'Unable to write nutrition to Health Connect.',
-      );
-    } finally {
-      setSyncingNutrition(false);
-    }
-  };
 
   if (loading && !dashboardSummary) {
     return (
@@ -241,23 +222,6 @@ export default function NutritionScreen() {
             </View>
           </View>
 
-          {Platform.OS === 'android' && (
-            <TouchableOpacity
-              style={[styles.primaryButton, syncingNutrition && styles.buttonDisabled]}
-              onPress={handleNutritionSync}
-              disabled={syncingNutrition}
-              accessibilityLabel="Repair all GainLog nutrition in Health Connect"
-            >
-              {syncingNutrition ? (
-                <ActivityIndicator size="small" color={Colors.text} />
-              ) : (
-                <Ionicons name="sync-outline" size={16} color={Colors.text} />
-              )}
-              <Text style={styles.primaryButtonText}>
-                {syncingNutrition ? 'Repairing nutrition' : 'Repair all nutrition in Health Connect'}
-              </Text>
-            </TouchableOpacity>
-          )}
 
           {quickAdds.length > 0 && (
             <View style={styles.section}>

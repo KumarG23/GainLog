@@ -9,6 +9,7 @@ export interface HealthConnectSyncOptions {
   requestBackgroundAccess?: boolean;
   days?: number;
   repair?: boolean;
+  repairIfRequired?: boolean;
 }
 
 // Metro resolves healthConnectSync.native.ts on Android and .web.ts in browsers.

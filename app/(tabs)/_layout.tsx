@@ -1,7 +1,7 @@
-import { Tabs } from 'expo-router';
+import { Tabs, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize } from '../../constants/theme';
-import { Platform } from 'react-native';
+import { Platform, TouchableOpacity } from 'react-native';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -20,6 +20,8 @@ function TabIcon({ name, activeName, color, size, focused }: TabIconProps) {
 }
 
 export default function TabLayout() {
+  const router = useRouter();
+
   return (
     <Tabs
       screenOptions={{
@@ -98,6 +100,23 @@ export default function TabLayout() {
         name="health"
         options={{
           title: 'Health',
+          headerRight: () => (
+            <TouchableOpacity
+              onPress={() => router.push('/settings')}
+              accessibilityRole="button"
+              accessibilityLabel="Open settings"
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              style={{
+                width: 44,
+                height: 44,
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginRight: 4,
+              }}
+            >
+              <Ionicons name="settings-outline" size={22} color={Colors.text} />
+            </TouchableOpacity>
+          ),
           tabBarIcon: ({ color, size, focused }) => (
             <TabIcon
               name="scale-outline"

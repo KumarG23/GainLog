@@ -292,6 +292,38 @@ export class HealthConnectRepairRequiredError extends Error {
   }
 }
 
+interface HealthConnectRepairFallbackOptions {
+  repair?: boolean;
+  repairIfRequired?: boolean;
+  days?: number;
+}
+
+export async function runHealthConnectRepairFallback<
+  Result,
+  Options extends HealthConnectRepairFallbackOptions,
+>(
+  options: Options,
+  run: (nextOptions: Options) => Promise<Result>,
+): Promise<Result> {
+  try {
+    return await run(options);
+  } catch (error) {
+    if (
+      options.repairIfRequired
+      && !options.repair
+      && error instanceof HealthConnectRepairRequiredError
+    ) {
+      return run({
+        ...options,
+        days: 90,
+        repair: true,
+        repairIfRequired: false,
+      });
+    }
+    throw error;
+  }
+}
+
 export function loadHealthConnectSyncState(
   raw: string | null,
 ): HealthConnectSyncState | null {
