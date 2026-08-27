@@ -3,9 +3,12 @@ import test from 'node:test';
 
 import {
   aggregateNutritionTrend,
+  aggregateRecoveryTrend,
   aggregateTrainingTrend,
   aggregateWeightTrend,
+  calculateRecoveryComparison,
   filterTrendRange,
+  includeRecoveryActivityDetails,
   withRollingAverage,
   resolveChartWidth,
   resolveScrollableChartWidth,
@@ -47,6 +50,92 @@ test('nutrition trend can exclude the unfinished current day', () => {
   ], '2026-08-05');
 
   assert.deepEqual(points.map(point => point.date), ['2026-08-04']);
+});
+
+test('recovery trend preserves missing metrics and derives sleep efficiency without manufacturing zeroes', () => {
+  const points = aggregateRecoveryTrend([
+    {
+      date: '2026-08-01',
+      sleepMinutes: 420,
+      awakeMinutes: 60,
+      restingHeartRateBpm: 58,
+      hrvMs: 48,
+      steps: 9000,
+      activeCalories: 0,
+      source: 'google-health',
+      updatedAt: '2026-08-02T10:00:00Z',
+    },
+    {
+      date: '2026-08-03',
+      sleepMinutes: 390,
+      source: 'health-connect',
+      updatedAt: '2026-08-04T10:00:00Z',
+    },
+  ]);
+
+  assert.deepEqual(points, [
+    {
+      date: '2026-08-01',
+      sleepMinutes: 420,
+      awakeMinutes: 60,
+      sleepEfficiencyPercent: 87.5,
+      restingHeartRateBpm: 58,
+      hrvMs: 48,
+      steps: 9000,
+      activeCalories: 0,
+      exerciseMinutes: undefined,
+      source: 'google-health',
+    },
+    {
+      date: '2026-08-03',
+      sleepMinutes: 390,
+      awakeMinutes: undefined,
+      sleepEfficiencyPercent: undefined,
+      restingHeartRateBpm: undefined,
+      hrvMs: undefined,
+      steps: undefined,
+      activeCalories: undefined,
+      exerciseMinutes: undefined,
+      source: 'health-connect',
+    },
+  ]);
+});
+
+test('today activity details are excluded while completed-day activity remains available', () => {
+  assert.equal(includeRecoveryActivityDetails('2026-08-26', '2026-08-26'), false);
+  assert.equal(includeRecoveryActivityDetails('2026-08-25', '2026-08-26'), true);
+});
+
+test('recovery comparison uses seven current days and the preceding 28-day personal baseline', () => {
+  const points = Array.from({ length: 35 }, (_, index) => {
+    const date = new Date(Date.UTC(2026, 6, 28 + index)).toISOString().slice(0, 10);
+    return { date, value: index < 28 ? 50 : 70 };
+  });
+
+  assert.deepEqual(calculateRecoveryComparison(points, '2026-08-31'), {
+    currentAverage: 70,
+    currentObservedDays: 7,
+    baselineAverage: 50,
+    baselineObservedDays: 28,
+    delta: 20,
+  });
+});
+
+test('recovery comparison counts only observed values and withholds a sparse baseline', () => {
+  const comparison = calculateRecoveryComparison([
+    { date: '2026-07-30', value: 45 },
+    { date: '2026-08-05', value: 47 },
+    { date: '2026-08-25', value: 52 },
+    { date: '2026-08-27', value: 54 },
+  ], '2026-08-31');
+
+  assert.deepEqual(comparison, {
+    currentAverage: 53,
+    currentObservedDays: 2,
+    baselineAverage: undefined,
+    baselineObservedDays: 2,
+    delta: undefined,
+  });
 });
 
 test('training trend groups sessions by Monday and excludes cardio from strength volume', () => {

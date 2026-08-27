@@ -13,17 +13,21 @@ import { TrendLineChart, LineTrendPoint } from '../components/TrendLineChart';
 import { Colors, FontSize, Radius, Spacing } from '../constants/theme';
 import { useHealth } from '../context/HealthContext';
 import { useWorkouts } from '../context/WorkoutsContext';
-import { localDateKey } from '../utils/date';
+import { localDateKey, previousLocalDateKey } from '../utils/date';
 import { formatVolume } from '../utils/stats';
 import {
   aggregateNutritionTrend,
+  aggregateRecoveryTrend,
   aggregateTrainingTrend,
   aggregateWeightTrend,
   buildTrendSeries,
+  calculateRecoveryComparison,
+  includeRecoveryActivityDetails,
+  RecoveryTrendPoint,
   TrendRange,
 } from '../utils/trends';
 
-type TrendCategory = 'weight' | 'nutrition' | 'training';
+type TrendCategory = 'weight' | 'nutrition' | 'training' | 'recovery';
 type MetricKey =
   | 'weight'
   | 'bodyFat'
@@ -33,7 +37,15 @@ type MetricKey =
   | 'fiber'
   | 'volume'
   | 'sessions'
-  | 'minutes';
+  | 'minutes'
+  | 'sleep'
+  | 'awake'
+  | 'sleepEfficiency'
+  | 'restingHeartRate'
+  | 'hrv'
+  | 'steps'
+  | 'activeCalories'
+  | 'exerciseMinutes';
 
 interface MetricOption {
   key: MetricKey;
@@ -49,6 +61,7 @@ const CATEGORIES: {
   { key: 'weight', label: 'Weight', icon: 'scale-outline' },
   { key: 'nutrition', label: 'Nutrition', icon: 'restaurant-outline' },
   { key: 'training', label: 'Training', icon: 'barbell-outline' },
+  { key: 'recovery', label: 'Recovery', icon: 'heart-outline' },
 ];
 
 const METRICS: Record<TrendCategory, MetricOption[]> = {
@@ -67,13 +80,23 @@ const METRICS: Record<TrendCategory, MetricOption[]> = {
     { key: 'sessions', label: 'Sessions', color: Colors.success },
     { key: 'minutes', label: 'Minutes', color: Colors.warning },
   ],
+  recovery: [
+    { key: 'sleep', label: 'Sleep', color: Colors.primary },
+    { key: 'awake', label: 'Awake', color: Colors.warning },
+    { key: 'sleepEfficiency', label: 'Efficiency', color: Colors.success },
+    { key: 'restingHeartRate', label: 'Resting HR', color: Colors.warning },
+    { key: 'hrv', label: 'HRV', color: Colors.primary },
+    { key: 'steps', label: 'Steps', color: Colors.success },
+    { key: 'activeCalories', label: 'Active kcal', color: Colors.warning },
+    { key: 'exerciseMinutes', label: 'Exercise', color: Colors.primary },
+  ],
 };
 
 const RANGES: TrendRange[] = ['7D', '30D', '90D', 'ALL'];
 
 function categoryFromParam(value: string | string[] | undefined): TrendCategory {
   const key = Array.isArray(value) ? value[0] : value;
-  if (key === 'nutrition' || key === 'training') return key;
+  if (key === 'nutrition' || key === 'training' || key === 'recovery') return key;
   return 'weight';
 }
 
@@ -81,14 +104,44 @@ function defaultMetric(category: TrendCategory): MetricKey {
   return METRICS[category][0].key;
 }
 
+function formatMinutes(value: number): string {
+  const rounded = Math.round(value);
+  const sign = rounded < 0 ? '-' : '';
+  const minutes = Math.abs(rounded);
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  if (hours && remainder) return `${sign}${hours}h ${remainder}m`;
+  if (hours) return `${sign}${hours}h`;
+  return `${sign}${remainder} min`;
+}
+
 function formatMetricValue(metric: MetricKey, value: number): string {
   if (metric === 'weight' || metric === 'leanMass') return `${value.toFixed(1)} lb`;
-  if (metric === 'bodyFat') return `${value.toFixed(1)}%`;
-  if (metric === 'calories') return `${Math.round(value).toLocaleString()} kcal`;
+  if (metric === 'bodyFat' || metric === 'sleepEfficiency') return `${value.toFixed(1)}%`;
+  if (metric === 'calories' || metric === 'activeCalories') return `${Math.round(value).toLocaleString()} kcal`;
   if (metric === 'protein' || metric === 'fiber') return `${value.toFixed(1)} g`;
   if (metric === 'volume') return formatVolume(Math.round(value));
-  if (metric === 'minutes') return `${Math.round(value)} min`;
+  if (metric === 'minutes' || metric === 'sleep' || metric === 'awake' || metric === 'exerciseMinutes') return formatMinutes(value);
+  if (metric === 'restingHeartRate') return `${value.toFixed(0)} bpm`;
+  if (metric === 'hrv') return `${value.toFixed(1)} ms`;
+  if (metric === 'steps') return Math.round(value).toLocaleString();
   return value.toFixed(1);
+}
+
+function recoveryMetricValue(point: RecoveryTrendPoint, metric: MetricKey): number | undefined {
+  if (metric === 'sleep') return point.sleepMinutes;
+  if (metric === 'awake') return point.awakeMinutes;
+  if (metric === 'sleepEfficiency') return point.sleepEfficiencyPercent;
+  if (metric === 'restingHeartRate') return point.restingHeartRateBpm;
+  if (metric === 'hrv') return point.hrvMs;
+  if (metric === 'steps') return point.steps;
+  if (metric === 'activeCalories') return point.activeCalories;
+  if (metric === 'exerciseMinutes') return point.exerciseMinutes;
+  return undefined;
+}
+
+function recoveryMetricUsesCompletedDays(metric: MetricKey): boolean {
+  return metric === 'steps' || metric === 'activeCalories' || metric === 'exerciseMinutes';
 }
 
 function SummaryCard({ label, value }: { label: string; value: string }) {
@@ -106,9 +159,12 @@ export default function TrendsScreen() {
   const [category, setCategory] = useState<TrendCategory>(initialCategory);
   const [metric, setMetric] = useState<MetricKey>(defaultMetric(initialCategory));
   const [range, setRange] = useState<TrendRange>('30D');
-  const { bodyWeightEntries, nutritionEntries, goals } = useHealth();
+  const { bodyWeightEntries, nutritionEntries, healthDailyEntries, goals } = useHealth();
   const { sessions } = useWorkouts();
   const today = localDateKey();
+  const recoveryAsOfDate = recoveryMetricUsesCompletedDays(metric)
+    ? previousLocalDateKey()
+    : today;
 
   const availableMetrics = useMemo(() => {
     if (category !== 'weight') return METRICS[category];
@@ -151,6 +207,38 @@ export default function TrendsScreen() {
         .filter((point): point is { date: string; value: number; details: { label: string; value: string }[] } => point !== null);
     }
 
+    if (category === 'recovery') {
+      return aggregateRecoveryTrend(healthDailyEntries)
+        .filter(point => point.date <= recoveryAsOfDate)
+        .map(point => {
+          const value = recoveryMetricValue(point, metric);
+          if (value == null) return null;
+          const includeActivity = includeRecoveryActivityDetails(point.date, today);
+          const details = [
+            point.sleepMinutes == null ? null : { label: 'Sleep', value: formatMinutes(point.sleepMinutes) },
+            point.awakeMinutes == null ? null : { label: 'Awake', value: formatMinutes(point.awakeMinutes) },
+            point.sleepEfficiencyPercent == null ? null : { label: 'Sleep Efficiency', value: `${point.sleepEfficiencyPercent.toFixed(1)}%` },
+            point.restingHeartRateBpm == null ? null : { label: 'Resting HR', value: `${point.restingHeartRateBpm.toFixed(0)} bpm` },
+            point.hrvMs == null ? null : { label: 'HRV', value: `${point.hrvMs.toFixed(1)} ms` },
+            ...(includeActivity ? [
+              point.steps == null ? null : { label: 'Steps', value: point.steps.toLocaleString() },
+              point.activeCalories == null ? null : { label: 'Active Energy', value: `${Math.round(point.activeCalories)} kcal` },
+              point.exerciseMinutes == null ? null : { label: 'Exercise', value: formatMinutes(point.exerciseMinutes) },
+            ] : []),
+            {
+              label: 'Source',
+              value: point.source === 'google-health'
+                ? 'Google Health'
+                : point.source === 'health-connect'
+                  ? 'Health Connect'
+                  : 'Apple Health',
+            },
+          ].filter((detail): detail is { label: string; value: string } => detail !== null);
+          return { date: point.date, value, details };
+        })
+        .filter((point): point is { date: string; value: number; details: { label: string; value: string }[] } => point !== null);
+    }
+
     if (category === 'nutrition') {
       return aggregateNutritionTrend(nutritionEntries, today).map(point => ({
         date: point.date,
@@ -184,12 +272,21 @@ export default function TrendsScreen() {
         { label: 'Minutes', value: `${Math.round(point.minutes)} min` },
       ],
     }));
-  }, [bodyWeightEntries, category, metric, nutritionEntries, sessions, today]);
+  }, [bodyWeightEntries, category, healthDailyEntries, metric, nutritionEntries, recoveryAsOfDate, sessions, today]);
 
   const visiblePoints = useMemo(() => {
-    const usesAverage = (category === 'weight' && metric === 'weight') || category === 'nutrition';
-    return buildTrendSeries(rawPoints, range, today, usesAverage ? 7 : undefined);
-  }, [category, metric, range, rawPoints, today]);
+    const usesAverage =
+      (category === 'weight' && metric === 'weight') ||
+      category === 'nutrition' ||
+      category === 'recovery';
+    const asOfDate = category === 'recovery' ? recoveryAsOfDate : today;
+    return buildTrendSeries(rawPoints, range, asOfDate, usesAverage ? 7 : undefined);
+  }, [category, metric, range, rawPoints, recoveryAsOfDate, today]);
+
+  const recoveryComparison = useMemo(
+    () => calculateRecoveryComparison(rawPoints, recoveryAsOfDate),
+    [rawPoints, recoveryAsOfDate],
+  );
 
   const activeOption = availableMetrics.find(option => option.key === metric)
     ?? METRICS[category][0];
@@ -285,18 +382,39 @@ export default function TrendsScreen() {
         </View>
 
         <View style={styles.summaryRow}>
-          <SummaryCard
-            label={isTraining ? 'Total' : 'Latest'}
-            value={isTraining ? formatMetricValue(metric, total) : latest == null ? '—' : formatMetricValue(metric, latest)}
-          />
-          <SummaryCard
-            label={isTraining ? 'Per Week' : 'Average'}
-            value={average == null ? '—' : formatMetricValue(metric, average)}
-          />
-          <SummaryCard
-            label="Change"
-            value={change == null ? '—' : `${change > 0 ? '+' : ''}${formatMetricValue(metric, change)}`}
-          />
+          {category === 'recovery' ? (
+            <>
+              <SummaryCard
+                label={`7D Avg · ${recoveryComparison.currentObservedDays}/7`}
+                value={recoveryComparison.currentAverage == null ? '—' : formatMetricValue(metric, recoveryComparison.currentAverage)}
+              />
+              <SummaryCard
+                label={`28D Base · ${recoveryComparison.baselineObservedDays}/28`}
+                value={recoveryComparison.baselineAverage == null ? 'Building' : formatMetricValue(metric, recoveryComparison.baselineAverage)}
+              />
+              <SummaryCard
+                label="vs Baseline"
+                value={recoveryComparison.delta == null
+                  ? '—'
+                  : `${recoveryComparison.delta > 0 ? '+' : ''}${formatMetricValue(metric, recoveryComparison.delta)}`}
+              />
+            </>
+          ) : (
+            <>
+              <SummaryCard
+                label={isTraining ? 'Total' : 'Latest'}
+                value={isTraining ? formatMetricValue(metric, total) : latest == null ? '—' : formatMetricValue(metric, latest)}
+              />
+              <SummaryCard
+                label={isTraining ? 'Per Week' : 'Average'}
+                value={average == null ? '—' : formatMetricValue(metric, average)}
+              />
+              <SummaryCard
+                label="Change"
+                value={change == null ? '—' : `${change > 0 ? '+' : ''}${formatMetricValue(metric, change)}`}
+              />
+            </>
+          )}
         </View>
 
         <TrendLineChart
@@ -304,8 +422,12 @@ export default function TrendsScreen() {
           color={activeOption.color}
           valueFormatter={value => formatMetricValue(metric, value)}
           goal={goal}
-          showAverage={visiblePoints.length > 1 && ((category === 'weight' && metric === 'weight') || category === 'nutrition')}
-          floorAtZero={category !== 'weight'}
+          showAverage={visiblePoints.length > 1 && (
+            (category === 'weight' && metric === 'weight') ||
+            category === 'nutrition' ||
+            category === 'recovery'
+          )}
+          floorAtZero={category === 'nutrition' || category === 'training'}
           pixelsPerDay={category === 'training' ? 7 : 44}
         />
 
@@ -318,7 +440,11 @@ export default function TrendsScreen() {
                 : 'Smart-scale composition is noisy day to day. Judge the direction across several weeks.'
               : category === 'nutrition'
                 ? `${visiblePoints.length} completed logged day${visiblePoints.length === 1 ? '' : 's'} shown. Today and unlogged days are omitted rather than treated as complete zero-calorie days.`
-                : 'Training is grouped into Monday–Sunday weeks. Volume includes strength sets only; cardio does not inflate it.'}
+                : category === 'recovery'
+                  ? recoveryComparison.baselineAverage == null
+                    ? `The bright line is the seven-day average across observed days. Personal baseline is still building (${recoveryComparison.baselineObservedDays}/28 observed days; at least 7 are required). Missing metrics remain gaps, never zeroes.${recoveryMetricUsesCompletedDays(metric) ? ' Today is omitted because this activity total is still in progress.' : ''}`
+                    : `The bright line is the seven-day average across observed days. The summary compares it with the preceding 28-day personal baseline (${recoveryComparison.baselineObservedDays}/28 observed); direction is context, not a readiness score.${recoveryMetricUsesCompletedDays(metric) ? ' Today is omitted because this activity total is still in progress.' : ''}`
+                  : 'Training is grouped into Monday–Sunday weeks. Volume includes strength sets only; cardio does not inflate it.'}
           </Text>
         </View>
       </ScrollView>

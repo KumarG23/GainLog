@@ -178,6 +178,14 @@ class DailyReviewDB(SQLModel, table=True):
     generated_at: str
 
 
+class WeeklyReviewDB(SQLModel, table=True):
+    __tablename__ = "weekly_review"
+    week_end: str = Field(primary_key=True)
+    week_start: str
+    review: str
+    generated_at: str
+
+
 class GoogleHealthOAuthStateDB(SQLModel, table=True):
     __tablename__ = "google_health_oauth_state"
     state: str = Field(primary_key=True)
@@ -587,6 +595,13 @@ class GoogleHealthSyncOut(CamelModel):
 
 class DailyReviewOut(CamelModel):
     date: str
+    review: str
+    generated_at: str
+
+
+class WeeklyReviewOut(CamelModel):
+    week_start: str
+    week_end: str
     review: str
     generated_at: str
 
@@ -1290,11 +1305,224 @@ Write a personal daily coaching message in 5-7 natural sentences. Interpret the 
 Be encouraging without empty praise or guilt. Sound like a coach who knows the client, not a database report. Mention only numbers that support a coaching point. Treat a numeric calorie goal as an upper daily budget unless the goal explicitly says otherwise; being moderately below it is not automatically a failure or an incomplete day, and do not encourage eating extra merely to reach the number. Treat protein and fiber goals as targets to reach. Do not characterize an unlogged workout as missed or skipped unless the recorded data explicitly shows that a workout was scheduled or due that day; it may be an intentional rest day. Do not diagnose medical conditions. Do not invent meals, activity, targets, recovery status, or trends. Never label calories or macros as low, high, adequate, or inadequate without a matching numeric goal; if no target exists, report the total neutrally. Do not infer calorie or macro needs from a weight goal. If important data is missing, acknowledge it naturally without letting missing-data disclaimers dominate the message. No bullets, headers, or markdown; output plain prose only."""
 
 
+def _average_present(rows: list[Any], field: str) -> Optional[float]:
+    values = [float(value) for row in rows if (value := getattr(row, field)) is not None]
+    return sum(values) / len(values) if values else None
+
+
+def _format_number(value: float, digits: int = 1) -> str:
+    rounded = round(value, digits)
+    return f"{rounded:g}"
+
+
+def _format_health_window(
+    rows: list[AppleHealthDailyDB],
+    expected_days: int,
+) -> str:
+    health_fields = (
+        "sleep_minutes",
+        "awake_minutes",
+        "resting_heart_rate_bpm",
+        "hrv_ms",
+        "steps",
+        "active_calories",
+        "exercise_minutes",
+    )
+    observed = [
+        row for row in rows
+        if any(getattr(row, field) is not None for field in health_fields)
+    ]
+    lines = [f"Observed health days: {len(observed)}/{expected_days}"]
+    averages = (
+        ("sleep_minutes", "Average sleep", lambda value: _format_minutes(round(value))),
+        ("awake_minutes", "Average awake time", lambda value: _format_minutes(round(value))),
+        ("resting_heart_rate_bpm", "Average resting heart rate", lambda value: f"{_format_number(value)} bpm"),
+        ("hrv_ms", "Average HRV", lambda value: f"{_format_number(value)} ms"),
+        ("steps", "Average steps", lambda value: f"{round(value):,}"),
+        ("active_calories", "Average active energy", lambda value: f"{_format_number(value)} kcal"),
+        ("exercise_minutes", "Average exercise", lambda value: f"{_format_number(value)} min"),
+    )
+    for field, label, formatter in averages:
+        metric_rows = [row for row in observed if getattr(row, field) is not None]
+        if not metric_rows:
+            lines.append(
+                f"{label}: unavailable (0/{expected_days} observed; sources: none)"
+            )
+            continue
+        value = _average_present(metric_rows, field)
+        if value is not None:
+            sources = sorted({row.source for row in metric_rows})
+            source_text = ", ".join(sources)
+            lines.append(
+                f"{label}: {formatter(value)} "
+                f"({len(metric_rows)}/{expected_days} observed; sources: {source_text})"
+            )
+    return "\n".join(lines)
+
+
+def _format_nutrition_window(
+    entries: list[NutritionEntryDB],
+    expected_days: int,
+) -> str:
+    by_day: dict[str, dict[str, float]] = {}
+    for entry in entries:
+        totals = by_day.setdefault(
+            entry.date[:10],
+            {"calories": 0, "protein": 0, "carbs": 0, "fat": 0, "fiber": 0},
+        )
+        totals["calories"] += entry.calories
+        totals["protein"] += entry.protein_g
+        totals["carbs"] += entry.carbs_g
+        totals["fat"] += entry.fat_g
+        totals["fiber"] += entry.fiber_g
+    lines = [f"Nutrition logged: {len(by_day)}/{expected_days} days"]
+    if not by_day:
+        return "\n".join(lines)
+    day_totals = list(by_day.values())
+    lines.extend((
+        f"Average calories: {round(sum(day['calories'] for day in day_totals) / len(day_totals))} kcal",
+        f"Average protein: {_format_number(sum(day['protein'] for day in day_totals) / len(day_totals))}g",
+        f"Average fiber: {_format_number(sum(day['fiber'] for day in day_totals) / len(day_totals))}g",
+    ))
+    return "\n".join(lines)
+
+
+def _format_training_window(
+    workouts: list[WorkoutSessionDB],
+    expected_days: int,
+) -> str:
+    del expected_days  # The calendar span is explicit in the surrounding heading.
+    duration = sum(workout.duration_minutes for workout in workouts)
+    volume = sum(_session_volume(workout) for workout in workouts)
+    return (
+        f"Workouts: {len(workouts)} sessions, {duration} min\n"
+        f"Strength volume: {round(volume):,} lbs"
+    )
+
+
+def _weight_timestamp_order(value: str) -> tuple[int, float | str]:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return (0, value)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return (1, parsed.astimezone(timezone.utc).timestamp())
+
+
+def _format_weight_window(
+    weights: list[BodyWeightEntryDB],
+    expected_days: int,
+) -> str:
+    daily_latest: dict[str, BodyWeightEntryDB] = {}
+    for weight in weights:
+        day = weight.date[:10]
+        current = daily_latest.get(day)
+        if current is None or _weight_timestamp_order(weight.date) > _weight_timestamp_order(current.date):
+            daily_latest[day] = weight
+    daily_weights = [daily_latest[day] for day in sorted(daily_latest)]
+
+    lines = [
+        f"Weight observed days: {len(daily_weights)}/{expected_days} "
+        f"({len(weights)} measurements)"
+    ]
+    sources = sorted({weight.source for weight in weights if weight.source})
+    if sources:
+        lines.append(f"Weight sources: {', '.join(sources)}")
+    if not daily_weights:
+        lines.append("Weight trend: no measurements observed")
+        return "\n".join(lines)
+    first = daily_weights[0]
+    latest = daily_weights[-1]
+    if len(daily_weights) == 1:
+        lines.append(f"Weight trend: one observed day at {latest.weight_lbs:g} lbs")
+        return "\n".join(lines)
+    change = latest.weight_lbs - first.weight_lbs
+    lines.append(
+        f"Weight trend: {first.weight_lbs:g} lbs to {latest.weight_lbs:g} lbs "
+        f"({change:+g} lbs)"
+    )
+    return "\n".join(lines)
+
+
+def _build_weekly_review_prompt(
+    *,
+    week_start: str,
+    week_end: str,
+    baseline_start: str,
+    baseline_end: str,
+    current_health: list[AppleHealthDailyDB],
+    baseline_health: list[AppleHealthDailyDB],
+    current_nutrition: list[NutritionEntryDB],
+    baseline_nutrition: list[NutritionEntryDB],
+    current_workouts: list[WorkoutSessionDB],
+    baseline_workouts: list[WorkoutSessionDB],
+    current_weights: list[BodyWeightEntryDB],
+    baseline_weights: list[BodyWeightEntryDB],
+    active_goals: list[GoalDB],
+) -> str:
+    goals = "\n".join(_format_goal_for_coach(goal) for goal in active_goals)
+    if not goals:
+        goals = "No active goals logged."
+    return f"""You are a supportive but candid fitness coach reviewing one complete seven-day period against the client's preceding 28-day personal baseline.
+
+CURRENT 7-DAY WINDOW: {week_start} through {week_end}
+
+RECOVERY & ACTIVITY:
+{_format_health_window(current_health, 7)}
+
+NUTRITION:
+{_format_nutrition_window(current_nutrition, 7)}
+
+TRAINING:
+{_format_training_window(current_workouts, 7)}
+
+WEIGHT:
+{_format_weight_window(current_weights, 7)}
+
+PRECEDING 28-DAY BASELINE: {baseline_start} through {baseline_end}
+
+BASELINE RECOVERY & ACTIVITY:
+{_format_health_window(baseline_health, 28)}
+
+BASELINE NUTRITION:
+{_format_nutrition_window(baseline_nutrition, 28)}
+
+BASELINE TRAINING:
+{_format_training_window(baseline_workouts, 28)}
+
+BASELINE WEIGHT:
+{_format_weight_window(baseline_weights, 28)}
+
+ACTIVE GOALS:
+{goals}
+
+Write a personal weekly coaching review in 5-8 natural sentences with no bullets, headers, or markdown.
+1. Start with a clear verdict on the week's overall direction.
+2. Identify one evidence-backed win and the single highest-leverage opportunity.
+3. Compare the seven-day window with the preceding 28-day baseline only where both windows contain sufficient metric-specific coverage. Treat a current metric as sufficient only with at least 3/7 observed days and its baseline as sufficient only with at least 7/28 observed days; otherwise state that the metric is too sparse to compare. Base conclusions on multi-day patterns, not a single day.
+4. Connect recovery, nutrition, weight, and training only when the recorded evidence supports the connection. Do not imply causation from correlation.
+5. Give one realistic action for the next week with a concrete execution example.
+6. End with brief, earned encouragement.
+
+Do not invent a readiness score; Google/Fitbit readiness remains authoritative if it is ever imported. Do not diagnose medical conditions or overreact to one HRV, resting-heart-rate, or sleep value. Missing data is unknown, not zero. Mention completeness limitations only when they materially weaken a conclusion. Treat calorie targets as upper daily budgets unless the goal explicitly says otherwise; protein and fiber are targets to reach. Do not infer calorie or macro needs from weight direction alone. Do not invent meals, scheduled workouts, symptoms, or goals. Output plain prose only."""
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get(
+    "/health-data/daily",
+    response_model=List[AppleHealthDailyOut],
+    response_model_by_alias=True,
+)
+def list_health_daily(db: Session = Depends(get_db)):
+    rows = db.exec(select(AppleHealthDailyDB).order_by(AppleHealthDailyDB.date)).all()
+    return [_apple_health_daily_to_out(row) for row in rows]
 
 
 def _google_health_status(db: Session) -> GoogleHealthStatusOut:
@@ -1496,6 +1724,166 @@ def generate_daily_review(date: str, db: Session = Depends(get_db)):
         review=row.review,
         generated_at=row.generated_at,
     )
+
+
+def _parse_week_end(value: str) -> date_cls:
+    try:
+        parsed = date_cls.fromisoformat(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="weekEnd must use YYYY-MM-DD") from exc
+    if parsed.isoformat() != value:
+        raise HTTPException(status_code=422, detail="weekEnd must use YYYY-MM-DD")
+    return parsed
+
+
+def _weekly_review_to_out(row: WeeklyReviewDB) -> WeeklyReviewOut:
+    return WeeklyReviewOut(
+        week_start=row.week_start,
+        week_end=row.week_end,
+        review=row.review,
+        generated_at=row.generated_at,
+    )
+
+
+@app.get(
+    "/coach/weekly-review",
+    response_model=WeeklyReviewOut,
+    response_model_by_alias=True,
+)
+def get_weekly_review(
+    week_end: str = Query(alias="weekEnd"),
+    db: Session = Depends(get_db),
+):
+    _parse_week_end(week_end)
+    row = db.get(WeeklyReviewDB, week_end)
+    if not row:
+        raise HTTPException(status_code=404, detail="Weekly review not found")
+    return _weekly_review_to_out(row)
+
+
+@app.post(
+    "/coach/weekly-review",
+    response_model=WeeklyReviewOut,
+    response_model_by_alias=True,
+)
+def generate_weekly_review(
+    week_end: str = Query(alias="weekEnd"),
+    db: Session = Depends(get_db),
+):
+    parsed_end = _parse_week_end(week_end)
+    week_start_date = parsed_end - timedelta(days=6)
+    baseline_end_date = week_start_date - timedelta(days=1)
+    baseline_start_date = baseline_end_date - timedelta(days=27)
+    week_start = week_start_date.isoformat()
+    baseline_start = baseline_start_date.isoformat()
+    baseline_end = baseline_end_date.isoformat()
+    current_end_exclusive = (parsed_end + timedelta(days=1)).isoformat()
+    baseline_end_exclusive = week_start
+
+    current_health = list(db.exec(
+        select(AppleHealthDailyDB)
+        .where(AppleHealthDailyDB.date >= week_start, AppleHealthDailyDB.date <= week_end)
+        .order_by(AppleHealthDailyDB.date)
+    ).all())
+    baseline_health = list(db.exec(
+        select(AppleHealthDailyDB)
+        .where(
+            AppleHealthDailyDB.date >= baseline_start,
+            AppleHealthDailyDB.date < baseline_end_exclusive,
+        )
+        .order_by(AppleHealthDailyDB.date)
+    ).all())
+    current_nutrition = list(db.exec(
+        select(NutritionEntryDB)
+        .where(
+            NutritionEntryDB.date >= week_start,
+            NutritionEntryDB.date < current_end_exclusive,
+        )
+        .order_by(NutritionEntryDB.date)
+    ).all())
+    baseline_nutrition = list(db.exec(
+        select(NutritionEntryDB)
+        .where(
+            NutritionEntryDB.date >= baseline_start,
+            NutritionEntryDB.date < baseline_end_exclusive,
+        )
+        .order_by(NutritionEntryDB.date)
+    ).all())
+    current_workouts = list(db.exec(
+        select(WorkoutSessionDB)
+        .where(
+            WorkoutSessionDB.date >= week_start,
+            WorkoutSessionDB.date < current_end_exclusive,
+        )
+        .order_by(WorkoutSessionDB.date)
+    ).all())
+    baseline_workouts = list(db.exec(
+        select(WorkoutSessionDB)
+        .where(
+            WorkoutSessionDB.date >= baseline_start,
+            WorkoutSessionDB.date < baseline_end_exclusive,
+        )
+        .order_by(WorkoutSessionDB.date)
+    ).all())
+    current_weights = list(db.exec(
+        select(BodyWeightEntryDB)
+        .where(
+            BodyWeightEntryDB.date >= week_start,
+            BodyWeightEntryDB.date < current_end_exclusive,
+        )
+        .order_by(BodyWeightEntryDB.date)
+    ).all())
+    baseline_weights = list(db.exec(
+        select(BodyWeightEntryDB)
+        .where(
+            BodyWeightEntryDB.date >= baseline_start,
+            BodyWeightEntryDB.date < baseline_end_exclusive,
+        )
+        .order_by(BodyWeightEntryDB.date)
+    ).all())
+    active_goals = list(db.exec(
+        select(GoalDB)
+        .where(GoalDB.status == "active")
+        .order_by(GoalDB.start_date.desc())
+    ).all())
+
+    prompt = _build_weekly_review_prompt(
+        week_start=week_start,
+        week_end=week_end,
+        baseline_start=baseline_start,
+        baseline_end=baseline_end,
+        current_health=current_health,
+        baseline_health=baseline_health,
+        current_nutrition=current_nutrition,
+        baseline_nutrition=baseline_nutrition,
+        current_workouts=current_workouts,
+        baseline_workouts=baseline_workouts,
+        current_weights=current_weights,
+        baseline_weights=baseline_weights,
+        active_goals=active_goals,
+    )
+    try:
+        review_text = get_coach_provider().generate(prompt)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Weekly review unavailable") from exc
+
+    generated_at = datetime.now(timezone.utc).isoformat()
+    row = db.get(WeeklyReviewDB, week_end)
+    if row:
+        row.week_start = week_start
+        row.review = review_text
+        row.generated_at = generated_at
+    else:
+        row = WeeklyReviewDB(
+            week_start=week_start,
+            week_end=week_end,
+            review=review_text,
+            generated_at=generated_at,
+        )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _weekly_review_to_out(row)
 
 
 @app.get("/body-weight/", response_model=List[BodyWeightEntryOut], response_model_by_alias=True)

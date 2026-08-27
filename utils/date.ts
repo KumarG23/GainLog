@@ -34,6 +34,12 @@ export function localDateKey(value = new Date()): string {
   return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
 }
 
+export function previousLocalDateKey(value = new Date()): string {
+  const previous = new Date(value);
+  previous.setDate(previous.getDate() - 1);
+  return localDateKey(previous);
+}
+
 export function localIsoTimestamp(value = new Date()): string {
   const offsetMinutes = -value.getTimezoneOffset();
   const sign = offsetMinutes >= 0 ? '+' : '-';

@@ -1,4 +1,4 @@
-import type { BodyWeightEntry, NutritionEntry } from '../types/health';
+import type { BodyWeightEntry, HealthDaily, NutritionEntry } from '../types/health';
 import type { WorkoutSession } from '../types/workout';
 
 export type TrendRange = '7D' | '30D' | '90D' | 'ALL';
@@ -26,6 +26,27 @@ export interface TrainingTrendPoint {
   volume: number;
   sessions: number;
   minutes: number;
+}
+
+export interface RecoveryTrendPoint {
+  date: string;
+  sleepMinutes?: number;
+  awakeMinutes?: number;
+  sleepEfficiencyPercent?: number;
+  restingHeartRateBpm?: number;
+  hrvMs?: number;
+  steps?: number;
+  activeCalories?: number;
+  exerciseMinutes?: number;
+  source: HealthDaily['source'];
+}
+
+export interface RecoveryComparison {
+  currentAverage?: number;
+  currentObservedDays: number;
+  baselineAverage?: number;
+  baselineObservedDays: number;
+  delta?: number;
 }
 
 export function resolveChartWidth(
@@ -160,6 +181,71 @@ export function aggregateNutritionTrend(
   }
 
   return [...byDay.values()].sort((left, right) => left.date.localeCompare(right.date));
+}
+
+export function aggregateRecoveryTrend(entries: HealthDaily[]): RecoveryTrendPoint[] {
+  return [...entries]
+    .sort((left, right) => left.date.localeCompare(right.date))
+    .map(entry => {
+      const sleepPeriodMinutes =
+        entry.sleepMinutes != null && entry.awakeMinutes != null
+          ? entry.sleepMinutes + entry.awakeMinutes
+          : undefined;
+      const sleepEfficiencyPercent =
+        sleepPeriodMinutes != null && sleepPeriodMinutes > 0
+          ? Math.round((entry.sleepMinutes! / sleepPeriodMinutes) * 1_000) / 10
+          : undefined;
+      return {
+        date: entry.date,
+        sleepMinutes: entry.sleepMinutes,
+        awakeMinutes: entry.awakeMinutes,
+        sleepEfficiencyPercent,
+        restingHeartRateBpm: entry.restingHeartRateBpm,
+        hrvMs: entry.hrvMs,
+        steps: entry.steps,
+        activeCalories: entry.activeCalories,
+        exerciseMinutes: entry.exerciseMinutes,
+        source: entry.source,
+      };
+    });
+}
+
+export function includeRecoveryActivityDetails(pointDate: string, today: string): boolean {
+  return pointDate < today;
+}
+
+export function calculateRecoveryComparison(
+  points: Array<{ date: string; value: number }>,
+  asOfDate: string,
+  minimumBaselineObservedDays = 7,
+): RecoveryComparison {
+  const currentStart = addDays(asOfDate, -6);
+  const baselineEnd = addDays(currentStart, -1);
+  const baselineStart = addDays(baselineEnd, -27);
+  const currentValues = points
+    .filter(point => point.date >= currentStart && point.date <= asOfDate)
+    .map(point => point.value)
+    .filter(Number.isFinite);
+  const baselineValues = points
+    .filter(point => point.date >= baselineStart && point.date <= baselineEnd)
+    .map(point => point.value)
+    .filter(Number.isFinite);
+  const average = (values: number[]) =>
+    values.reduce((sum, value) => sum + value, 0) / values.length;
+  const currentAverage = currentValues.length ? average(currentValues) : undefined;
+  const baselineAverage = baselineValues.length >= minimumBaselineObservedDays
+    ? average(baselineValues)
+    : undefined;
+  return {
+    currentAverage,
+    currentObservedDays: currentValues.length,
+    baselineAverage,
+    baselineObservedDays: baselineValues.length,
+    delta:
+      currentAverage != null && baselineAverage != null
+        ? currentAverage - baselineAverage
+        : undefined,
+  };
 }
 
 export function aggregateTrainingTrend(sessions: WorkoutSession[]): TrainingTrendPoint[] {

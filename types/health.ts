@@ -84,3 +84,10 @@ export interface DailyReview {
   review: string;
   generatedAt: string;
 }
+
+export interface WeeklyReview {
+  weekStart: string;
+  weekEnd: string;
+  review: string;
+  generatedAt: string;
+}

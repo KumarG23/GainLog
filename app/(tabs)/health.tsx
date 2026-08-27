@@ -18,7 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize, Radius, Spacing } from '../../constants/theme';
 import { useHealth } from '../../context/HealthContext';
 import { formatVolume } from '../../utils/stats';
-import { localDateKey, localIsoTimestamp } from '../../utils/date';
+import { localDateKey, localIsoTimestamp, previousLocalDateKey } from '../../utils/date';
 import { formatGoalTarget } from '../../utils/goals';
 import { repairHealthConnect, syncHealthConnect } from '../../utils/healthConnectSync';
 import { beginGoogleHealthConnection, disconnectGoogleHealth, getGoogleHealthStatus, syncGoogleHealth, type GoogleHealthStatus } from '../../utils/googleHealth';
@@ -73,12 +73,14 @@ export default function HealthScreen() {
     dashboardSummary,
     coachStatus,
     dailyReview,
+    weeklyReview,
     goals,
     loading,
     error,
     addBodyWeightEntry,
     addGoal,
     generateDailyReview,
+    generateWeeklyReview,
     updateGoal,
     refresh,
   } = useHealth();
@@ -96,6 +98,7 @@ export default function HealthScreen() {
   const [savingWeight, setSavingWeight] = useState(false);
   const [savingGoal, setSavingGoal] = useState(false);
   const [reviewingDay, setReviewingDay] = useState(false);
+  const [reviewingWeek, setReviewingWeek] = useState(false);
   const [syncingHealthConnect, setSyncingHealthConnect] = useState(false);
   const [googleHealthStatus, setGoogleHealthStatus] = useState<GoogleHealthStatus | null>(null);
   const [googleHealthBusy, setGoogleHealthBusy] = useState(false);
@@ -122,6 +125,7 @@ export default function HealthScreen() {
   };
   const latestMeasurement = dashboardSummary?.latestWeight;
   const todayHealth = dashboardSummary?.todayHealth;
+  const completedWeekEnd = previousLocalDateKey();
   const sleepLabel = todayHealth?.sleepMinutes != null
     ? `${Math.floor(todayHealth.sleepMinutes / 60)}h ${todayHealth.sleepMinutes % 60}m`
     : null;
@@ -231,6 +235,20 @@ export default function HealthScreen() {
       );
     } finally {
       setReviewingDay(false);
+    }
+  };
+
+  const handleWeeklyReview = async () => {
+    setReviewingWeek(true);
+    try {
+      await generateWeeklyReview(completedWeekEnd);
+    } catch (err) {
+      Alert.alert(
+        'Weekly review unavailable',
+        err instanceof Error ? err.message : 'Unable to generate the weekly review.',
+      );
+    } finally {
+      setReviewingWeek(false);
     }
   };
 
@@ -461,7 +479,13 @@ export default function HealthScreen() {
           </View>
 
           {todayHealth && (
-            <View style={styles.section}>
+            <TouchableOpacity
+              style={styles.section}
+              onPress={() => router.push('/trends?metric=recovery' as Href)}
+              activeOpacity={0.78}
+              accessibilityRole="button"
+              accessibilityLabel="View recovery trends"
+            >
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Recovery & Activity</Text>
                 <Text style={styles.measurementSource}>
@@ -551,7 +575,7 @@ export default function HealthScreen() {
                   ].filter(Boolean).join(' · ')}
                 </Text>
               )}
-            </View>
+            </TouchableOpacity>
           )}
 
           <View style={styles.section}>
@@ -578,6 +602,46 @@ export default function HealthScreen() {
                 )}
               </View>
             </View>
+          </View>
+
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <View style={styles.reviewTitleRow}>
+                <Ionicons name="calendar-outline" size={18} color={Colors.primary} />
+                <Text style={styles.sectionTitle}>Weekly Review</Text>
+              </View>
+              {weeklyReview && (
+                <Text style={styles.reviewDate}>
+                  {weeklyReview.weekStart} – {weeklyReview.weekEnd}
+                </Text>
+              )}
+            </View>
+            <Text style={styles.reviewHint}>
+              Compares the last seven completed days with the preceding 28-day personal baseline.
+            </Text>
+            {weeklyReview && (
+              <Text style={styles.reviewText}>{weeklyReview.review}</Text>
+            )}
+            <TouchableOpacity
+              style={[styles.primaryButton, reviewingWeek && styles.buttonDisabled]}
+              onPress={handleWeeklyReview}
+              disabled={reviewingWeek || !coachStatus?.configured}
+              accessibilityRole="button"
+              accessibilityLabel={weeklyReview ? 'Refresh weekly review' : 'Generate weekly review'}
+            >
+              {reviewingWeek ? (
+                <ActivityIndicator size="small" color={Colors.text} />
+              ) : (
+                <Ionicons name="sparkles-outline" size={16} color={Colors.text} />
+              )}
+              <Text style={styles.primaryButtonText}>
+                {reviewingWeek
+                  ? 'Reviewing Week'
+                  : weeklyReview
+                    ? 'Refresh Weekly Review'
+                    : 'Generate Weekly Review'}
+              </Text>
+            </TouchableOpacity>
           </View>
 
           <View style={styles.section}>
