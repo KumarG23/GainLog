@@ -19,6 +19,7 @@ import { useHealth } from '../../context/HealthContext';
 import { formatVolume } from '../../utils/stats';
 import { localDateKey, localIsoTimestamp, previousLocalDateKey } from '../../utils/date';
 import { formatGoalTarget } from '../../utils/goals';
+import { formatHealthUpdatedAt, selectRecoveryCalories } from '../../utils/healthDisplay';
 
 type GoalKind = 'weight' | 'calories' | 'protein' | 'fiber' | 'workout_frequency';
 
@@ -115,6 +116,11 @@ export default function HealthScreen() {
   const sleepLabel = todayHealth?.sleepMinutes != null
     ? `${Math.floor(todayHealth.sleepMinutes / 60)}h ${todayHealth.sleepMinutes % 60}m`
     : null;
+  const recoveryCalories = selectRecoveryCalories({
+    totalCalories: todayHealth?.totalCalories,
+    activeCalories: todayHealth?.activeCalories,
+  });
+  const healthUpdatedLabel = formatHealthUpdatedAt(todayHealth?.updatedAt ?? '');
   const hasComposition = Boolean(
     latestMeasurement &&
       (latestMeasurement.bodyFatPercent != null ||
@@ -392,16 +398,12 @@ export default function HealthScreen() {
                     <Text style={styles.compositionLabel}>Steps</Text>
                   </View>
                 )}
-                {(todayHealth.totalCalories != null || todayHealth.activeCalories != null) && (
+                {recoveryCalories && (
                   <View style={styles.compositionMetric}>
                     <Text style={styles.compositionValue}>
-                      {(todayHealth.activeCalories && todayHealth.activeCalories > 0
-                        ? todayHealth.activeCalories
-                        : todayHealth.totalCalories ?? 0).toFixed(0)} kcal
+                      {recoveryCalories.value.toFixed(0)} kcal
                     </Text>
-                    <Text style={styles.compositionLabel}>
-                      {todayHealth.activeCalories && todayHealth.activeCalories > 0 ? 'Active' : 'Total'}
-                    </Text>
+                    <Text style={styles.compositionLabel}>{recoveryCalories.label}</Text>
                   </View>
                 )}
                 {todayHealth.exerciseMinutes != null && (
@@ -411,6 +413,9 @@ export default function HealthScreen() {
                   </View>
                 )}
               </View>
+              {healthUpdatedLabel && (
+                <Text style={styles.compositionHint}>{healthUpdatedLabel}</Text>
+              )}
               {(todayHealth.deepSleepMinutes != null ||
                 todayHealth.coreSleepMinutes != null ||
                 todayHealth.remSleepMinutes != null ||
