@@ -39,6 +39,7 @@ type MetricKey =
   | 'sessions'
   | 'minutes'
   | 'sleep'
+  | 'deepSleep'
   | 'awake'
   | 'sleepEfficiency'
   | 'restingHeartRate'
@@ -82,6 +83,7 @@ const METRICS: Record<TrendCategory, MetricOption[]> = {
   ],
   recovery: [
     { key: 'sleep', label: 'Sleep', color: Colors.primary },
+    { key: 'deepSleep', label: 'Deep Sleep', color: Colors.success },
     { key: 'awake', label: 'Awake', color: Colors.warning },
     { key: 'sleepEfficiency', label: 'Efficiency', color: Colors.success },
     { key: 'restingHeartRate', label: 'Resting HR', color: Colors.warning },
@@ -121,7 +123,7 @@ function formatMetricValue(metric: MetricKey, value: number): string {
   if (metric === 'calories' || metric === 'activeCalories') return `${Math.round(value).toLocaleString()} kcal`;
   if (metric === 'protein' || metric === 'fiber') return `${value.toFixed(1)} g`;
   if (metric === 'volume') return formatVolume(Math.round(value));
-  if (metric === 'minutes' || metric === 'sleep' || metric === 'awake' || metric === 'exerciseMinutes') return formatMinutes(value);
+  if (metric === 'minutes' || metric === 'sleep' || metric === 'deepSleep' || metric === 'awake' || metric === 'exerciseMinutes') return formatMinutes(value);
   if (metric === 'restingHeartRate') return `${value.toFixed(0)} bpm`;
   if (metric === 'hrv') return `${value.toFixed(1)} ms`;
   if (metric === 'steps') return Math.round(value).toLocaleString();
@@ -130,6 +132,7 @@ function formatMetricValue(metric: MetricKey, value: number): string {
 
 function recoveryMetricValue(point: RecoveryTrendPoint, metric: MetricKey): number | undefined {
   if (metric === 'sleep') return point.sleepMinutes;
+  if (metric === 'deepSleep') return point.deepSleepMinutes;
   if (metric === 'awake') return point.awakeMinutes;
   if (metric === 'sleepEfficiency') return point.sleepEfficiencyPercent;
   if (metric === 'restingHeartRate') return point.restingHeartRateBpm;
@@ -216,6 +219,7 @@ export default function TrendsScreen() {
           const includeActivity = includeRecoveryActivityDetails(point.date, today);
           const details = [
             point.sleepMinutes == null ? null : { label: 'Sleep', value: formatMinutes(point.sleepMinutes) },
+            point.deepSleepMinutes == null ? null : { label: 'Deep Sleep', value: formatMinutes(point.deepSleepMinutes) },
             point.awakeMinutes == null ? null : { label: 'Awake', value: formatMinutes(point.awakeMinutes) },
             point.sleepEfficiencyPercent == null ? null : { label: 'Sleep Efficiency', value: `${point.sleepEfficiencyPercent.toFixed(1)}%` },
             point.restingHeartRateBpm == null ? null : { label: 'Resting HR', value: `${point.restingHeartRateBpm.toFixed(0)} bpm` },

@@ -107,7 +107,11 @@ class AnthropicCoachProvider:
         return text
 
 
-def get_coach_provider() -> CoachProvider:
+def get_coach_provider(
+    *,
+    model_env_var: str = "GAINLOG_COACH_MODEL",
+    default_model: str = "gpt-5.6-luna",
+) -> CoachProvider:
     provider = os.environ.get("GAINLOG_COACH_PROVIDER", "ollama").strip().lower()
 
     if provider == "ollama":
@@ -138,7 +142,7 @@ def get_coach_provider() -> CoachProvider:
         primary = OpenAICompatibleCoachProvider(
             base_url=base_url,
             api_key=api_key,
-            model=os.environ.get("GAINLOG_COACH_MODEL", "gpt-5.6-luna"),
+            model=os.environ.get(model_env_var, default_model),
             timeout_seconds=int(os.environ.get("GAINLOG_COACH_TIMEOUT_SECONDS", "120")),
         )
         if os.environ.get("GAINLOG_COACH_FALLBACK", "ollama").strip().lower() == "ollama":

@@ -151,7 +151,13 @@ def test_weekly_review_compares_completed_week_to_preceding_baseline_and_persist
             calls["prompt"] = prompt
             return "Recovery improved across the week. Keep the same sleep window and training cadence."
 
-    monkeypatch.setattr(main, "get_coach_provider", lambda: FakeProvider())
+    provider_config = {}
+
+    def fake_get_coach_provider(**kwargs):
+        provider_config.update(kwargs)
+        return FakeProvider()
+
+    monkeypatch.setattr(main, "get_coach_provider", fake_get_coach_provider)
 
     response = client.post(f"/coach/weekly-review?weekEnd={week_end}")
 
@@ -161,6 +167,10 @@ def test_weekly_review_compares_completed_week_to_preceding_baseline_and_persist
     assert body["weekEnd"] == week_end
     assert body["review"].startswith("Recovery improved")
     assert body["generatedAt"]
+    assert provider_config == {
+        "model_env_var": "GAINLOG_WEEKLY_REVIEW_MODEL",
+        "default_model": "gpt-5.6-sol",
+    }
 
     prompt = calls["prompt"]
     assert "CURRENT 7-DAY WINDOW: 2026-08-25 through 2026-08-31" in prompt

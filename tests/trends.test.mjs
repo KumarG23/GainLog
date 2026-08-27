@@ -57,6 +57,7 @@ test('recovery trend preserves missing metrics and derives sleep efficiency with
     {
       date: '2026-08-01',
       sleepMinutes: 420,
+      deepSleepMinutes: 72,
       awakeMinutes: 60,
       restingHeartRateBpm: 58,
       hrvMs: 48,
@@ -77,6 +78,7 @@ test('recovery trend preserves missing metrics and derives sleep efficiency with
     {
       date: '2026-08-01',
       sleepMinutes: 420,
+      deepSleepMinutes: 72,
       awakeMinutes: 60,
       sleepEfficiencyPercent: 87.5,
       restingHeartRateBpm: 58,
@@ -89,6 +91,7 @@ test('recovery trend preserves missing metrics and derives sleep efficiency with
     {
       date: '2026-08-03',
       sleepMinutes: 390,
+      deepSleepMinutes: undefined,
       awakeMinutes: undefined,
       sleepEfficiencyPercent: undefined,
       restingHeartRateBpm: undefined,

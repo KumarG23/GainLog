@@ -84,7 +84,7 @@ def test_ollama_generate(monkeypatch):
 def test_luna_provider_uses_proxy_with_ollama_fallback(monkeypatch):
     monkeypatch.setenv("GAINLOG_COACH_PROVIDER", "luna")
     monkeypatch.setenv("GAINLOG_COACH_BASE_URL", "http://hermes:8646/v1")
-    monkeypatch.setenv("GAINLOG_COACH_API_KEY", "proxy-secret")
+    monkeypatch.setenv("GAINLOG_COACH_API_KEY", "x")
     monkeypatch.setenv("GAINLOG_COACH_MODEL", "gpt-5.6-luna")
     monkeypatch.setenv("OLLAMA_BASE_URL", "http://ai-box:11434")
     monkeypatch.setenv("OLLAMA_MODEL", "gemma3:12b")
@@ -94,10 +94,26 @@ def test_luna_provider_uses_proxy_with_ollama_fallback(monkeypatch):
     assert isinstance(provider, FallbackCoachProvider)
     assert isinstance(provider.primary, OpenAICompatibleCoachProvider)
     assert provider.primary.base_url == "http://hermes:8646/v1"
-    assert provider.primary.api_key == "proxy-secret"
+    assert provider.primary.api_key == "x"
     assert provider.primary.model == "gpt-5.6-luna"
     assert isinstance(provider.fallback, OllamaCoachProvider)
     assert provider.fallback.model == "gemma3:12b"
+
+
+def test_weekly_review_provider_defaults_to_sol(monkeypatch):
+    monkeypatch.setenv("GAINLOG_COACH_PROVIDER", "luna")
+    monkeypatch.setenv("GAINLOG_COACH_BASE_URL", "http://hermes:8646/v1")
+    monkeypatch.setenv("GAINLOG_COACH_API_KEY", "x")
+    monkeypatch.delenv("GAINLOG_WEEKLY_REVIEW_MODEL", raising=False)
+
+    provider = get_coach_provider(
+        model_env_var="GAINLOG_WEEKLY_REVIEW_MODEL",
+        default_model="gpt-5.6-sol",
+    )
+
+    assert isinstance(provider, FallbackCoachProvider)
+    assert isinstance(provider.primary, OpenAICompatibleCoachProvider)
+    assert provider.primary.model == "gpt-5.6-sol"
 
 
 def test_openai_compatible_generate(monkeypatch):
@@ -121,7 +137,7 @@ def test_openai_compatible_generate(monkeypatch):
     monkeypatch.setattr("backend.coach.requests.post", fake_post)
     provider = OpenAICompatibleCoachProvider(
         base_url="http://hermes:8646/v1",
-        api_key="proxy-secret",
+        api_key="x",
         model="gpt-5.6-luna",
         timeout_seconds=90,
     )
@@ -130,7 +146,7 @@ def test_openai_compatible_generate(monkeypatch):
 
     assert result == "Luna sees the whole day clearly."
     assert calls["url"] == "http://hermes:8646/v1/chat/completions"
-    assert calls["headers"]["Authorization"] == "Bearer proxy-secret"
+    assert calls["headers"]["Authorization"] == "Bearer x"
     assert calls["json"]["model"] == "gpt-5.6-luna"
     assert calls["json"]["messages"] == [
         {"role": "user", "content": "review my day"}
@@ -171,7 +187,7 @@ def test_coach_status_does_not_claim_default_ollama_is_configured(client, monkey
 def test_coach_status_reports_luna_proxy_configuration(client, monkeypatch):
     monkeypatch.setenv("GAINLOG_COACH_PROVIDER", "luna")
     monkeypatch.setenv("GAINLOG_COACH_BASE_URL", "http://hermes:8646/v1")
-    monkeypatch.setenv("GAINLOG_COACH_API_KEY", "proxy-secret")
+    monkeypatch.setenv("GAINLOG_COACH_API_KEY", "x")
     monkeypatch.setenv("GAINLOG_COACH_MODEL", "gpt-5.6-luna")
 
     response = client.get("/coach/status")

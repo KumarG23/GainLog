@@ -1863,7 +1863,10 @@ def generate_weekly_review(
         active_goals=active_goals,
     )
     try:
-        review_text = get_coach_provider().generate(prompt)
+        review_text = get_coach_provider(
+            model_env_var="GAINLOG_WEEKLY_REVIEW_MODEL",
+            default_model="gpt-5.6-sol",
+        ).generate(prompt)
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Weekly review unavailable") from exc
 

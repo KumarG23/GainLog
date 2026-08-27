@@ -31,6 +31,7 @@ export interface TrainingTrendPoint {
 export interface RecoveryTrendPoint {
   date: string;
   sleepMinutes?: number;
+  deepSleepMinutes?: number;
   awakeMinutes?: number;
   sleepEfficiencyPercent?: number;
   restingHeartRateBpm?: number;
@@ -198,6 +199,7 @@ export function aggregateRecoveryTrend(entries: HealthDaily[]): RecoveryTrendPoi
       return {
         date: entry.date,
         sleepMinutes: entry.sleepMinutes,
+        deepSleepMinutes: entry.deepSleepMinutes,
         awakeMinutes: entry.awakeMinutes,
         sleepEfficiencyPercent,
         restingHeartRateBpm: entry.restingHeartRateBpm,

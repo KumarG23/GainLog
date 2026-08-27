@@ -36,6 +36,7 @@ test('Trends screen exposes Recovery metrics and honest baseline language', () =
   assert.match(trendsScreen, /key: 'recovery', label: 'Recovery'/);
   for (const metric of [
     'sleep',
+    'deepSleep',
     'awake',
     'sleepEfficiency',
     'restingHeartRate',
