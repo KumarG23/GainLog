@@ -13,6 +13,7 @@ export interface MacroAverages {
   carbsG: number;
   fatG: number;
   fiberG: number;
+  loggedDays: number;
 }
 
 export type NutritionGoalStatus = 'below' | 'within' | 'above';
@@ -69,11 +70,12 @@ export function formatNutritionProgress(value: number, goal?: Goal) {
 }
 
 export function averageMacroDays(days: readonly DailyMacroSummary[]): MacroAverages {
-  if (days.length === 0) {
-    return { calories: 0, proteinG: 0, carbsG: 0, fatG: 0, fiberG: 0 };
+  const loggedDays = days.filter(day => day.entryCount > 0);
+  if (loggedDays.length === 0) {
+    return { calories: 0, proteinG: 0, carbsG: 0, fatG: 0, fiberG: 0, loggedDays: 0 };
   }
 
-  const totals = days.reduce(
+  const totals = loggedDays.reduce(
     (sum, day) => ({
       calories: sum.calories + day.calories,
       proteinG: sum.proteinG + day.proteinG,
@@ -85,11 +87,12 @@ export function averageMacroDays(days: readonly DailyMacroSummary[]): MacroAvera
   );
 
   return {
-    calories: Math.round(totals.calories / days.length),
-    proteinG: Math.round(totals.proteinG / days.length),
-    carbsG: Math.round(totals.carbsG / days.length),
-    fatG: Math.round(totals.fatG / days.length),
-    fiberG: Math.round(totals.fiberG / days.length),
+    calories: Math.round(totals.calories / loggedDays.length),
+    proteinG: Math.round(totals.proteinG / loggedDays.length),
+    carbsG: Math.round(totals.carbsG / loggedDays.length),
+    fatG: Math.round(totals.fatG / loggedDays.length),
+    fiberG: Math.round(totals.fiberG / loggedDays.length),
+    loggedDays: loggedDays.length,
   };
 }
 

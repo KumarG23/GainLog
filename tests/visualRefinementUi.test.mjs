@@ -40,6 +40,8 @@ test('Settings prioritizes sync and discloses recovery actions separately', () =
   assert.match(settings, /formatSyncTimestamp/);
   assert.match(settings, /showRecoveryTools/);
   assert.match(settings, /Recovery tools/);
+  assert.match(settings, /accessibilityState=\{\{ expanded: showRecoveryTools \}\}/);
+  assert.match(settings, /aria-expanded=\{showRecoveryTools\}/);
   assert.match(settings, /destructiveButton/);
   assert.match(settings, /Platform\.OS !== 'android' && styles\.buttonDisabled/);
   assert.match(settings, /Platform\.OS !== 'android' && styles\.platformUnavailableButton/);
@@ -55,5 +57,7 @@ test('History presents session metrics as a deliberate grid', () => {
 
 test('Session deletion is accessible but visually quiet', () => {
   assert.match(session, /accessibilityLabel="Delete workout session"/);
+  assert.match(session, /style=\{styles\.deleteButton\}/);
+  assert.match(session, /deleteButton:\s*\{[\s\S]*?width: 44,[\s\S]*?height: 44,/);
   assert.match(session, /name="trash-outline" size=\{18\} color=\{Colors\.textMuted\}/);
 });

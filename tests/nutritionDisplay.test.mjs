@@ -93,6 +93,23 @@ test('completed-day averages ignore an in-progress day supplied separately by th
     carbsG: 190,
     fatG: 68,
     fiberG: 35,
+    loggedDays: 2,
+  });
+});
+
+test('completed-day averages exclude dates with no nutrition records', () => {
+  const averages = averageMacroDays([
+    { date: '2026-08-26', calories: 2100, proteinG: 170, carbsG: 190, fatG: 68, fiberG: 35, entryCount: 4 },
+    { date: '2026-08-25', calories: 0, proteinG: 0, carbsG: 0, fatG: 0, fiberG: 0, entryCount: 0 },
+  ]);
+
+  assert.deepEqual(averages, {
+    calories: 2100,
+    proteinG: 170,
+    carbsG: 190,
+    fatG: 68,
+    fiberG: 35,
+    loggedDays: 1,
   });
 });
 

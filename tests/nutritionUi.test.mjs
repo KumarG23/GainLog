@@ -17,7 +17,8 @@ test('Nutrition averages seven completed days instead of treating today as compl
   assert.match(nutritionScreen, /const completedHistoryEnd = previousLocalDateKey/);
   assert.match(nutritionScreen, /\[nutritionEntries, completedHistoryEnd\]/);
   assert.match(nutritionScreen, /averageMacroDays\(completedMacroHistory\)/);
-  assert.match(nutritionScreen, /Averages use 7 completed days · chart includes today\./);
+  assert.match(nutritionScreen, /macroAverages\.loggedDays/);
+  assert.match(nutritionScreen, /macroAverages\.loggedDays === 1 \? 'day' : 'days'/);
 });
 
 test('Nutrition keeps quick actions compact and expands them on demand', () => {

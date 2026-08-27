@@ -487,7 +487,7 @@ export default function NutritionScreen() {
               <View style={styles.sectionHeadingCopy}>
                 <Text style={styles.sectionTitle}>Macro History</Text>
                 <Text style={styles.sectionSubtitle}>
-                  Averages use 7 completed days · chart includes today.
+                  Averages use {macroAverages.loggedDays} logged {macroAverages.loggedDays === 1 ? 'day' : 'days'} · chart includes today.
                 </Text>
               </View>
               <Ionicons name="calendar-outline" size={20} color={Colors.primary} />

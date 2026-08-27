@@ -238,6 +238,8 @@ export default function SettingsScreen() {
             onPress={() => setShowRecoveryTools(value => !value)}
             accessibilityRole="button"
             accessibilityLabel={`${showRecoveryTools ? 'Hide' : 'Show'} Health Connect recovery tools`}
+            accessibilityState={{ expanded: showRecoveryTools }}
+            aria-expanded={showRecoveryTools}
           >
             <View style={styles.recoveryDisclosureCopy}>
               <Ionicons name="construct-outline" size={17} color={Colors.textMuted} />

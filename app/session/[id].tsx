@@ -216,8 +216,8 @@ export default function SessionDetailScreen() {
           title: formatDate(session.date),
           headerRight: () => (
             <TouchableOpacity
+              style={styles.deleteButton}
               onPress={handleDelete}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               accessibilityRole="button"
               accessibilityLabel="Delete workout session"
             >
@@ -377,6 +377,12 @@ export default function SessionDetailScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
+  deleteButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   scrollContent: {
     paddingHorizontal: Spacing.base,
     paddingTop: Spacing.base,
