@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
@@ -14,6 +15,7 @@ import {
   resolveScrollableChartWidth,
   resolveChartDomain,
   buildTrendSeries,
+  buildTrendSummaryRequest,
   relativeDatePositions,
 } from '../utils/trends.ts';
 
@@ -278,4 +280,40 @@ test('chart domain does not flatten useful variation to include a distant goal',
 
   const nonnegative = resolveChartDomain([0, 70000], undefined, true);
   assert.equal(nonnegative.min, 0);
+});
+
+test('trend summary requests contain only bounded selected chart data and the active numeric goal', () => {
+  const points = Array.from({ length: 400 }, (_, index) => ({
+    date: new Date(Date.UTC(2025, 0, index + 1)).toISOString().slice(0, 10),
+    value: index + 1,
+    average: index + 0.5,
+    source: 'private-health-record',
+  }));
+
+  const request = buildTrendSummaryRequest(
+    'recovery',
+    'deepSleep',
+    'ALL',
+    '2026-08-29',
+    points,
+    undefined,
+  );
+
+  assert.equal(request.points.length, 366);
+  assert.deepEqual(request.points[0], {
+    date: points.at(-366).date,
+    value: points.at(-366).value,
+  });
+  assert.equal('source' in request.points[0], false);
+  assert.equal('average' in request.points[0], false);
+  assert.equal('goal' in request, false);
+});
+
+test('Trends automatically shows a cached Sol Take for the selected metric and range', () => {
+  const screen = readFileSync(new URL('../app/trends.tsx', import.meta.url), 'utf8');
+  assert.match(screen, /\/coach\/trend-summary/);
+  assert.match(screen, /SOL TAKE/);
+  assert.match(screen, /buildTrendSummaryRequest/);
+  assert.match(screen, /AbortController/);
+  assert.match(screen, /Need at least two observed points/);
 });

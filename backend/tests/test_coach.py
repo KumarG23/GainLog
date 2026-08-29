@@ -116,6 +116,26 @@ def test_weekly_review_provider_defaults_to_sol(monkeypatch):
     assert provider.primary.model == "gpt-5.6-sol"
 
 
+def test_provider_override_forces_sol_proxy_even_when_global_coach_is_ollama(monkeypatch):
+    monkeypatch.setenv("GAINLOG_COACH_PROVIDER", "ollama")
+    monkeypatch.setenv("GAINLOG_COACH_BASE_URL", "http://hermes:8646/v1")
+    monkeypatch.setenv("GAINLOG_COACH_API_KEY", "x")
+    monkeypatch.setenv("GAINLOG_TREND_SUMMARY_MODEL", "qwen2.5:7b")
+    monkeypatch.setenv("OLLAMA_MODEL", "qwen2.5:7b")
+
+    provider = get_coach_provider(
+        model_env_var="GAINLOG_TREND_SUMMARY_MODEL",
+        default_model="gpt-5.6-sol",
+        allow_fallback=False,
+        provider_override="luna-proxy",
+        model_override="gpt-5.6-sol",
+    )
+
+    assert isinstance(provider, OpenAICompatibleCoachProvider)
+    assert provider.base_url == "http://hermes:8646/v1"
+    assert provider.model == "gpt-5.6-sol"
+
+
 def test_openai_compatible_generate(monkeypatch):
     calls = {}
 

@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,6 +12,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { TrendLineChart, LineTrendPoint } from '../components/TrendLineChart';
 import { Colors, FontSize, Radius, Spacing } from '../constants/theme';
+import { API_URL } from '../constants/api';
 import { useHealth } from '../context/HealthContext';
 import { useWorkouts } from '../context/WorkoutsContext';
 import { localDateKey, previousLocalDateKey } from '../utils/date';
@@ -21,6 +23,7 @@ import {
   aggregateTrainingTrend,
   aggregateWeightTrend,
   buildTrendSeries,
+  buildTrendSummaryRequest,
   calculateRecoveryComparison,
   includeRecoveryActivityDetails,
   RecoveryTrendPoint,
@@ -52,6 +55,13 @@ interface MetricOption {
   key: MetricKey;
   label: string;
   color: string;
+}
+
+interface TrendSummaryResponse {
+  summary: string;
+  model: string;
+  generatedAt: string;
+  cached: boolean;
 }
 
 const CATEGORIES: {
@@ -162,6 +172,10 @@ export default function TrendsScreen() {
   const [category, setCategory] = useState<TrendCategory>(initialCategory);
   const [metric, setMetric] = useState<MetricKey>(defaultMetric(initialCategory));
   const [range, setRange] = useState<TrendRange>('30D');
+  const [trendSummary, setTrendSummary] = useState<string | null>(null);
+  const [trendSummaryLoading, setTrendSummaryLoading] = useState(false);
+  const [trendSummaryError, setTrendSummaryError] = useState(false);
+  const [trendSummaryRetry, setTrendSummaryRetry] = useState(0);
   const { bodyWeightEntries, nutritionEntries, healthDailyEntries, goals } = useHealth();
   const { sessions } = useWorkouts();
   const today = localDateKey();
@@ -308,6 +322,57 @@ export default function TrendsScreen() {
   const goal = goalKind
     ? goals.find(item => item.status === 'active' && item.kind === goalKind)?.targetValue
     : undefined;
+  const summaryAsOfDate = category === 'recovery' ? recoveryAsOfDate : today;
+  const trendSummaryRequest = useMemo(
+    () => buildTrendSummaryRequest(
+      category,
+      metric,
+      range,
+      summaryAsOfDate,
+      visiblePoints,
+      goal,
+    ),
+    [category, goal, metric, range, summaryAsOfDate, visiblePoints],
+  );
+
+  useEffect(() => {
+    if (trendSummaryRequest.points.length < 2) {
+      setTrendSummary('Need at least two observed points before Sol can interpret this chart.');
+      setTrendSummaryLoading(false);
+      setTrendSummaryError(false);
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    setTrendSummary(null);
+    setTrendSummaryLoading(true);
+    setTrendSummaryError(false);
+    const timer = setTimeout(async () => {
+      try {
+        const response = await fetch(`${API_URL}/coach/trend-summary`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(trendSummaryRequest),
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`Trend summary failed (${response.status})`);
+        const result = await response.json() as TrendSummaryResponse;
+        if (!controller.signal.aborted) setTrendSummary(result.summary);
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          console.warn('Sol trend summary unavailable', error);
+          setTrendSummaryError(true);
+        }
+      } finally {
+        if (!controller.signal.aborted) setTrendSummaryLoading(false);
+      }
+    }, 250);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [trendSummaryRequest, trendSummaryRetry]);
 
   const values = visiblePoints.map(point => point.value);
   const latest = values.at(-1);
@@ -437,6 +502,32 @@ export default function TrendsScreen() {
           pixelsPerDay={category === 'training' ? 7 : 44}
         />
 
+        <View style={styles.solTakeCard}>
+          <View style={styles.solTakeHeader}>
+            <Ionicons name="sparkles" size={16} color={Colors.primary} />
+            <Text style={styles.solTakeLabel}>SOL TAKE</Text>
+          </View>
+          {trendSummaryLoading ? (
+            <View style={styles.solTakeLoading}>
+              <ActivityIndicator size="small" color={Colors.primary} />
+              <Text style={styles.solTakeMuted}>Interpreting the selected trend…</Text>
+            </View>
+          ) : trendSummaryError ? (
+            <View style={styles.solTakeErrorRow}>
+              <Text style={styles.solTakeMuted}>Sol is unavailable; the chart data is unchanged.</Text>
+              <TouchableOpacity
+                style={styles.solTakeRetry}
+                onPress={() => setTrendSummaryRetry(value => value + 1)}
+                accessibilityRole="button"
+              >
+                <Text style={styles.solTakeRetryText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <Text style={styles.solTakeText}>{trendSummary}</Text>
+          )}
+        </View>
+
         <View style={styles.contextCard}>
           <Ionicons name="information-circle-outline" size={18} color={Colors.textMuted} />
           <Text style={styles.contextText}>
@@ -521,6 +612,33 @@ const styles = StyleSheet.create({
     marginTop: 3,
     textTransform: 'uppercase',
   },
+  solTakeCard: {
+    backgroundColor: Colors.surfaceRaised,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    padding: Spacing.base,
+    gap: Spacing.sm,
+  },
+  solTakeHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
+  solTakeLabel: {
+    color: Colors.primary,
+    fontSize: FontSize.xs,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+  },
+  solTakeLoading: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  solTakeErrorRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  solTakeText: { color: Colors.text, fontSize: FontSize.base, lineHeight: 22 },
+  solTakeMuted: { flex: 1, color: Colors.textMuted, fontSize: FontSize.sm, lineHeight: 19 },
+  solTakeRetry: {
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+  },
+  solTakeRetryText: { color: Colors.primary, fontSize: FontSize.xs, fontWeight: '800' },
   contextCard: {
     flexDirection: 'row',
     alignItems: 'flex-start',

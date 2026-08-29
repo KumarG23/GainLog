@@ -25,6 +25,7 @@ export function findPreviousExercise(
   exerciseName: string,
   exerciseKind: ExerciseKind = 'strength',
   before?: Date,
+  templateId?: string,
 ): Exercise | undefined {
   if (exerciseKind !== 'strength') return undefined;
 
@@ -32,7 +33,11 @@ export function findPreviousExercise(
   if (!normalizedName) return undefined;
 
   return [...sessions]
-    .filter(session => before == null || Date.parse(session.date) < before.getTime())
+    .filter(
+      session =>
+        (before == null || Date.parse(session.date) < before.getTime()) &&
+        (templateId == null || session.templateId === templateId),
+    )
     .sort((a, b) => Date.parse(b.date) - Date.parse(a.date))
     .flatMap(session => session.exercises)
     .find(

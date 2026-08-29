@@ -7,6 +7,8 @@ export interface WorkoutTemplateExercise {
   sets: number;
   targetReps: string;
   rest: string;
+  cue?: string;
+  substitutions?: readonly [string, string];
 }
 
 export interface WorkoutTemplate {
@@ -32,8 +34,12 @@ export interface WorkoutTemplateDraftExercise {
   cardioDurationMinutes: string;
   distanceMiles: string;
   resistanceLevel: string;
-  prescription: string;
+  prescription?: string;
   recommendedWeight?: string;
+  targetReps?: string;
+  rest?: string;
+  cue?: string;
+  substitutionOptions?: readonly string[];
 }
 
 interface BuiltWorkoutTemplateDraft {
@@ -72,11 +78,43 @@ export const PLANET_FITNESS_TEMPLATES: readonly WorkoutTemplate[] = [
     focus: 'Chest · shoulders · triceps',
     estimatedMinutes: 50,
     exercises: [
-      { name: 'Machine Chest Press', sets: 3, targetReps: '8–12', rest: '2 min' },
-      { name: 'Incline Chest Press Machine', sets: 3, targetReps: '8–12', rest: '2 min' },
-      { name: 'Machine Shoulder Press', sets: 3, targetReps: '8–12', rest: '2 min' },
-      { name: 'Lateral Raise Machine', sets: 3, targetReps: '12–20', rest: '60–90 sec' },
-      { name: 'Cable Triceps Pressdown', sets: 3, targetReps: '10–15', rest: '60–90 sec' },
+      {
+        name: 'Smith Machine Bench Press',
+        sets: 3,
+        targetReps: '8–12',
+        rest: '2 min',
+        cue: 'keep 2 good reps in reserve',
+        substitutions: ['Machine Chest Press', 'Dumbbell Bench Press'],
+      },
+      {
+        name: 'Incline Dumbbell Bench Press',
+        sets: 3,
+        targetReps: '8–12',
+        rest: '2 min',
+        cue: 'use a low 15–30° incline and control the stretch',
+        substitutions: ['Smith Machine Incline Bench Press', 'Incline Chest Press Machine'],
+      },
+      {
+        name: 'Machine Shoulder Press',
+        sets: 3,
+        targetReps: '8–12',
+        rest: '2 min',
+        substitutions: ['Dumbbell Shoulder Press', 'Plate-Loaded Shoulder Press'],
+      },
+      {
+        name: 'Lateral Raise Machine',
+        sets: 3,
+        targetReps: '12–20',
+        rest: '60–90 sec',
+        substitutions: ['Cable Lateral Raise', 'Dumbbell Lateral Raise'],
+      },
+      {
+        name: 'Cable Triceps Pressdown',
+        sets: 3,
+        targetReps: '10–15',
+        rest: '60–90 sec',
+        substitutions: ['Triceps Press Machine', 'Single-Arm Cable Pressdown'],
+      },
     ],
   },
   {
@@ -86,11 +124,26 @@ export const PLANET_FITNESS_TEMPLATES: readonly WorkoutTemplate[] = [
     focus: 'Back · rear delts · biceps',
     estimatedMinutes: 50,
     exercises: [
-      { name: 'Lat Pulldown', sets: 3, targetReps: '8–12', rest: '2 min' },
-      { name: 'Seated Cable Row', sets: 3, targetReps: '8–12', rest: '2 min' },
-      { name: 'Chest-Supported Row Machine', sets: 3, targetReps: '10–15', rest: '2 min' },
-      { name: 'Reverse Pec Deck', sets: 3, targetReps: '12–20', rest: '60–90 sec' },
-      { name: 'Cable Curl', sets: 3, targetReps: '10–15', rest: '60–90 sec' },
+      {
+        name: 'Lat Pulldown', sets: 3, targetReps: '8–12', rest: '2 min',
+        substitutions: ['Lat Pulldown Machine', 'Assisted Pull-Up'],
+      },
+      {
+        name: 'Seated Cable Row', sets: 3, targetReps: '8–12', rest: '2 min',
+        substitutions: ['Single-Arm Cable Row', 'Seated Row Machine'],
+      },
+      {
+        name: 'Chest-Supported Row Machine', sets: 3, targetReps: '10–15', rest: '2 min',
+        substitutions: ['Chest-Supported Dumbbell Row', 'Plate-Loaded Row Machine'],
+      },
+      {
+        name: 'Reverse Pec Deck', sets: 3, targetReps: '12–20', rest: '60–90 sec',
+        substitutions: ['Cable Rear Delt Fly', 'Incline Rear Delt Raise'],
+      },
+      {
+        name: 'Cable Curl', sets: 3, targetReps: '10–15', rest: '60–90 sec',
+        substitutions: ['Preacher Curl', 'Dumbbell Curl'],
+      },
     ],
   },
   {
@@ -108,10 +161,22 @@ export const PLANET_FITNESS_TEMPLATES: readonly WorkoutTemplate[] = [
     focus: 'Quads · hamstrings · glutes',
     estimatedMinutes: 45,
     exercises: [
-      { name: '45-Degree Leg Press', sets: 3, targetReps: '8–12', rest: '2–3 min' },
-      { name: 'Glute Kickback Machine', sets: 3, targetReps: '10–15', rest: '60–90 sec' },
-      { name: 'Leg Extension', sets: 3, targetReps: '10–15', rest: '60–90 sec' },
-      { name: 'Seated Leg Curl', sets: 3, targetReps: '10–15', rest: '60–90 sec' },
+      {
+        name: '45-Degree Leg Press', sets: 3, targetReps: '8–12', rest: '2–3 min',
+        substitutions: ['Seated Leg Press', 'Smith Machine Squat'],
+      },
+      {
+        name: 'Glute Kickback Machine', sets: 3, targetReps: '10–15', rest: '60–90 sec',
+        substitutions: ['Cable Glute Kickback', 'Smith Machine Reverse Lunge'],
+      },
+      {
+        name: 'Leg Extension', sets: 3, targetReps: '10–15', rest: '60–90 sec',
+        substitutions: ['Single-Leg Leg Extension', 'Dumbbell Split Squat'],
+      },
+      {
+        name: 'Seated Leg Curl', sets: 3, targetReps: '10–15', rest: '60–90 sec',
+        substitutions: ['Lying Leg Curl', 'Standing Single-Leg Curl'],
+      },
     ],
   },
   {
@@ -121,11 +186,30 @@ export const PLANET_FITNESS_TEMPLATES: readonly WorkoutTemplate[] = [
     focus: 'Chest · back · shoulders',
     estimatedMinutes: 50,
     exercises: [
-      { name: 'Incline Chest Press Machine', sets: 3, targetReps: '8–12', rest: '2 min' },
-      { name: 'Neutral-Grip Lat Pulldown', sets: 3, targetReps: '8–12', rest: '2 min' },
-      { name: 'Seated Row Machine', sets: 3, targetReps: '8–12', rest: '2 min' },
-      { name: 'Machine Shoulder Press', sets: 2, targetReps: '8–12', rest: '2 min' },
-      { name: 'Pec Deck Fly', sets: 2, targetReps: '10–15', rest: '60–90 sec' },
+      {
+        name: 'Incline Dumbbell Bench Press',
+        sets: 3,
+        targetReps: '8–12',
+        rest: '2 min',
+        cue: 'use a low 15–30° incline and control the stretch',
+        substitutions: ['Smith Machine Incline Bench Press', 'Incline Chest Press Machine'],
+      },
+      {
+        name: 'Neutral-Grip Lat Pulldown', sets: 3, targetReps: '8–12', rest: '2 min',
+        substitutions: ['Lat Pulldown', 'Assisted Pull-Up'],
+      },
+      {
+        name: 'Seated Row Machine', sets: 3, targetReps: '8–12', rest: '2 min',
+        substitutions: ['Seated Cable Row', 'Chest-Supported Row Machine'],
+      },
+      {
+        name: 'Machine Shoulder Press', sets: 2, targetReps: '8–12', rest: '2 min',
+        substitutions: ['Dumbbell Shoulder Press', 'Plate-Loaded Shoulder Press'],
+      },
+      {
+        name: 'Pec Deck Fly', sets: 2, targetReps: '10–15', rest: '60–90 sec',
+        substitutions: ['Standing Cable Chest Fly', 'Dumbbell Chest Fly'],
+      },
     ],
   },
 ];
@@ -148,6 +232,46 @@ export function canLoadWorkoutTemplate(
   return !historyLoading && historyError == null;
 }
 
+function formatExercisePrescription(
+  exercise: Pick<WorkoutTemplateExercise, 'sets' | 'targetReps' | 'rest' | 'cue'>,
+  recommendation: { weight?: string; label: string } | null,
+): string {
+  const base = recommendation?.label ?? 'Establish a clean baseline';
+  const cue = exercise.cue ? ` · ${exercise.cue}` : '';
+  return `${base} · ${exercise.sets} × ${exercise.targetReps} · rest ${exercise.rest}${cue}`;
+}
+
+function buildStrengthDraftExercise(
+  exercise: WorkoutTemplateExercise,
+  templateId: WorkoutTemplateId,
+  createId: () => string,
+  sessions: readonly WorkoutSession[],
+  planDate: Date,
+): WorkoutTemplateDraftExercise {
+  const recommendation = buildWeightRecommendation(exercise, templateId, sessions, planDate);
+  return {
+    id: createId(),
+    name: exercise.name,
+    kind: 'strength',
+    sets: Array.from({ length: exercise.sets }, () => ({
+      id: createId(),
+      weight: '',
+      reps: '',
+    })),
+    cardioDurationMinutes: '',
+    distanceMiles: '',
+    resistanceLevel: '',
+    prescription: formatExercisePrescription(exercise, recommendation),
+    recommendedWeight: recommendation?.weight,
+    targetReps: exercise.targetReps,
+    rest: exercise.rest,
+    cue: exercise.cue,
+    substitutionOptions: exercise.substitutions
+      ? [exercise.name, ...exercise.substitutions]
+      : undefined,
+  };
+}
+
 export function buildWorkoutTemplateDraft(
   templateId: string,
   createId: () => string,
@@ -159,32 +283,51 @@ export function buildWorkoutTemplateDraft(
     throw new Error(`Unknown workout template: ${templateId}`);
   }
 
-  const exercises: WorkoutTemplateDraftExercise[] = template.exercises.map(exercise => {
-    const recommendation = buildWeightRecommendation(exercise, template.id, sessions, planDate);
-    return {
-      id: createId(),
-      name: exercise.name,
-      kind: 'strength',
-      sets: Array.from({ length: exercise.sets }, () => ({
-        id: createId(),
-        weight: '',
-        reps: '',
-      })),
-      cardioDurationMinutes: '',
-      distanceMiles: '',
-      resistanceLevel: '',
-      prescription: recommendation
-        ? `${recommendation.label} · ${exercise.sets} × ${exercise.targetReps} · rest ${exercise.rest}`
-        : `Establish a clean baseline · ${exercise.sets} × ${exercise.targetReps} · rest ${exercise.rest}`,
-      recommendedWeight: recommendation?.weight,
-    };
-  });
+  const exercises = template.exercises.map(exercise =>
+    buildStrengthDraftExercise(exercise, template.id, createId, sessions, planDate));
 
   const cardio = template.id === 'recovery' ? recoveryCardio() : cardioFinisher();
   cardio.id = createId();
   exercises.push(cardio);
 
   return { template, exercises };
+}
+
+export function substituteWorkoutTemplateExercise(
+  exercise: WorkoutTemplateDraftExercise,
+  substituteName: string,
+  templateId: WorkoutTemplateId,
+  sessions: readonly WorkoutSession[] = [],
+  planDate: Date = new Date(),
+): WorkoutTemplateDraftExercise {
+  const options = exercise.substitutionOptions ?? [];
+  if (exercise.kind !== 'strength' || !options.includes(substituteName)) {
+    throw new Error(`Unsupported exercise substitution: ${substituteName}`);
+  }
+  if (!exercise.targetReps || !exercise.rest) {
+    throw new Error('Exercise substitution is missing its prescription');
+  }
+
+  const substitutedExercise: WorkoutTemplateExercise = {
+    name: substituteName,
+    sets: exercise.sets.length,
+    targetReps: exercise.targetReps,
+    rest: exercise.rest,
+    cue: exercise.cue,
+  };
+  const recommendation = buildWeightRecommendation(
+    substitutedExercise,
+    templateId,
+    sessions,
+    planDate,
+  );
+  return {
+    ...exercise,
+    name: substituteName,
+    sets: exercise.sets.map(set => ({ ...set, weight: '', reps: '' })),
+    prescription: formatExercisePrescription(substitutedExercise, recommendation),
+    recommendedWeight: recommendation?.weight,
+  };
 }
 
 function normalizeExerciseName(name: string): string {
@@ -329,7 +472,7 @@ function buildWeightRecommendation(
     if (increment == null) {
       return {
         weight: '↓ 1 step',
-        label: `Use one machine step below ${formatWeight(latestSet.weight)} lb`,
+        label: `Use one available load step below ${formatWeight(latestSet.weight)} lb`,
       };
     }
     recommended = Math.max(increment, latestSet.weight - increment);
@@ -357,7 +500,7 @@ function buildWeightRecommendation(
       if (increment == null) {
         return {
           weight: '↑ 1 step',
-          label: `Use the next machine step above ${formatWeight(latestSet.weight)} lb`,
+          label: `Use the next available load step above ${formatWeight(latestSet.weight)} lb`,
         };
       }
       recommended = latestSet.weight + increment;

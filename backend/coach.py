@@ -111,8 +111,13 @@ def get_coach_provider(
     *,
     model_env_var: str = "GAINLOG_COACH_MODEL",
     default_model: str = "gpt-5.6-luna",
+    allow_fallback: bool = True,
+    provider_override: str | None = None,
+    model_override: str | None = None,
 ) -> CoachProvider:
-    provider = os.environ.get("GAINLOG_COACH_PROVIDER", "ollama").strip().lower()
+    provider = (
+        provider_override or os.environ.get("GAINLOG_COACH_PROVIDER", "ollama")
+    ).strip().lower()
 
     if provider == "ollama":
         base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
@@ -131,7 +136,7 @@ def get_coach_provider(
         model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
         return AnthropicCoachProvider(api_key=api_key, model=model)
 
-    if provider == "luna":
+    if provider in {"luna", "luna-proxy"}:
         base_url = os.environ.get("GAINLOG_COACH_BASE_URL")
         api_key = os.environ.get("GAINLOG_COACH_API_KEY")
         if not base_url or not api_key:
@@ -142,10 +147,13 @@ def get_coach_provider(
         primary = OpenAICompatibleCoachProvider(
             base_url=base_url,
             api_key=api_key,
-            model=os.environ.get(model_env_var, default_model),
+            model=model_override or os.environ.get(model_env_var, default_model),
             timeout_seconds=int(os.environ.get("GAINLOG_COACH_TIMEOUT_SECONDS", "120")),
         )
-        if os.environ.get("GAINLOG_COACH_FALLBACK", "ollama").strip().lower() == "ollama":
+        if (
+            allow_fallback
+            and os.environ.get("GAINLOG_COACH_FALLBACK", "ollama").strip().lower() == "ollama"
+        ):
             fallback = OllamaCoachProvider(
                 base_url=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
                 model=os.environ.get("OLLAMA_MODEL", "qwen2.5:7b"),

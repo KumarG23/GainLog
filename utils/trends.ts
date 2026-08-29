@@ -2,6 +2,49 @@ import type { BodyWeightEntry, HealthDaily, NutritionEntry } from '../types/heal
 import type { WorkoutSession } from '../types/workout';
 
 export type TrendRange = '7D' | '30D' | '90D' | 'ALL';
+export type TrendSummaryCategory = 'weight' | 'nutrition' | 'training' | 'recovery';
+export type TrendSummaryMetric =
+  | 'weight' | 'bodyFat' | 'leanMass'
+  | 'calories' | 'protein' | 'fiber'
+  | 'volume' | 'sessions' | 'minutes'
+  | 'sleep' | 'deepSleep' | 'awake' | 'sleepEfficiency'
+  | 'restingHeartRate' | 'hrv' | 'steps' | 'activeCalories' | 'exerciseMinutes';
+
+export interface TrendSummaryPoint {
+  date: string;
+  value: number;
+}
+
+export interface TrendSummaryRequest {
+  category: TrendSummaryCategory;
+  metric: TrendSummaryMetric;
+  range: TrendRange;
+  asOfDate: string;
+  points: TrendSummaryPoint[];
+  goal?: number;
+}
+
+export function buildTrendSummaryRequest(
+  category: TrendSummaryCategory,
+  metric: TrendSummaryMetric,
+  range: TrendRange,
+  asOfDate: string,
+  points: readonly TrendSummaryPoint[],
+  goal?: number,
+): TrendSummaryRequest {
+  const boundedPoints = points
+    .filter(point => /^\d{4}-\d{2}-\d{2}$/.test(point.date) && Number.isFinite(point.value))
+    .slice(-366)
+    .map(point => ({ date: point.date, value: point.value }));
+  return {
+    category,
+    metric,
+    range,
+    asOfDate,
+    points: boundedPoints,
+    ...(goal !== undefined && Number.isFinite(goal) ? { goal } : {}),
+  };
+}
 
 export interface WeightTrendPoint {
   date: string;

@@ -41,6 +41,7 @@ import {
   canLoadWorkoutTemplate,
   getSuggestedTemplateId,
   getWorkoutPlanWeekStart,
+  substituteWorkoutTemplateExercise,
   WorkoutTemplateId,
 } from '../../utils/workoutTemplates';
 
@@ -64,6 +65,10 @@ interface DraftExercise {
   resistanceLevel: string;
   prescription?: string;
   recommendedWeight?: string;
+  targetReps?: string;
+  rest?: string;
+  cue?: string;
+  substitutionOptions?: readonly string[];
 }
 
 const workoutEffortOptions: readonly { label: string; value: WorkoutEffort }[] = [
@@ -221,6 +226,7 @@ interface ExerciseCardProps {
     field: 'cardioDurationMinutes' | 'distanceMiles' | 'resistanceLevel',
     value: string,
   ) => void;
+  onSubstitute: (name: string) => void;
   onRemove: () => void;
 }
 
@@ -235,9 +241,24 @@ function ExerciseCard({
   onUpdateSet,
   onCompleteSet,
   onUpdateCardio,
+  onSubstitute,
   onRemove,
 }: ExerciseCardProps) {
   const previousSummary = formatPreviousExerciseSummary(previousExercise);
+  const substitutionChoices = (exercise.substitutionOptions ?? [])
+    .filter(name => name !== exercise.name)
+    .slice(0, 2);
+
+  const chooseSubstitution = () => {
+    Alert.alert(
+      'Swap exercise',
+      'Choose an available movement for the same training role.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        ...substitutionChoices.map(name => ({ text: name, onPress: () => onSubstitute(name) })),
+      ],
+    );
+  };
 
   return (
     <View style={styles.exerciseCard}>
@@ -251,6 +272,7 @@ function ExerciseCard({
             style={styles.exerciseNameInput}
             value={exercise.name}
             onChangeText={onUpdateName}
+            editable={!exercise.substitutionOptions}
             placeholder={exercise.kind === 'cardio' ? 'Cardio activity' : 'Exercise name'}
             placeholderTextColor={Colors.textMuted}
             returnKeyType="done"
@@ -260,6 +282,17 @@ function ExerciseCard({
           )}
           {previousSummary && (
             <Text style={styles.exerciseHistory}>{previousSummary}</Text>
+          )}
+          {substitutionChoices.length > 0 && (
+            <TouchableOpacity
+              style={styles.exerciseSwapButton}
+              onPress={chooseSubstitution}
+              accessibilityRole="button"
+              accessibilityLabel={`Swap exercise for ${exercise.name}`}
+            >
+              <Ionicons name="swap-horizontal-outline" size={14} color={Colors.primary} />
+              <Text style={styles.exerciseSwapText}>Swap if busy</Text>
+            </TouchableOpacity>
           )}
         </View>
         <TouchableOpacity
@@ -545,9 +578,50 @@ export default function LogScreen() {
 
   const updateExerciseName = useCallback((id: string, name: string) => {
     setExercises(prev =>
-      prev.map(e => (e.id === id ? { ...e, name } : e)),
+      prev.map(e => {
+        if (e.id !== id) return e;
+        if (e.substitutionOptions) return e;
+        return { ...e, name };
+      }),
     );
   }, []);
+
+  const substituteExercise = useCallback((id: string, name: string) => {
+    if (!selectedTemplateId) return;
+    const current = exercises.find(exercise => exercise.id === id);
+    if (!current) return;
+
+    const applySubstitution = () => {
+      setRecordsBySetId(records => {
+        const next = new Map(records);
+        current.sets.forEach(set => next.delete(set.id));
+        return next;
+      });
+      setExercises(previous => previous.map(exercise =>
+        exercise.id === id
+          ? substituteWorkoutTemplateExercise(
+              exercise,
+              name,
+              selectedTemplateId,
+              sessions,
+              new Date(),
+            )
+          : exercise));
+    };
+    const hasEnteredSets = current.sets.some(set => set.weight.trim() || set.reps.trim());
+    if (!hasEnteredSets) {
+      applySubstitution();
+      return;
+    }
+    Alert.alert(
+      'Replace started exercise?',
+      'This clears the entered sets so one movement cannot inherit another movement’s work.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Replace', style: 'destructive', onPress: applySubstitution },
+      ],
+    );
+  }, [exercises, selectedTemplateId, sessions]);
 
   const addSet = useCallback((exerciseId: string) => {
     setExercises(prev =>
@@ -1061,6 +1135,7 @@ export default function LogScreen() {
                   ex.name,
                   ex.kind,
                   selectedTemplateId ? planHistoryCutoff : undefined,
+                  selectedTemplateId ?? undefined,
                 )}
                 recordsBySetId={recordsBySetId}
                 index={idx}
@@ -1072,6 +1147,7 @@ export default function LogScreen() {
                 }
                 onCompleteSet={completeSet}
                 onUpdateCardio={(field, value) => updateCardio(ex.id, field, value)}
+                onSubstitute={name => substituteExercise(ex.id, name)}
                 onRemove={() => removeExercise(ex.id)}
               />
             ))
@@ -1553,6 +1629,24 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     fontSize: FontSize.xs,
     fontWeight: '500',
+  },
+  exerciseSwapButton: {
+    minHeight: 32,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    marginTop: Spacing.xs,
+    paddingHorizontal: Spacing.sm,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primaryDim,
+  },
+  exerciseSwapText: {
+    color: Colors.primary,
+    fontSize: FontSize.xs,
+    fontWeight: '800',
   },
   cardioFields: {
     padding: Spacing.base,

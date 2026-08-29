@@ -31,6 +31,27 @@ test('findPreviousExercise returns the newest matching strength exercise', () =>
   assert.equal(previous?.id, 'newer-exercise');
 });
 
+test('findPreviousExercise scopes planned-workout hints to the exact template', () => {
+  const push = session('push', '2026-08-17T07:00:00-04:00', 'Machine Shoulder Press', [
+    { id: 'push-set', weight: 45, reps: 10 },
+  ]);
+  push.templateId = 'push';
+  const upper = session('upper', '2026-08-21T07:00:00-04:00', 'Machine Shoulder Press', [
+    { id: 'upper-set', weight: 70, reps: 10 },
+  ]);
+  upper.templateId = 'upper';
+
+  const previous = findPreviousExercise(
+    [push, upper],
+    'Machine Shoulder Press',
+    'strength',
+    new Date('2026-08-24T00:00:00-04:00'),
+    'push',
+  );
+
+  assert.equal(previous?.id, 'push-exercise');
+});
+
 test('findPreviousExercise can freeze history before the current plan week', () => {
   const sessions = [
     session('prior-week', '2026-08-03T07:00:00-04:00', 'Machine Chest Press', [
