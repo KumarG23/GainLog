@@ -160,7 +160,7 @@ export function buildWorkoutTemplateDraft(
   }
 
   const exercises: WorkoutTemplateDraftExercise[] = template.exercises.map(exercise => {
-    const recommendation = buildWeightRecommendation(exercise, sessions, planDate);
+    const recommendation = buildWeightRecommendation(exercise, template.id, sessions, planDate);
     return {
       id: createId(),
       name: exercise.name,
@@ -213,24 +213,48 @@ function validSets(exercise: Exercise): WorkoutSet[] {
   );
 }
 
+interface PriorExercise {
+  exercise: Exercise;
+  session: WorkoutSession;
+}
+
 function priorExercises(
   templateExercise: WorkoutTemplateExercise,
+  templateId: WorkoutTemplateId,
   sessions: readonly WorkoutSession[],
   planDate: Date,
-): Exercise[] {
+): PriorExercise[] {
   const historyName = normalizeExerciseName(templateExercise.name);
   const weekStart = getWorkoutPlanWeekStart(planDate).getTime();
+  const seenSessionIds = new Set<string>();
 
   return [...sessions]
     .filter(session => Date.parse(session.date) < weekStart)
-    .sort((a, b) => Date.parse(b.date) - Date.parse(a.date))
-    .flatMap(session => session.exercises)
-    .filter(
-      exercise =>
-        (exercise.kind ?? 'strength') === 'strength' &&
-        normalizeExerciseName(exercise.name) === historyName &&
-        validSets(exercise).length > 0,
-    );
+    .filter(session => session.templateId === templateId)
+    .sort((a, b) => Date.parse(b.date) - Date.parse(a.date) || a.id.localeCompare(b.id))
+    .flatMap(session => {
+      if (seenSessionIds.has(session.id)) return [];
+      seenSessionIds.add(session.id);
+      const matches = session.exercises
+        .filter(
+          exercise =>
+            (exercise.kind ?? 'strength') === 'strength' &&
+            normalizeExerciseName(exercise.name) === historyName &&
+            validSets(exercise).length > 0,
+        )
+        .sort((a, b) => {
+          const aSets = validSets(a);
+          const bSets = validSets(b);
+          const aLatest = aSets[aSets.length - 1];
+          const bLatest = bSets[bSets.length - 1];
+          return (
+            aLatest.weight - bLatest.weight ||
+            aLatest.reps - bLatest.reps ||
+            a.id.localeCompare(b.id)
+          );
+        });
+      return matches[0] ? [{ exercise: matches[0], session }] : [];
+    });
 }
 
 function targetRange(targetReps: string): [number, number] {
@@ -238,24 +262,58 @@ function targetRange(targetReps: string): [number, number] {
   return [values[0], values[1] ?? values[0]];
 }
 
-function inferWeightIncrement(history: readonly Exercise[]): number | null {
+function inferWeightIncrement(history: readonly PriorExercise[]): number | null {
   const weights = Array.from(
-    new Set(history.flatMap(exercise => validSets(exercise).map(set => set.weight))),
+    new Set(history.flatMap(entry => validSets(entry.exercise).map(set => set.weight))),
   ).sort((a, b) => a - b);
   const increments = weights
     .slice(1)
     .map((weight, index) => weight - weights[index])
-    .filter(increment => increment >= 2.5 && increment <= 30);
+    .filter(increment => increment >= 2.5 && increment <= 10);
   return increments.length > 0 ? Math.min(...increments) : null;
+}
+
+function feedbackSupportsIncrease(session: WorkoutSession): boolean {
+  if (session.pain || (session.effort !== 'easy' && session.effort !== 'right')) return false;
+  const notes = session.notes?.trim();
+  if (!notes) return false;
+  const withoutNegatedSymptoms = notes
+    .replace(
+      /\b(?:no|without)\s+(?:(?:shoulder|joint)s?\s+)?(?:pain|issues?|problems?|discomfort|hurt|ache|aching|sore(?:ness)?|tired(?:ness)?|fatigue|pinch(?:ing)?|stiff(?:ness)?|instability|shakiness|grinding|struggling)(?:\s+(?:or|and)\s+(?:no\s+)?(?:(?:shoulder|joint)s?\s+)?(?:pain|issues?|problems?|discomfort|hurt|ache|aching|sore(?:ness)?|tired(?:ness)?|fatigue|pinch(?:ing)?|stiff(?:ness)?|instability|shakiness|grinding|struggling))?\b/gi,
+      '',
+    )
+    .replace(
+      /\b(?:did not|didn't|was not|wasn't)\s+(?:hurt|bother(?:ed|ing)?|feel (?:off|sore|tired|fatigued|stiff|a pinch)|sore|tired|fatigued|pinching|stiff|unstable|shaky|grinding|struggling)\b/gi,
+      '',
+    );
+  const progressionNotes = withoutNegatedSymptoms
+    .trim()
+    .replace(/^[\s,;:.!?-]+/, '');
+  const hasConcern = /\b(?:pain(?:ful)?|discomfort|hurt(?:s|ing)?|injur(?:y|ed)|ache|aching|sore(?:ness)?|tired(?:ness)?|fatigue(?:d)?|pinch(?:ing)?|stiff(?:ness)?|twinge|sharp|form broke|form breakdown|sloppy|too heavy|weak today|unstable|instability|shak(?:y|iness|ing)|grind(?:ing|s)?|struggl(?:e[ds]?|ing)|issues?|problems?|felt off|bother(?:s|ed|ing)?(?: me)?|act(?:ed|ing)? up)\b/i
+    .test(progressionNotes);
+  const hasContrastiveCaveat = /\b(?:but|however|although|though|except|yet)\b/i
+    .test(progressionNotes);
+  const noteBody = progressionNotes.replace(/[.!?]+$/, '');
+  const hasAdditionalStatement = /[.!?;:\n\r]/.test(noteBody);
+  const hasNegatedPositiveSignal = /\b(?:not|wasn't|weren't|isn't|aren't|didn't feel|did not feel|don't feel|do not feel)\s+(?:very\s+)?(?:strong|clean|controlled|stable|smooth|solid|snappy)\b/i
+    .test(progressionNotes);
+  const hasPositiveProgressionSignal = /\b(?:strong|clean|controlled|stable|smooth|solid|snappy)\b|\b(?:reps?|repetitions?)\s+(?:left|in reserve)\b|\bcould\s+(?:have\s+)?(?:do|done|perform(?:ed)?)\s+more\b/i
+    .test(progressionNotes);
+  return hasPositiveProgressionSignal
+    && !hasConcern
+    && !hasContrastiveCaveat
+    && !hasAdditionalStatement
+    && !hasNegatedPositiveSignal;
 }
 
 function buildWeightRecommendation(
   templateExercise: WorkoutTemplateExercise,
+  templateId: WorkoutTemplateId,
   sessions: readonly WorkoutSession[],
   planDate: Date,
 ): { weight?: string; label: string } | null {
-  const history = priorExercises(templateExercise, sessions, planDate);
-  const previous = history[0];
+  const history = priorExercises(templateExercise, templateId, sessions, planDate);
+  const previous = history[0]?.exercise;
   if (!previous) return null;
 
   const sets = validSets(previous);
@@ -278,11 +336,11 @@ function buildWeightRecommendation(
     action = 'Reduce to';
   } else {
     const completedAtTop = (
-      exercise: Exercise | undefined,
+      entry: PriorExercise | undefined,
       requiredWeight: number,
     ): boolean => {
-      if (!exercise) return false;
-      const completedSets = validSets(exercise).slice(-templateExercise.sets);
+      if (!entry) return false;
+      const completedSets = validSets(entry.exercise).slice(-templateExercise.sets);
       return (
         completedSets.length === templateExercise.sets &&
         completedSets.every(
@@ -292,7 +350,9 @@ function buildWeightRecommendation(
     };
     const earnedIncrease =
       completedAtTop(history[0], latestSet.weight) &&
-      completedAtTop(history[1], latestSet.weight);
+      completedAtTop(history[1], latestSet.weight) &&
+      feedbackSupportsIncrease(history[0].session) &&
+      feedbackSupportsIncrease(history[1].session);
     if (earnedIncrease) {
       if (increment == null) {
         return {

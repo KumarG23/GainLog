@@ -26,6 +26,8 @@ def test_workout_crud_round_trip():
             "avgHeartRate": 120,
             "activeCalories": 350,
             "notes": "test",
+            "effort": "right",
+            "pain": False,
             "exercises": [
                 {
                     "name": "Bench Press",
@@ -43,6 +45,9 @@ def test_workout_crud_round_trip():
         assert body["durationMinutes"] == 45
         assert body["avgHeartRate"] == 120
         assert body["activeCalories"] == 350
+        assert body["notes"] == "test"
+        assert body["effort"] == "right"
+        assert body["pain"] is False
         assert body["exercises"][0]["name"] == "Bench Press"
 
         session_id = body["id"]
@@ -305,6 +310,8 @@ def test_workout_feedback_round_trip_and_history_context(monkeypatch):
             json={
                 "date": "2026-08-05T07:00:00-04:00",
                 "durationMinutes": 30,
+                "notes": "Felt strong with clean form.",
+                "effort": "right",
                 "exercises": [{"name": "Elliptical", "kind": "cardio", "sets": [], "cardioDurationMinutes": 30}],
             },
         ).json()
@@ -321,6 +328,7 @@ def test_workout_feedback_round_trip_and_history_context(monkeypatch):
         assert response.status_code == 200
         assert "Reported effort: hard" in calls["prompt"]
         assert "Pain reported: yes" in calls["prompt"]
+        assert "Workout notes: Felt strong with clean form." in calls["prompt"]
 
 
 def test_malformed_structured_insight_uses_safe_card_and_preserves_legacy_text(monkeypatch):

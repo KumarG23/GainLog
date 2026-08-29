@@ -66,6 +66,12 @@ interface DraftExercise {
   recommendedWeight?: string;
 }
 
+const workoutEffortOptions: readonly { label: string; value: WorkoutEffort }[] = [
+  { label: 'Easy', value: 'easy' },
+  { label: 'About right', value: 'right' },
+  { label: 'Hard', value: 'hard' },
+];
+
 function newSet(): DraftSet {
   return { id: generateId(), weight: '', reps: '' };
 }
@@ -497,6 +503,8 @@ export default function LogScreen() {
   const [cardioHeartRate, setCardioHeartRate] = useState('');
   const [cardioCalories, setCardioCalories] = useState('');
   const [notes, setNotes] = useState('');
+  const [effort, setEffort] = useState<WorkoutEffort | null>(null);
+  const [pain, setPain] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [savedSession, setSavedSession] = useState<WorkoutSession | null>(null);
@@ -672,6 +680,22 @@ export default function LogScreen() {
       return;
     }
 
+    if (!effort) {
+      Alert.alert(
+        'Workout Effort Required',
+        'Choose Easy, About right, or Hard for the workout as a whole.',
+      );
+      return;
+    }
+
+    if (!notes.trim()) {
+      Alert.alert(
+        'Workout Notes Required',
+        'Add a short note about strength, form, fatigue, substitutions, or pain.',
+      );
+      return;
+    }
+
     const validExercises = exercises.filter(e =>
       e.name.trim() && (
         e.kind === 'cardio'
@@ -765,8 +789,10 @@ export default function LogScreen() {
               totalCalories: parsedCardioCalories,
             }
           : undefined,
-        notes: notes.trim() || undefined,
+        notes: notes.trim(),
         templateId: selectedTemplateId ?? undefined,
+        effort,
+        pain,
         exercises: validExercises.map(e => ({
           id: e.id,
           name: e.name.trim(),
@@ -831,6 +857,8 @@ export default function LogScreen() {
     cardioHeartRate,
     cardioCalories,
     notes,
+    effort,
+    pain,
     selectedTemplateId,
     addSession,
     refresh,
@@ -845,6 +873,8 @@ export default function LogScreen() {
     setCardioHeartRate('');
     setCardioCalories('');
     setNotes('');
+    setEffort(null);
+    setPain(false);
     setSaved(false);
     setSavedSession(null);
     setInsightLoading(false);
@@ -1184,14 +1214,58 @@ export default function LogScreen() {
             </View>
           )}
 
-          {/* Notes */}
+          {/* Required once per workout, not once per set. */}
           <View style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>Notes</Text>
+            <Text style={styles.sectionTitle}>Workout Check-in</Text>
+            <Text style={styles.checkInHint}>
+              Required once per workout. Rate the session as a whole, then leave a useful note.
+            </Text>
+            <Text style={styles.checkInLabel}>Overall effort *</Text>
+            <View style={styles.checkInEffortRow}>
+              {workoutEffortOptions.map(option => {
+                const selected = effort === option.value;
+                return (
+                  <TouchableOpacity
+                    key={option.value}
+                    style={[
+                      styles.checkInEffortButton,
+                      selected && styles.checkInEffortButtonSelected,
+                    ]}
+                    onPress={() => setEffort(option.value)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                  >
+                    <Text style={[
+                      styles.checkInEffortText,
+                      selected && styles.checkInEffortTextSelected,
+                    ]}>
+                      {option.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <TouchableOpacity
+              style={[styles.checkInPainButton, pain && styles.checkInPainButtonSelected]}
+              onPress={() => setPain(current => !current)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: pain }}
+            >
+              <Ionicons
+                name="medical-outline"
+                size={16}
+                color={pain ? Colors.danger : Colors.textSecondary}
+              />
+              <Text style={[styles.checkInPainText, pain && styles.checkInPainTextSelected]}>
+                {pain ? 'Pain noted' : 'Something hurt'}
+              </Text>
+            </TouchableOpacity>
+            <Text style={styles.checkInLabel}>Notes *</Text>
             <TextInput
               style={styles.notesInput}
               value={notes}
               onChangeText={setNotes}
-              placeholder="How did it go? PRs, form notes, anything..."
+              placeholder="Felt strong, form stayed clean, shoulder was tired, machine substitution…"
               placeholderTextColor={Colors.textMuted}
               multiline
               numberOfLines={4}
@@ -1697,7 +1771,61 @@ const styles = StyleSheet.create({
     marginVertical: Spacing.sm,
   },
 
-  // Notes
+  // Workout check-in
+  checkInHint: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.sm,
+    lineHeight: 19,
+    marginBottom: Spacing.md,
+  },
+  checkInLabel: {
+    color: Colors.text,
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    marginBottom: Spacing.sm,
+  },
+  checkInEffortRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
+  checkInEffortButton: {
+    flex: 1,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.card,
+    paddingHorizontal: Spacing.xs,
+  },
+  checkInEffortButtonSelected: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primaryDim,
+  },
+  checkInEffortText: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  checkInEffortTextSelected: { color: Colors.primary },
+  checkInPainButton: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: Spacing.xs,
+    marginBottom: Spacing.md,
+  },
+  checkInPainButtonSelected: { opacity: 1 },
+  checkInPainText: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+  },
+  checkInPainTextSelected: { color: Colors.danger },
   notesInput: {
     fontSize: FontSize.base,
     color: Colors.text,

@@ -327,6 +327,8 @@ class WorkoutSessionIn(CamelModel):
     cardio_summary: Optional[ActivitySummary] = None
     notes: Optional[str] = None
     template_id: Optional[Literal["push", "pull", "recovery", "legs", "upper"]] = None
+    effort: Optional[Literal["easy", "right", "hard"]] = None
+    pain: bool = False
 
 
 class WorkoutFeedbackIn(CamelModel):
@@ -1039,6 +1041,10 @@ def _format_session(s: WorkoutSessionDB, label: str) -> str:
         lines.append(f"  Calories: {s.active_calories} kcal")
     if s.template_id:
         lines.append(f"  Workout plan: {s.template_id}")
+    if s.notes:
+        normalized_notes = " ".join(s.notes.split())[:500]
+        if normalized_notes:
+            lines.append(f"  Workout notes: {normalized_notes}")
     if s.effort:
         lines.append(f"  Reported effort: {s.effort}")
     if s.pain:
@@ -2793,6 +2799,8 @@ def create_workout(payload: WorkoutSessionIn, db: Session = Depends(get_db)):
         ),
         notes=payload.notes,
         template_id=payload.template_id,
+        effort=payload.effort,
+        pain=payload.pain,
     )
     db.add(row)
     for ex in payload.exercises:
