@@ -20,9 +20,10 @@ import { useWorkouts } from '../../context/WorkoutsContext';
 import { useHealth } from '../../context/HealthContext';
 import { generateId } from '../../utils/id';
 import { API_URL } from '../../constants/api';
-import { CoachInsight, Exercise, ExerciseKind, WorkoutEffort, WorkoutSession } from '../../types/workout';
+import { Exercise, ExerciseKind, WorkoutEffort, WorkoutSession } from '../../types/workout';
 import { CoachInsightCard } from '../../components/CoachInsightCard';
 import { localDateKey, localIsoTimestamp } from '../../utils/date';
+import { requestWorkoutInsight } from '../../utils/workoutInsight';
 import {
   findPreviousExercise,
   formatPreviousExerciseSummary,
@@ -896,11 +897,7 @@ export default function LogScreen() {
       setInsightError(null);
       setInsightLoading(true);
       insightRequestSessionId.current = session.id;
-      fetch(`${API_URL}/workouts/${session.id}/insight`, { method: 'POST' })
-        .then(res => {
-          if (!res.ok) throw new Error('insight request failed');
-          return res.json() as Promise<{ insight: string; coachInsight: CoachInsight }>;
-        })
+      requestWorkoutInsight(API_URL, session.id)
         .then(data => {
           if (insightRequestSessionId.current !== session.id) return;
           setSavedSession(current => current
