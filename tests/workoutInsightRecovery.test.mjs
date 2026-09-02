@@ -1,8 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
+import ts from 'typescript';
 
-import { requestWorkoutInsight } from '../utils/workoutInsight.ts';
+const insightSource = readFileSync(new URL('../utils/workoutInsight.ts', import.meta.url), 'utf8');
+const insightModule = ts.transpileModule(insightSource, {
+  compilerOptions: {
+    module: ts.ModuleKind.ESNext,
+    target: ts.ScriptTarget.ES2022,
+  },
+}).outputText;
+const { requestWorkoutInsight } = await import(
+  `data:text/javascript;base64,${Buffer.from(insightModule).toString('base64')}`
+);
 
 const logScreen = readFileSync(new URL('../app/(tabs)/index.tsx', import.meta.url), 'utf8');
 
