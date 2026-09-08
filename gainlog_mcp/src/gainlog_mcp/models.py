@@ -6,6 +6,9 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
 
+MAX_PAGE_OFFSET = 10000
+
+
 class Closed(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -18,7 +21,7 @@ class PageRequest(Closed):
     start_date: str | None = None
     end_date: str | None = None
     limit: StrictInt = Field(default=20, ge=1, le=50)
-    offset: StrictInt = Field(default=0, ge=0, le=10000)
+    offset: StrictInt = Field(default=0, ge=0, le=MAX_PAGE_OFFSET)
 
     @model_validator(mode="after")
     def validate_range(self):
@@ -27,7 +30,7 @@ class PageRequest(Closed):
         if self.start_date is not None and self.end_date is not None:
             start = parse_date(self.start_date)
             end = parse_date(self.end_date)
-            if end < start or (end - start).days > 366:
+            if end < start or (end - start).days > 365:
                 raise ValueError("date range must be at most 366 days")
         return self
 
@@ -77,7 +80,7 @@ class GoalsRequest(Closed):
     goal_id: str | None = Field(default=None, min_length=1, max_length=128)
     status: str | None = Field(default=None, min_length=1, max_length=32, pattern=r"^[A-Za-z0-9_-]+$")
     limit: StrictInt = Field(default=20, ge=1, le=50)
-    offset: StrictInt = Field(default=0, ge=0, le=10000)
+    offset: StrictInt = Field(default=0, ge=0, le=MAX_PAGE_OFFSET)
 
     @model_validator(mode="after")
     def validate_selector(self):
@@ -166,8 +169,10 @@ class CoverageResult(StoreFields):
 class PageFields(StoreFields):
     total: int = Field(ge=0)
     returned: int = Field(ge=0, le=50)
-    offset: int = Field(ge=0, le=10000)
-    next_offset: int | None = Field(default=None, ge=0, le=10000)
+    offset: int = Field(ge=0, le=MAX_PAGE_OFFSET)
+    next_offset: int | None = Field(default=None, ge=0, le=MAX_PAGE_OFFSET)
+    truncated: bool
+    pagination_note: str | None
 
 
 class WorkoutSummary(Closed):

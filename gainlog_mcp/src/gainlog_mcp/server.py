@@ -33,7 +33,7 @@ TOOLS = {
     ),
     "list_workouts": (
         ListWorkoutsRequest, WorkoutListResult,
-        "List bounded workout-session summaries newest first, including strength/cardio metrics, feedback, notes, stored insight, and exercise/set counts. Date ranges are at most 366 days; page with offset.",
+        "List bounded workout-session summaries newest first, including strength/cardio metrics, feedback, notes, stored insight, and exercise/set counts. Date ranges contain at most 366 calendar dates; page with offset and honor explicit truncation guidance.",
     ),
     "get_workout": (
         GetWorkoutRequest, WorkoutDetailResult,

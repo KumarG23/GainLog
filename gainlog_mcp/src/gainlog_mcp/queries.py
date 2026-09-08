@@ -13,7 +13,8 @@ from pydantic import ValidationError
 from .exporter import APPLICATION_ID, SCHEMA_VERSION
 from .models import (
     BodyCompositionRequest, DailyHealthRequest, EmptyRequest, GetWorkoutRequest,
-    GoalsRequest, ListWorkoutsRequest, NutritionRequest, ReviewsRequest, parse_date,
+    GoalsRequest, ListWorkoutsRequest, MAX_PAGE_OFFSET, NutritionRequest, ReviewsRequest,
+    parse_date,
 )
 
 
@@ -103,15 +104,28 @@ def _page(
     offset: int,
 ) -> tuple[list[dict], dict[str, object]]:
     total = int(db.execute(count_sql, params).fetchone()[0])
+    effective_limit = min(limit, MAX_PAGE_OFFSET - offset) if offset < MAX_PAGE_OFFSET else limit
     rows = [dict(row) for row in db.execute(
-        f"{select_sql} LIMIT ? OFFSET ?", [*params, limit, offset]
+        f"{select_sql} LIMIT ? OFFSET ?", [*params, effective_limit, offset]
     ).fetchall()]
-    next_offset = offset + len(rows) if offset + len(rows) < total else None
+    candidate_offset = offset + len(rows)
+    next_offset = (
+        candidate_offset
+        if candidate_offset < total and candidate_offset <= MAX_PAGE_OFFSET
+        else None
+    )
+    truncated = next_offset is None and candidate_offset < total
     return rows, {
         "total": total,
         "returned": len(rows),
         "offset": offset,
         "next_offset": next_offset,
+        "truncated": truncated,
+        "pagination_note": (
+            "More records exist beyond the accessible offset ceiling; narrow the date range or filter."
+            if truncated
+            else None
+        ),
     }
 
 

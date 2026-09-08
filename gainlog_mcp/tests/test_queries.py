@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sqlite3
 
 import pytest
 
@@ -73,6 +74,63 @@ def test_pagination_ranges_and_precise_missing_records(projection: Path):
         "query_daily_health",
         {"start_date": "2025-01-01", "end_date": "2026-09-02"},
     ) == {"error": "invalid_request"}
+
+
+def test_inclusive_date_range_accepts_366_dates_and_rejects_367(projection: Path):
+    from gainlog_mcp.queries import query
+
+    accepted = query(
+        projection,
+        "list_workouts",
+        {"start_date": "2025-01-01", "end_date": "2026-01-01"},
+    )
+    assert "error" not in accepted
+    assert query(
+        projection,
+        "list_workouts",
+        {"start_date": "2024-01-01", "end_date": "2025-01-01"},
+    ) == {"error": "invalid_request"}
+
+
+def test_pagination_ceiling_exposes_final_page_and_truthful_truncation():
+    from gainlog_mcp.models import PageFields
+    from gainlog_mcp.queries import _page
+
+    db = sqlite3.connect(":memory:")
+    db.row_factory = sqlite3.Row
+    db.execute("CREATE TABLE synthetic (id INTEGER PRIMARY KEY)")
+    db.executemany("INSERT INTO synthetic(id) VALUES (?)", ((value,) for value in range(10025)))
+
+    rows, penultimate = _page(
+        db,
+        select_sql="SELECT id FROM synthetic ORDER BY id",
+        count_sql="SELECT COUNT(*) FROM synthetic",
+        params=[],
+        limit=20,
+        offset=9990,
+    )
+    assert len(rows) == 10
+    assert penultimate["next_offset"] == 10000
+    assert penultimate["truncated"] is False
+
+    rows, terminal = _page(
+        db,
+        select_sql="SELECT id FROM synthetic ORDER BY id",
+        count_sql="SELECT COUNT(*) FROM synthetic",
+        params=[],
+        limit=20,
+        offset=10000,
+    )
+    assert len(rows) == 20
+    assert terminal["next_offset"] is None
+    assert terminal["truncated"] is True
+    assert "narrow" in str(terminal["pagination_note"])
+    PageFields.model_validate({
+        **terminal,
+        "exported_at": "2026-09-08T16:00:00Z",
+        "source_db_modified_at": "2026-09-08T15:59:00Z",
+        "stale": False,
+    })
 
 
 @pytest.mark.parametrize(

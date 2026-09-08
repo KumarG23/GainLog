@@ -18,6 +18,7 @@ PrivateDevices=yes
 PrivateNetwork=yes
 IPAddressDeny=any
 RestrictAddressFamilies=AF_UNIX
+TemporaryFileSystem=/run:ro
 ReadOnlyPaths=/opt/gainlog/backend-git/data
 ReadWritePaths=/var/lib/gainlog-mcp
 InaccessiblePaths=-/etc/gainlog.env -/home -/root

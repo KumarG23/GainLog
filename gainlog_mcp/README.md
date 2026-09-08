@@ -13,7 +13,7 @@ Tools
 - query_goals: exact goal or status-filtered goals.
 - query_saved_reviews: existing daily, weekly, or trend outputs only.
 
-All list ranges are limited to 366 days, pages to 50 records, and offsets to 10,000. Unknown fields, invalid types, oversized protocol frames, malformed discovery probes, arbitrary paths/URLs/SQL-shaped controls, and unknown tools fail closed without reflecting input. Missing values remain JSON null; observed zeros remain zero.
+All list ranges are limited to 366 inclusive calendar dates, pages to 50 records, and offsets to 10,000. The final accessible page explicitly reports truncation and tells callers to narrow the date range or filter when additional records exist beyond that ceiling; it never presents a clipped history as complete. Unknown fields, invalid types, oversized protocol frames, malformed discovery probes, arbitrary paths/URLs/SQL-shaped controls, and unknown tools fail closed without reflecting input. Missing values remain JSON null; observed zeros remain zero.
 
 Development
 
