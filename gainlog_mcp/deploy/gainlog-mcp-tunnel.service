@@ -1,7 +1,7 @@
 [Unit]
 Description=OpenAI private tunnel for GainLog read-only MCP
 Wants=network-online.target
-After=network-online.target gainlog-mcp-export.service
+After=network-online.target gainlog-mcp-acquire.service
 Requires=gainlog-mcp-reader.socket
 After=gainlog-mcp-reader.socket
 
@@ -35,7 +35,7 @@ IPAddressDeny=172.16.0.0/12
 IPAddressDeny=192.168.0.0/16
 IPAddressDeny=fc00::/7
 IPAddressDeny=100.64.0.0/10
-InaccessiblePaths=-/opt/gainlog -/var/lib/gainlog-mcp -/etc/gainlog.env -/home -/root
+InaccessiblePaths=-/opt/gainlog -/var/lib/gainlog-mcp -/etc/gainlog-mcp-acquire -/run/gainlog-mcp-source-proxy -/etc/gainlog.env -/home -/root
 CapabilityBoundingSet=
 RestrictSUIDSGID=yes
 LockPersonality=yes

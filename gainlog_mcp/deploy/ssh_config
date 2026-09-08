@@ -1,0 +1,23 @@
+Host gainlog-source
+    HostName 100.80.191.75
+    Port 22
+    User gainlog-mcp-source
+    IdentityFile /run/credentials/gainlog-mcp-acquire.service/source-key
+    UserKnownHostsFile /etc/gainlog-mcp-acquire/known_hosts
+    GlobalKnownHostsFile /dev/null
+    ProxyCommand /usr/bin/socat STDIO UNIX-CONNECT:/run/gainlog-mcp-source-proxy/source.sock
+    BatchMode yes
+    IdentitiesOnly yes
+    IdentityAgent none
+    StrictHostKeyChecking yes
+    ClearAllForwardings yes
+    RequestTTY no
+    PasswordAuthentication no
+    KbdInteractiveAuthentication no
+    PubkeyAuthentication yes
+    PermitLocalCommand no
+    EnableEscapeCommandline no
+    ConnectTimeout 10
+    ServerAliveInterval 15
+    ServerAliveCountMax 2
+    LogLevel ERROR

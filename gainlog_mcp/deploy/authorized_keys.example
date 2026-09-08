@@ -1,0 +1,1 @@
+restrict,command="/opt/gainlog-mcp-source/.venv/bin/gainlog-mcp-send" ssh-ed25519 REPLACE_WITH_DEDICATED_GAINLOG_ACQUISITION_PUBLIC_KEY

@@ -21,7 +21,10 @@ test = [
 
 [project.scripts]
 gainlog-mcp-export = "gainlog_mcp.exporter:main"
+gainlog-mcp-receive = "gainlog_mcp.transfer:receiver_main"
+gainlog-mcp-send = "gainlog_mcp.transfer:sender_main"
 gainlog-mcp-server = "gainlog_mcp.server:main"
+gainlog-mcp-validate = "gainlog_mcp.transfer:validator_main"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

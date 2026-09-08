@@ -30,6 +30,10 @@ Exporter
 
 Preflight emits only table counts and compatibility metadata. Normal export emits no health payload. The source is opened mode=ro with query_only, the destination is built from fixed table/column allowlists, integrity-checked, fsynced, chmod 0640, and atomically replaced.
 
+Split transfer
+
+The source-side forced command streams only `/var/lib/gainlog-mcp-source/projection.db` and rejects arguments or `SSH_ORIGINAL_COMMAND`. The Hermes acquisition process has no IP network and reaches a credential-free fixed-destination SSH proxy over one Unix socket. Before replacing `/var/lib/gainlog-mcp/projection.db`, it validates successful transfer, bounded size, exact SQLite application/schema/table/column structure, integrity, timestamps, and freshness. Failed, partial, malformed, future, or stale transfers preserve the prior complete snapshot.
+
 Deployment
 
-See deploy/README.md. The prepared design uses separate gainlog application/exporter, gainlog-mcp-reader, and gainlog-mcp-tunnel identities with a systemd-activated Unix stdio relay. The reader has no network or credential access; the tunnel has no source/projection access. Production installation, source-permission hardening, service restart, separate tunnel enrollment, and ChatGPT app creation are deliberately not performed by this build.
+See deploy/README.md. Only the credential-free exporter and fixed-command projection sender run beside GainLog in LXC 106. Acquisition, the networkless reader, the OpenAI tunnel, and the received projection live independently on Hermes. Acquisition and tunnel credentials use different identities and `LoadCredential`; neither the reader nor tunnel can read the source or acquisition key. Production installation, source-permission hardening, SSH-key enrollment, runtime-key enrollment, service activation, and ChatGPT app creation are deliberately not performed by this build. The existing tunnel ID is reused; no new tunnel is created.

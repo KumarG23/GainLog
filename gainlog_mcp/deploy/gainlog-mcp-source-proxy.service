@@ -1,0 +1,28 @@
+[Unit]
+Description=Private fixed-destination SSH proxy for GainLog MCP acquisition
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd 100.80.191.75:22
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+TemporaryFileSystem=/run
+RestrictAddressFamilies=AF_UNIX AF_INET
+IPAddressDeny=any
+IPAddressAllow=100.80.191.75/32
+SocketBindDeny=any
+SystemCallFilter=~bind
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ProtectProc=invisible
+ProcSubset=pid
+MemoryMax=32M
+TasksMax=8
+TimeoutStopSec=5

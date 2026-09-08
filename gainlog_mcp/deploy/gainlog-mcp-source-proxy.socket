@@ -1,0 +1,14 @@
+[Unit]
+Description=Private socket for fixed GainLog source SSH destination
+
+[Socket]
+ListenStream=/run/gainlog-mcp-source-proxy/source.sock
+SocketUser=root
+SocketGroup=gainlog-mcp-acquire
+SocketMode=0660
+DirectoryMode=0755
+MaxConnections=2
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

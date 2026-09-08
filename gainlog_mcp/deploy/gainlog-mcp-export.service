@@ -1,13 +1,13 @@
 [Unit]
 Description=Export allowlisted GainLog read-only MCP projection
 After=local-fs.target
-ConditionPathIsReadWrite=/var/lib/gainlog-mcp
+ConditionPathIsReadWrite=/var/lib/gainlog-mcp-source
 
 [Service]
 Type=oneshot
 User=gainlog
 Group=gainlog
-ExecStart=/usr/bin/env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 /opt/gainlog-mcp/.venv/bin/gainlog-mcp-export --source /opt/gainlog/backend-git/data/gainlog.db --destination /var/lib/gainlog-mcp/projection.db
+ExecStart=/usr/bin/env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 /opt/gainlog-mcp-source/.venv/bin/gainlog-mcp-export --source /opt/gainlog/backend-git/data/gainlog.db --destination /var/lib/gainlog-mcp-source/projection.db
 Environment=PYTHONDONTWRITEBYTECODE=1
 UMask=0027
 NoNewPrivileges=yes
@@ -16,11 +16,10 @@ ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
 PrivateNetwork=yes
-IPAddressDeny=any
 RestrictAddressFamilies=AF_UNIX
 TemporaryFileSystem=/run:ro
 ReadOnlyPaths=/opt/gainlog/backend-git/data
-ReadWritePaths=/var/lib/gainlog-mcp
+ReadWritePaths=/var/lib/gainlog-mcp-source
 InaccessiblePaths=-/etc/gainlog.env -/home -/root
 CapabilityBoundingSet=
 RestrictSUIDSGID=yes

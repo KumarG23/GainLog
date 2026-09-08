@@ -1,0 +1,13 @@
+[Unit]
+Description=Refresh received GainLog MCP projection
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+RandomizedDelaySec=20s
+AccuracySec=20s
+Persistent=true
+Unit=gainlog-mcp-acquire.service
+
+[Install]
+WantedBy=timers.target
