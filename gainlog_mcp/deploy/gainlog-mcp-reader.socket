@@ -1,0 +1,15 @@
+[Unit]
+Description=Private stdio socket for GainLog read-only MCP
+
+[Socket]
+ListenStream=/run/gainlog-mcp/mcp.sock
+Accept=yes
+SocketUser=root
+SocketGroup=gainlog-mcp-tunnel
+SocketMode=0660
+DirectoryMode=0755
+MaxConnections=8
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

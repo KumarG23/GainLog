@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gainlog-readonly-mcp"
+version = "0.1.0"
+description = "Credential-free read-only MCP over an allowlisted GainLog projection"
+requires-python = ">=3.11"
+dependencies = [
+  "mcp==1.26.0",
+  "pydantic==2.12.5",
+]
+
+[project.optional-dependencies]
+test = [
+  "jsonschema==4.26.0",
+  "pytest==9.0.2",
+  "pytest-asyncio==1.3.0",
+]
+
+[project.scripts]
+gainlog-mcp-export = "gainlog_mcp.exporter:main"
+gainlog-mcp-server = "gainlog_mcp.server:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+asyncio_mode = "auto"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gainlog_mcp"]

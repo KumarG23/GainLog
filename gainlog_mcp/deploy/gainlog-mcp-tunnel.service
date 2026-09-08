@@ -1,0 +1,34 @@
+[Unit]
+Description=OpenAI private tunnel for GainLog read-only MCP
+Wants=network-online.target
+After=network-online.target gainlog-mcp-export.service
+Requires=gainlog-mcp-reader.socket
+After=gainlog-mcp-reader.socket
+
+[Service]
+User=gainlog-mcp-tunnel
+Group=gainlog-mcp-tunnel
+ExecStart=/usr/bin/env -i PATH=/usr/bin:/bin /opt/gainlog-mcp/tunnel-client run --config /etc/gainlog-mcp/tunnel.yaml
+LoadCredential=openai-key:/etc/gainlog-mcp/openai-runtime-key
+RuntimeDirectory=gainlog-mcp-tunnel
+RuntimeDirectoryMode=0700
+UMask=0077
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+InaccessiblePaths=-/opt/gainlog -/var/lib/gainlog-mcp -/etc/gainlog.env -/home -/root
+CapabilityBoundingSet=
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ProtectProc=invisible
+MemoryMax=256M
+TasksMax=32
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

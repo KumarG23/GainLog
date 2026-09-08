@@ -1,0 +1,30 @@
+[Unit]
+Description=Isolated GainLog read-only MCP session
+
+[Service]
+User=gainlog-mcp-reader
+Group=gainlog-mcp-reader
+ExecStart=/usr/bin/env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 /opt/gainlog-mcp/.venv/bin/python -I -m gainlog_mcp.server --store /var/lib/gainlog-mcp/projection.db
+StandardInput=socket
+StandardOutput=inherit
+StandardError=null
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+TemporaryFileSystem=/run:ro /var:ro /etc:ro
+BindReadOnlyPaths=/var/lib/gainlog-mcp
+InaccessiblePaths=-/opt/gainlog -/home -/root
+CapabilityBoundingSet=
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ProtectProc=invisible
+ProcSubset=pid
+MemoryMax=192M
+TasksMax=16
+RuntimeMaxSec=15min
+TimeoutStopSec=5

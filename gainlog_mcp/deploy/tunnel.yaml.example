@@ -1,0 +1,18 @@
+config_version: 1
+control_plane:
+  base_url: https://api.openai.com
+  tunnel_id: REPLACE_WITH_SEPARATE_GAINLOG_TUNNEL_ID
+  api_key: file:/run/credentials/gainlog-mcp-tunnel.service/openai-key
+health:
+  unix_socket: /run/gainlog-mcp-tunnel/health.sock
+admin_ui:
+  open_browser: false
+log:
+  level: info
+  format: json
+mcp:
+  max_concurrent_requests: 4
+  stdio_send_initialized_notification: true
+  commands:
+    - channel: main
+      command: /usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/socat STDIO UNIX-CONNECT:/run/gainlog-mcp/mcp.sock
