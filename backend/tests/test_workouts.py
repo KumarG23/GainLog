@@ -99,12 +99,51 @@ def test_cardio_exercise_round_trip():
             "cardioDurationMinutes": 30,
             "distanceMiles": 2.4,
             "resistanceLevel": 8.0,
+            "inclinePercent": None,
         }
 
         fetched = client.get(f"/workouts/{created.json()['id']}")
         assert fetched.status_code == 200
         assert fetched.json()["exercises"][0]["kind"] == "cardio"
         assert fetched.json()["exercises"][0]["cardioDurationMinutes"] == 30
+
+
+def test_treadmill_incline_round_trip_and_legacy_migration():
+    from sqlalchemy import text
+
+    reset_db()
+    with TestClient(app) as client:
+        original = client.post('/workouts/', json={
+            'date': '2026-09-09T12:00:00Z', 'durationMinutes': 30,
+            'templateId': 'recovery',
+            'exercises': [{'name': 'Elliptical', 'kind': 'cardio',
+                           'cardioDurationMinutes': 30, 'resistanceLevel': 4}],
+        }).json()
+    # Simulate the previous schema, then exercise startup migration twice.
+    with engine.begin() as conn:
+        conn.execute(text('ALTER TABLE exercise DROP COLUMN incline_percent'))
+    for _ in range(2):
+        with TestClient(app) as client:
+            legacy = client.get(f"/workouts/{original['id']}").json()
+            assert legacy['exercises'][0]['resistanceLevel'] == 4
+            assert legacy['exercises'][0]['inclinePercent'] is None
+            for incline in (0, 2.5):
+                response = client.post('/workouts/', json={
+                    'date': '2026-09-09T12:00:00Z', 'durationMinutes': 32,
+                    'templateId': 'recovery',
+                    'exercises': [{'name': 'Treadmill', 'kind': 'cardio',
+                                   'cardioDurationMinutes': 32, 'distanceMiles': 1.8,
+                                   'inclinePercent': incline}],
+                })
+                assert response.status_code == 201
+                saved = client.get(f"/workouts/{response.json()['id']}").json()
+                assert saved['templateId'] == 'recovery'
+                exercise = saved['exercises'][0]
+                assert exercise['inclinePercent'] == incline
+                assert exercise['resistanceLevel'] is None
+                assert exercise['cardioDurationMinutes'] == 32
+                assert exercise['distanceMiles'] == 1.8
+                assert exercise['sets'] == []
 
 
 def test_mixed_workout_keeps_strength_and_cardio_session_metrics_separate(monkeypatch):

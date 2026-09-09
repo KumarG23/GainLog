@@ -14,6 +14,7 @@ export interface Exercise {
   cardioDurationMinutes?: number;
   distanceMiles?: number;
   resistanceLevel?: number;
+  inclinePercent?: number;
 }
 
 export interface WorkoutActivitySummary {

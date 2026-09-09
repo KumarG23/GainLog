@@ -54,6 +54,7 @@ function ExerciseTable({ exercise, index, recordsBySetId }: ExerciseTableProps) 
         ? `${exercise.cardioDurationMinutes} min`
         : null,
       exercise.distanceMiles != null ? `${exercise.distanceMiles} mi` : null,
+      exercise.inclinePercent != null ? `Incline ${exercise.inclinePercent}%` : null,
       exercise.resistanceLevel != null
         ? `Resistance ${exercise.resistanceLevel}`
         : null,

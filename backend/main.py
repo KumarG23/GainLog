@@ -68,6 +68,7 @@ class ExerciseDB(SQLModel, table=True):
     cardio_duration_minutes: Optional[int] = None
     distance_miles: Optional[float] = None
     resistance_level: Optional[float] = None
+    incline_percent: Optional[float] = None
     session_id: str = Field(foreign_key="workout_session.id")
     sets: List[WorkoutSetDB] = Relationship(back_populates="exercise")
     session: Optional["WorkoutSessionDB"] = Relationship(back_populates="exercises")
@@ -267,6 +268,7 @@ class ExerciseOut(CamelModel):
     cardio_duration_minutes: Optional[int] = None
     distance_miles: Optional[float] = None
     resistance_level: Optional[float] = None
+    incline_percent: Optional[float] = None
 
 
 class ExerciseIn(CamelModel):
@@ -277,6 +279,7 @@ class ExerciseIn(CamelModel):
     cardio_duration_minutes: Optional[int] = None
     distance_miles: Optional[float] = None
     resistance_level: Optional[float] = None
+    incline_percent: Optional[float] = None
 
 
 class ActivitySummary(CamelModel):
@@ -693,6 +696,7 @@ async def lifespan(_: FastAPI):
             "ALTER TABLE exercise ADD COLUMN cardio_duration_minutes INTEGER",
             "ALTER TABLE exercise ADD COLUMN distance_miles REAL",
             "ALTER TABLE exercise ADD COLUMN resistance_level REAL",
+            "ALTER TABLE exercise ADD COLUMN incline_percent REAL",
             "ALTER TABLE workout_session ADD COLUMN strength_duration_minutes INTEGER",
             "ALTER TABLE workout_session ADD COLUMN strength_avg_heart_rate INTEGER",
             "ALTER TABLE workout_session ADD COLUMN strength_active_calories INTEGER",
@@ -850,6 +854,7 @@ def _to_out(s: WorkoutSessionDB) -> WorkoutSessionOut:
                 cardio_duration_minutes=e.cardio_duration_minutes,
                 distance_miles=e.distance_miles,
                 resistance_level=e.resistance_level,
+                incline_percent=e.incline_percent,
                 sets=[WorkoutSetOut(id=ws.id, reps=ws.reps, weight=ws.weight) for ws in e.sets],
             )
             for e in s.exercises
@@ -1084,6 +1089,8 @@ def _format_session(s: WorkoutSessionDB, label: str) -> str:
                 details.append(f"{ex.cardio_duration_minutes} min")
             if ex.distance_miles is not None:
                 details.append(f"{ex.distance_miles:g} miles")
+            if ex.incline_percent is not None:
+                details.append(f"incline {ex.incline_percent:g}%")
             if ex.resistance_level is not None:
                 details.append(f"resistance {ex.resistance_level:g}")
             lines.append(f"  {ex.name} (cardio): {', '.join(details) or 'completed'}")
@@ -3055,6 +3062,7 @@ def create_workout(payload: WorkoutSessionIn, db: Session = Depends(get_db)):
             cardio_duration_minutes=ex.cardio_duration_minutes,
             distance_miles=ex.distance_miles,
             resistance_level=ex.resistance_level,
+            incline_percent=ex.incline_percent,
             session_id=sid,
         )
         db.add(db_ex)

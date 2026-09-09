@@ -12,7 +12,7 @@
     "test:notifications": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/mealReminderPlan.test.mjs",
     "test:nutrition-memory": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/nutritionMemory.test.mjs",
     "test:visual": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/nutritionDisplay.test.mjs tests/nutritionUi.test.mjs tests/settingsDisplay.test.mjs tests/visualRefinementUi.test.mjs",
-    "test:workout-templates": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/workoutTemplates.test.mjs",
+    "test:workout-templates": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/workoutTemplates.test.mjs tests/cardioModality.test.mjs",
     "test:workout-history": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/workoutHistoryHints.test.mjs",
     "test:workout-insight": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/workoutInsightRecovery.test.mjs",
     "test:workout-records": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/workoutRecords.test.mjs",

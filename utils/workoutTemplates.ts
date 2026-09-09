@@ -34,6 +34,7 @@ export interface WorkoutTemplateDraftExercise {
   cardioDurationMinutes: string;
   distanceMiles: string;
   resistanceLevel: string;
+  inclinePercent: string;
   prescription?: string;
   recommendedWeight?: string;
   targetReps?: string;
@@ -55,6 +56,7 @@ const cardioFinisher = (): WorkoutTemplateDraftExercise => ({
   cardioDurationMinutes: '',
   distanceMiles: '',
   resistanceLevel: '',
+  inclinePercent: '',
   prescription: 'Optional · 10–15 min · easy to moderate',
 });
 
@@ -66,8 +68,9 @@ const recoveryCardio = (): WorkoutTemplateDraftExercise => ({
   cardioDurationMinutes: '',
   distanceMiles: '',
   resistanceLevel: '',
+  inclinePercent: '',
   prescription:
-    '25–35 min easy · resistance 3–4 · conversational pace · a treadmill walk is interchangeable · elliptical counts as cardio, not steps',
+    '25–35 min easy · conversational pace · elliptical resistance 3–4 or an easy treadmill walk · cardio, not steps',
 });
 
 export const PLANET_FITNESS_TEMPLATES: readonly WorkoutTemplate[] = [
@@ -261,6 +264,7 @@ function buildStrengthDraftExercise(
     cardioDurationMinutes: '',
     distanceMiles: '',
     resistanceLevel: '',
+    inclinePercent: '',
     prescription: formatExercisePrescription(exercise, recommendation),
     recommendedWeight: recommendation?.weight,
     targetReps: exercise.targetReps,

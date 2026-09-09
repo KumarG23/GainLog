@@ -19,6 +19,7 @@ import { Colors, FontSize, Radius, Spacing } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
 import { useHealth } from '../../context/HealthContext';
 import { generateId } from '../../utils/id';
+import { cardioSwapChoices, isTreadmill, swapCardioModality } from '../../utils/cardioModality';
 import { API_URL } from '../../constants/api';
 import { Exercise, ExerciseKind, WorkoutEffort, WorkoutSession } from '../../types/workout';
 import { CoachInsightCard } from '../../components/CoachInsightCard';
@@ -64,6 +65,7 @@ interface DraftExercise {
   cardioDurationMinutes: string;
   distanceMiles: string;
   resistanceLevel: string;
+  inclinePercent: string;
   prescription?: string;
   recommendedWeight?: string;
   targetReps?: string;
@@ -91,6 +93,7 @@ function newExercise(kind: ExerciseKind): DraftExercise {
     cardioDurationMinutes: '',
     distanceMiles: '',
     resistanceLevel: '',
+    inclinePercent: '',
   };
 }
 
@@ -224,7 +227,7 @@ interface ExerciseCardProps {
   onUpdateSet: (setId: string, field: 'weight' | 'reps', value: string) => void;
   onCompleteSet: (set: DraftSet) => void;
   onUpdateCardio: (
-    field: 'cardioDurationMinutes' | 'distanceMiles' | 'resistanceLevel',
+    field: 'cardioDurationMinutes' | 'distanceMiles' | 'resistanceLevel' | 'inclinePercent',
     value: string,
   ) => void;
   onSubstitute: (name: string) => void;
@@ -246,14 +249,25 @@ function ExerciseCard({
   onRemove,
 }: ExerciseCardProps) {
   const previousSummary = formatPreviousExerciseSummary(previousExercise);
-  const substitutionChoices = (exercise.substitutionOptions ?? [])
+  const substitutionChoices = (exercise.kind === 'cardio'
+    ? cardioSwapChoices(exercise.name, exercise.kind)
+    : (exercise.substitutionOptions ?? []))
     .filter(name => name !== exercise.name)
     .slice(0, 2);
 
   const chooseSubstitution = () => {
+    if (Platform.OS === 'web' && exercise.kind === 'cardio') {
+      const name = substitutionChoices[0];
+      if (name && window.confirm(`Switch to ${name}? Minutes and miles are kept; resistance/incline is cleared.`)) {
+        onSubstitute(name);
+      }
+      return;
+    }
     Alert.alert(
       'Swap exercise',
-      'Choose an available movement for the same training role.',
+      exercise.kind === 'cardio'
+        ? 'Switch cardio equipment. Minutes and miles are kept; resistance/incline is cleared.'
+        : 'Choose an available movement for the same training role.',
       [
         { text: 'Cancel', style: 'cancel' },
         ...substitutionChoices.map(name => ({ text: name, onPress: () => onSubstitute(name) })),
@@ -292,7 +306,7 @@ function ExerciseCard({
               accessibilityLabel={`Swap exercise for ${exercise.name}`}
             >
               <Ionicons name="swap-horizontal-outline" size={14} color={Colors.primary} />
-              <Text style={styles.exerciseSwapText}>Swap if busy</Text>
+              <Text style={styles.exerciseSwapText}>{exercise.kind === 'cardio' ? 'Swap cardio' : 'Swap if busy'}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -360,11 +374,11 @@ function ExerciseCard({
             />
           </View>
           <View style={styles.cardioField}>
-            <Text style={styles.cardioLabel}>RESISTANCE</Text>
+            <Text style={styles.cardioLabel}>{isTreadmill(exercise.name) ? 'INCLINE (%)' : 'RESISTANCE'}</Text>
             <TextInput
               style={styles.cardioInput}
-              value={exercise.resistanceLevel}
-              onChangeText={value => onUpdateCardio('resistanceLevel', value)}
+              value={isTreadmill(exercise.name) ? exercise.inclinePercent : exercise.resistanceLevel}
+              onChangeText={value => onUpdateCardio(isTreadmill(exercise.name) ? 'inclinePercent' : 'resistanceLevel', value)}
               placeholder="Optional"
               placeholderTextColor={Colors.textMuted}
               keyboardType="decimal-pad"
@@ -582,15 +596,20 @@ export default function LogScreen() {
       prev.map(e => {
         if (e.id !== id) return e;
         if (e.substitutionOptions) return e;
-        return { ...e, name };
+        return { ...e, name, ...(e.kind === 'cardio' ? { resistanceLevel: '', inclinePercent: '' } : {}) };
       }),
     );
   }, []);
 
   const substituteExercise = useCallback((id: string, name: string) => {
-    if (!selectedTemplateId) return;
     const current = exercises.find(exercise => exercise.id === id);
     if (!current) return;
+    if (current.kind === 'cardio') {
+      setExercises(previous => previous.map(exercise =>
+        exercise.id === id ? swapCardioModality(exercise, name) : exercise));
+      return;
+    }
+    if (!selectedTemplateId) return;
 
     const applySubstitution = () => {
       setRecordsBySetId(records => {
@@ -705,7 +724,7 @@ export default function LogScreen() {
   const updateCardio = useCallback(
     (
       exerciseId: string,
-      field: 'cardioDurationMinutes' | 'distanceMiles' | 'resistanceLevel',
+      field: 'cardioDurationMinutes' | 'distanceMiles' | 'resistanceLevel' | 'inclinePercent',
       value: string,
     ) => {
       setExercises(prev =>
@@ -887,7 +906,10 @@ export default function LogScreen() {
           distanceMiles: e.kind === 'cardio' && e.distanceMiles.trim()
             ? parseFloat(e.distanceMiles)
             : undefined,
-          resistanceLevel: e.kind === 'cardio' && e.resistanceLevel.trim()
+          inclinePercent: e.kind === 'cardio' && isTreadmill(e.name) && e.inclinePercent.trim()
+            ? parseFloat(e.inclinePercent)
+            : undefined,
+          resistanceLevel: e.kind === 'cardio' && !isTreadmill(e.name) && e.resistanceLevel.trim()
             ? parseFloat(e.resistanceLevel)
             : undefined,
         })),
