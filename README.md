@@ -1,50 +1,73 @@
-# Welcome to your Expo app 👋
+# GainLog
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A mobile fitness and nutrition companion built to make everyday health data more useful rather than simply collecting more of it.
 
-## Get started
+GainLog brings workout tracking, nutrition, goals, trends, recovery context, reminders, and Android Health Connect data into one application. It started as a personal tool and has grown into a larger experiment in building a useful, data-driven mobile product with an AI-assisted development workflow.
 
-1. Install dependencies
+## What it does
 
-   ```bash
-   npm install
-   ```
+- Tracks workouts, workout history, templates, and personal records
+- Surfaces trends and recovery-oriented insights from logged activity
+- Tracks nutrition and remembers useful nutrition context
+- Supports goals and progress views
+- Schedules meal and activity reminders
+- Integrates with Android Health Connect for supported health and activity data
+- Supports background/incremental synchronization workflows
+- Includes automated tests across health sync, nutrition, workouts, goals, trends, notifications, and UI behavior
 
-2. Start the app
+## Stack
 
-   ```bash
-   npx expo start
-   ```
+- **React Native 0.81 + React 19**
+- **Expo SDK 54 + Expo Router**
+- **TypeScript**
+- **Android Health Connect** via `react-native-health-connect`
+- **AsyncStorage** for local application state
+- Expo background tasks and notifications
+- Node's built-in test runner for application-level tests
 
-In the output, you'll find options to open the app in a
+## Why I built it
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+I wanted a fitness application that reflected how I actually train and make decisions: recent performance, workout history, nutrition, recovery context, and goals should work together instead of living in separate apps.
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+That made GainLog a useful product-engineering project as well as a personal tool. The interesting work is less about rendering screens and more about deciding how health data should synchronize, how history should be interpreted, what belongs on-device, how reminders should behave, and how to keep the UI useful as the feature set grows.
 
-## Get a fresh project
+## Engineering highlights
 
-When you're ready, run:
+### Health-data synchronization
+
+GainLog includes Health Connect synchronization and supporting tests for normal sync, change sync, automatic/background sync, nutrition sync, repair flows, and UI state around health-data connectivity.
+
+### Workout and trend logic
+
+The app includes dedicated logic and tests for workout templates, history hints, records, recovery-oriented insights, cardio modality handling, trends, and weekly recovery presentation.
+
+### Testable product behavior
+
+The repository includes focused test suites rather than relying only on manual UI testing. Current test commands cover notifications, nutrition memory, visual/UI behavior, workout workflows, trends, goals, Health Connect, and API configuration.
 
 ```bash
-npm run reset-project
+npm test
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## Development approach
 
-## Learn more
+This is a modern **AI-assisted engineering** project. I define the product direction, requirements, data behavior, architecture, validation criteria, and what the application should actually accomplish. Tools such as Codex and Claude accelerate implementation, debugging, testing, and refactoring.
 
-To learn more about developing your project with Expo, look at the following resources:
+I intentionally keep that distinction visible: AI increases implementation speed, but product decisions, validation, and responsibility for the resulting system remain human-owned.
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+## Running locally
 
-## Join the community
+```bash
+npm install
+npx expo start
+```
 
-Join our community of developers creating universal apps.
+For native Health Connect functionality, use an Android development build rather than Expo Go.
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+```bash
+npm run android
+```
+
+## Status
+
+GainLog is an actively evolving personal project. It is not a medical device and is not intended to provide medical diagnosis or treatment advice.
