@@ -154,6 +154,9 @@ def test_daily_review_combines_weight_nutrition_workout_and_goals(client, monkey
     assert "one realistic action for tomorrow with an example of how to execute it" in prompt
     assert "Be encouraging without empty praise or guilt" in prompt
     assert "Treat a numeric calorie goal as an upper daily budget" in prompt
+    assert "Never tell the client to hit, match, or reach a calorie budget" in prompt
+    assert "Any value inside a minimum–maximum protein or fiber range meets that goal" in prompt
+    assert "A value above that range is above the goal range, never below or short" in prompt
     assert "Do not characterize an unlogged workout as missed or skipped" in prompt
     assert "Do not call training hard, intense, or strong execution" in prompt
     assert "Reported effort: hard" in prompt
