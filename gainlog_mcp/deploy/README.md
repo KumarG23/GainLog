@@ -176,7 +176,10 @@ Install only the verified wheel into a source-only venv and the two source units
     install -d -o root -g root -m 0755 /opt/gainlog-mcp-source
     python3 -m venv /opt/gainlog-mcp-source/.venv
     /opt/gainlog-mcp-source/.venv/bin/pip install --no-index --no-deps VERIFIED_WHEEL
-    /opt/gainlog-mcp-source/.venv/bin/pip check
+    /opt/gainlog-mcp-source/.venv/bin/python -c 'import gainlog_mcp.exporter, gainlog_mcp.transfer'
+    /opt/gainlog-mcp-source/.venv/bin/python -c 'import mcp' && exit 1 || true
+    test -x /opt/gainlog-mcp-source/.venv/bin/gainlog-mcp-export
+    test -x /opt/gainlog-mcp-source/.venv/bin/gainlog-mcp-send
     install -o root -g root -m 0644 deploy/gainlog-mcp-export.service /etc/systemd/system/
     install -o root -g root -m 0644 deploy/gainlog-mcp-export.timer /etc/systemd/system/
     systemctl daemon-reload
@@ -193,7 +196,9 @@ key. Install both key-level `restrict,command=` and the account-level Match `For
     test "$(wc -w <DEDICATED_PUBLIC_KEY_FILE)" -eq 2
     test "$(cut -d' ' -f1 <DEDICATED_PUBLIC_KEY_FILE)" = ssh-ed25519
     { printf 'restrict,command="/opt/gainlog-mcp-source/.venv/bin/gainlog-mcp-send" '; cat DEDICATED_PUBLIC_KEY_FILE; } \
-      | install -o root -g root -m 0600 /dev/stdin /etc/ssh/authorized_keys/gainlog-mcp-source
+      | install -o root -g root -m 0644 /dev/stdin /etc/ssh/authorized_keys/gainlog-mcp-source
+    # OpenSSH drops to the Match user before reading AuthorizedKeysFile, so
+    # root:root 0600 is unreadable and auth fails with "Permission denied".
     install -o root -g root -m 0644 deploy/gainlog-mcp-source-sshd.conf \
       /etc/ssh/sshd_config.d/60-gainlog-mcp-source.conf
     /usr/sbin/sshd -t

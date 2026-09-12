@@ -118,6 +118,13 @@ def test_runbook_places_only_export_and_sender_on_lxc_and_skips_redundant_restar
     assert "projection.db" in runbook
     assert "encrypted_refresh_token" in runbook
     assert "rollback" in runbook.lower()
+    assert (
+        'install -o root -g root -m 0644 /dev/stdin /etc/ssh/authorized_keys/gainlog-mcp-source'
+        in runbook
+    )
+    assert "root:root 0600 is unreadable" in runbook
+    assert "pip check" not in runbook
+    assert "import gainlog_mcp.exporter, gainlog_mcp.transfer" in runbook
 
 
 def test_systemd_units_parse_cleanly():
