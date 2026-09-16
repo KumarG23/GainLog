@@ -698,7 +698,10 @@ def sync_google_health(
         }
         if os.environ.get("GAINLOG_GOOGLE_HEALTH_V2_SHADOW", "").strip() == "1":
             try:
-                from .google_health_v2 import sync_google_health_v2
+                try:
+                    from .google_health_v2 import sync_google_health_v2
+                except ImportError:
+                    from google_health_v2 import sync_google_health_v2
 
                 result["v2_shadow"] = sync_google_health_v2(
                     db,
