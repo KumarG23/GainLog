@@ -378,6 +378,37 @@ class GoogleHealthV2Importer:
         self.db.add(self.run)
         self.db.commit()
 
+    def _get_page(self, endpoint: str, params: dict[str, Any]) -> Any:
+        """Retry bounded transient transport/API failures without logging payloads."""
+        last_exception: Exception | None = None
+        for attempt in range(4):
+            try:
+                response = self.http.get(
+                    endpoint,
+                    headers=self.headers,
+                    params=params,
+                    timeout=30,
+                )
+                self.run.api_calls += 1
+            except Exception as exc:
+                last_exception = exc
+                if attempt == 3:
+                    raise GoogleHealthDataError("Google Health transport failed after retries") from exc
+                time.sleep(2**attempt)
+                continue
+            status = getattr(response, "status_code", None)
+            if status not in {429, 500, 502, 503, 504} or attempt == 3:
+                return response
+            retry_after = getattr(response, "headers", {}).get("Retry-After")
+            try:
+                if retry_after is None:
+                    raise ValueError
+                delay = min(max(float(retry_after), 0.0), 60.0)
+            except (TypeError, ValueError):
+                delay = float(2**attempt)
+            time.sleep(delay)
+        raise GoogleHealthDataError("Google Health transport failed after retries") from last_exception
+
     def pages_for(
         self,
         *,
@@ -405,13 +436,7 @@ class GoogleHealthV2Importer:
             params = dict(base_params)
             if page_token:
                 params["pageToken"] = page_token
-            response = self.http.get(
-                endpoint,
-                headers=self.headers,
-                params=params,
-                timeout=30,
-            )
-            self.run.api_calls += 1
+            response = self._get_page(endpoint, params)
             payload = _response_json(response)
             points = payload.get("dataPoints", [])
             if not isinstance(points, list):

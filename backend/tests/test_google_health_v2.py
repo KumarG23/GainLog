@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, Session, create_engine, select
 
+import backend.google_health_v2 as v2
 from backend.google_health_v2 import GoogleHealthV2Importer
 from backend.health_v2_models import (
     HealthDailyMetricDB,
@@ -23,10 +24,11 @@ from backend.main import AppleHealthDailyDB
 
 
 class FakeResponse:
-    def __init__(self, payload: dict, status_code: int = 200):
+    def __init__(self, payload: dict, status_code: int = 200, headers: dict | None = None):
         self._payload = payload
         self.status_code = status_code
         self.ok = 200 <= status_code < 300
+        self.headers = headers or {}
         self.text = ""
 
     def json(self) -> dict:
@@ -548,7 +550,7 @@ def test_sleep_crosses_midnight_preserves_offsets_stages_and_events(db: Session)
     }
 
 
-def test_failed_second_page_keeps_bounded_first_page_for_safe_retry(db: Session):
+def test_failed_second_page_keeps_bounded_first_page_for_safe_retry(db: Session, monkeypatch):
     class FailsOnSecondPage(FakeGoogleHealth):
         def get(self, url: str, *, headers: dict, params: dict, timeout: int):
             if params.get("pageToken") == "p2":
@@ -564,6 +566,7 @@ def test_failed_second_page_keeps_bounded_first_page_for_safe_retry(db: Session)
     )
     db.add(run)
     db.commit()
+    monkeypatch.setattr(v2.time, "sleep", lambda _: None)
     importer = GoogleHealthV2Importer(
         db,
         FailsOnSecondPage(base_responses()),
@@ -572,7 +575,7 @@ def test_failed_second_page_keeps_bounded_first_page_for_safe_retry(db: Session)
         "2026-09-02",
         "2026-09-04",
     )
-    with pytest.raises(TimeoutError):
+    with pytest.raises(v2.GoogleHealthDataError):
         importer.run_all()
 
     # Page one was committed before the failed request; the stable point IDs
@@ -582,6 +585,40 @@ def test_failed_second_page_keeps_bounded_first_page_for_safe_retry(db: Session)
     assert saved_run is not None
     assert saved_run.pages_processed == 1
     assert saved_run.max_page_records == 2
+
+
+def test_transient_api_failures_retry_without_exposing_payloads(db: Session, monkeypatch):
+    class TransientHttp:
+        def __init__(self):
+            self.responses = [
+                FakeResponse({}, 503),
+                FakeResponse({}, 429, {"Retry-After": "0"}),
+                FakeResponse({"dataPoints": []}),
+            ]
+
+        def get(self, *args, **kwargs):
+            return self.responses.pop(0)
+
+    run = HealthImportRunDB(
+        id=str(uuid.uuid4()),
+        requested_start="2026-09-02",
+        requested_end="2026-09-04",
+        started_at="2026-09-16T00:00:00Z",
+        status="running",
+    )
+    db.add(run)
+    db.commit()
+    sleeps = []
+    monkeypatch.setattr(v2.time, "sleep", sleeps.append)
+    importer = GoogleHealthV2Importer(
+        db, TransientHttp(), "test-token", run, "2026-09-02", "2026-09-04"
+    )
+
+    response = importer._get_page("https://health.example/data", {})
+
+    assert response.ok
+    assert run.api_calls == 3
+    assert sleeps == [1.0, 0.0]
 
 
 def test_quality_flags_partial_days_and_missing_hr_coverage(db: Session):
