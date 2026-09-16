@@ -12,7 +12,8 @@ EnvironmentFile=/etc/gainlog.env
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment="GAINLOG_DATABASE_URL=sqlite:////opt/gainlog/backend-git/data/gainlog.db"
 ExecStart=/opt/gainlog/venv-new/bin/python -m google_health_sync
-TimeoutStartSec=2min
+# A seven-day V2 shadow replay is page-streamed and can take several minutes.
+TimeoutStartSec=15min
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
