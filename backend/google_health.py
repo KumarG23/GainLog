@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import math
 import os
 import secrets
@@ -40,6 +41,7 @@ GOOGLE_OWNED_FIELDS = (
     "walking_running_miles",
 )
 _INT64_MAX = 9_223_372_036_854_775_807
+logger = logging.getLogger(__name__)
 
 
 class GoogleHealthConfigurationError(RuntimeError):
@@ -689,11 +691,28 @@ def sync_google_health(
         connection.status = "connected"
         db.add(connection)
         db.commit()
-        return {
+        result = {
             "synced_days": len(reconciled_days),
             "start_date": start,
             "end_date": end,
         }
+        if os.environ.get("GAINLOG_GOOGLE_HEALTH_V2_SHADOW", "").strip() == "1":
+            try:
+                from .google_health_v2 import sync_google_health_v2
+
+                result["v2_shadow"] = sync_google_health_v2(
+                    db,
+                    start_date=start,
+                    end_date=end,
+                    http=http,
+                )
+            except Exception:
+                # Shadow preservation must never replace or roll back the
+                # authoritative daily pipeline. The V2 import-run row carries
+                # its sanitized failure diagnostics for inspection.
+                logger.warning("Google Health V2 shadow import failed")
+                result["v2_shadow"] = {"status": "failed"}
+        return result
     except Exception as exc:
         db.rollback()
         connection = db.get(GoogleHealthConnectionDB, "primary")

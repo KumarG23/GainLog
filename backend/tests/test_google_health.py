@@ -326,6 +326,35 @@ def test_google_health_sync_matches_v4_transport_and_persists_authoritative_metr
     assert replaced.json()["source"] == "google-health"
 
 
+def test_v2_shadow_failure_does_not_roll_back_authoritative_daily_sync(client, monkeypatch):
+    from backend import google_health_v2
+    from backend.google_health import sync_google_health
+    from backend.main import AppleHealthDailyDB, engine
+    from sqlmodel import Session
+
+    _connect_google_health(monkeypatch)
+    monkeypatch.setenv("GAINLOG_GOOGLE_HEALTH_V2_SHADOW", "1")
+
+    def fail_shadow(*args, **kwargs):
+        raise RuntimeError("synthetic shadow failure")
+
+    monkeypatch.setattr(google_health_v2, "sync_google_health_v2", fail_shadow)
+    with Session(engine) as db:
+        result = sync_google_health(
+            db,
+            start_date="2026-08-26",
+            end_date="2026-08-27",
+            http=_FakeGoogleHealthHttp(),
+        )
+        daily = db.get(AppleHealthDailyDB, "2026-08-26")
+
+    assert result["synced_days"] == 1
+    assert result["v2_shadow"] == {"status": "failed"}
+    assert daily is not None
+    assert daily.steps == 8123
+    assert daily.source == "google-health"
+
+
 def test_google_health_empty_day_does_not_erase_health_connect_fallback(client, monkeypatch):
     from backend.google_health import sync_google_health
     from backend.main import AppleHealthDailyDB, GoogleHealthDailySnapshotDB, engine

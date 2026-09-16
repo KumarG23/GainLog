@@ -20,6 +20,13 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Field, Relationship, Session, SQLModel, create_engine, select
 import requests
 
+# Register the additive V2 shadow-health tables with SQLModel metadata. The
+# existing daily-health models and API remain authoritative in Phase 1.
+try:
+    from . import health_v2_models as _health_v2_models  # noqa: F401
+except ImportError:
+    import health_v2_models as _health_v2_models  # type: ignore[no-redef]  # noqa: F401
+
 try:
     from .google_health import (
         GOOGLE_HEALTH_CALLBACK_URL, GOOGLE_OWNED_FIELDS,
