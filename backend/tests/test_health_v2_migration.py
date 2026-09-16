@@ -1,3 +1,9 @@
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+
 from sqlalchemy import inspect
 from sqlmodel import create_engine
 
@@ -16,3 +22,23 @@ def test_health_v2_foundation_migration_is_additive_and_idempotent(tmp_path):
     assert set(first["present"]) == expected
     assert second["created"] == []
     assert expected <= set(inspect(engine).get_table_names())
+
+
+def test_health_v2_migration_runs_from_production_flat_module_layout(tmp_path):
+    root = Path(__file__).resolve().parents[2]
+    db_path = tmp_path / "flat-layout.db"
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(root / "backend")
+    env["GAINLOG_DATABASE_URL"] = f"sqlite:///{db_path}"
+
+    completed = subprocess.run(
+        [sys.executable, "-m", "migrations.health_v2_foundation"],
+        cwd=root,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    result = json.loads(completed.stdout)
+    assert len(result["created"]) == len(V2_HEALTH_MODELS)

@@ -10,8 +10,13 @@ import json
 from sqlalchemy import inspect
 from sqlmodel import SQLModel
 
-from ..health_v2_models import V2_HEALTH_MODELS
-from ..main import engine
+try:
+    from ..health_v2_models import V2_HEALTH_MODELS
+    from ..main import engine
+except ImportError:
+    # Production deploys backend/ as a flat module root.
+    from health_v2_models import V2_HEALTH_MODELS
+    from main import engine
 
 
 def migrate(target_engine=engine) -> dict[str, object]:
