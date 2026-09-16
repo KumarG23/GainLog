@@ -42,3 +42,20 @@ def test_health_v2_migration_runs_from_production_flat_module_layout(tmp_path):
 
     result = json.loads(completed.stdout)
     assert len(result["created"]) == len(V2_HEALTH_MODELS)
+
+
+def test_health_v2_sync_cli_imports_from_production_flat_module_layout():
+    root = Path(__file__).resolve().parents[2]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(root / "backend")
+
+    completed = subprocess.run(
+        [sys.executable, "-m", "google_health_v2_sync", "--help"],
+        cwd=root,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "bounded Google Health V2 shadow import" in completed.stdout

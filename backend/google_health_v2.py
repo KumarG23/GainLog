@@ -21,27 +21,51 @@ from sqlalchemy import delete, func, text, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, SQLModel, select
 
-from .google_health import (
-    GOOGLE_HEALTH_API,
-    GOOGLE_TOKEN_URL,
-    GoogleHealthAuthorizationError,
-    GoogleHealthDataError,
-    _response_json,
-    require_google_health_config,
-)
-from .health_v2_models import (
-    HealthDailyMetricDB,
-    HealthDataQualityDB,
-    HealthExerciseSessionDB,
-    HealthImportRunDB,
-    HealthIntervalObservationDB,
-    HealthMinuteSummaryDB,
-    HealthSampleObservationDB,
-    HealthSleepEventDB,
-    HealthSleepSessionDB,
-    HealthSleepStageDB,
-    HealthSourceDB,
-)
+try:
+    from .google_health import (
+        GOOGLE_HEALTH_API,
+        GOOGLE_TOKEN_URL,
+        GoogleHealthAuthorizationError,
+        GoogleHealthDataError,
+        _response_json,
+        require_google_health_config,
+    )
+    from .health_v2_models import (
+        HealthDailyMetricDB,
+        HealthDataQualityDB,
+        HealthExerciseSessionDB,
+        HealthImportRunDB,
+        HealthIntervalObservationDB,
+        HealthMinuteSummaryDB,
+        HealthSampleObservationDB,
+        HealthSleepEventDB,
+        HealthSleepSessionDB,
+        HealthSleepStageDB,
+        HealthSourceDB,
+    )
+except ImportError:
+    # Production deploys backend/ as a flat module root.
+    from google_health import (
+        GOOGLE_HEALTH_API,
+        GOOGLE_TOKEN_URL,
+        GoogleHealthAuthorizationError,
+        GoogleHealthDataError,
+        _response_json,
+        require_google_health_config,
+    )
+    from health_v2_models import (
+        HealthDailyMetricDB,
+        HealthDataQualityDB,
+        HealthExerciseSessionDB,
+        HealthImportRunDB,
+        HealthIntervalObservationDB,
+        HealthMinuteSummaryDB,
+        HealthSampleObservationDB,
+        HealthSleepEventDB,
+        HealthSleepSessionDB,
+        HealthSleepStageDB,
+        HealthSourceDB,
+    )
 
 GOOGLE_WEARABLES = "users/me/dataSourceFamilies/google-wearables"
 GOOGLE_ALL_SOURCES = "users/me/dataSourceFamilies/all-sources"
