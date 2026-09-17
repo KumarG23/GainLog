@@ -5,6 +5,7 @@ import * as healthConnectChangeSync from '../utils/healthConnectChangeSync.ts';
 import {
   bootstrapHealthConnectChangeSync,
   buildHealthConnectWeightReconcilePayload,
+  combineHealthConnectStateShards,
   createSerialTaskRunner,
   HealthConnectRepairRequiredError,
   indexHealthConnectRecords,
@@ -15,8 +16,36 @@ import {
   prepareHealthConnectWeightReconciliation,
   reconcileHealthConnectChangePages,
   runHealthConnectChangeSync,
+  shardHealthConnectSyncState,
   stampHealthConnectRecordType,
 } from '../utils/healthConnectChangeSync.ts';
+
+test('large Health Connect state round-trips through bounded storage shards', () => {
+  const records = Object.fromEntries(Array.from({ length: 20_000 }, (_, index) => [
+    `record-${index.toString().padStart(5, '0')}`,
+    { recordType: index % 2 === 0 ? 'Steps' : 'SleepSession', dates: ['2026-09-16'] },
+  ]));
+  const state = { version: 1, changesToken: 'token-large', records };
+
+  const sharded = shardHealthConnectSyncState(state, 128);
+
+  assert.equal(sharded.metadata.version, 2);
+  assert.equal(sharded.metadata.shardCount, 128);
+  assert.equal(Math.max(...sharded.shards.map(value => value.length)) < 100_000, true);
+  assert.deepEqual(combineHealthConnectStateShards(sharded.metadata, sharded.shards), state);
+});
+
+test('sharded Health Connect state rejects missing or corrupt shards', () => {
+  const state = {
+    version: 1,
+    changesToken: 'token-1',
+    records: { one: { recordType: 'Weight', dates: ['2026-09-16'] } },
+  };
+  const sharded = shardHealthConnectSyncState(state, 4);
+
+  assert.equal(combineHealthConnectStateShards(sharded.metadata, sharded.shards.slice(0, 3)), null);
+  assert.equal(combineHealthConnectStateShards(sharded.metadata, ['not-json', ...sharded.shards.slice(1)]), null);
+});
 
 
 test('change page plans old and new dates while updating the durable record index', () => {

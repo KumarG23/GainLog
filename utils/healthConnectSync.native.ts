@@ -26,17 +26,19 @@ import {
   type HealthConnectRepairState,
 } from './healthConnect';
 import {
+  combineHealthConnectStateShards,
   createSerialTaskRunner,
   HealthConnectRepairRequiredError,
   indexHealthConnectRecords,
-  loadHealthConnectSyncState,
   parseHealthConnectSyncState,
   prepareHealthConnectWeightReconciliation,
   runHealthConnectChangeSync,
   runHealthConnectRepairFallback,
+  shardHealthConnectSyncState,
   stampHealthConnectRecordType,
   type HealthConnectChangePage,
   type HealthConnectChangeRecord,
+  type HealthConnectSyncState,
 } from './healthConnectChangeSync';
 
 export interface HealthConnectSyncResult {
@@ -70,7 +72,51 @@ const historyPermission = {
   recordType: 'ReadHealthDataHistory' as const,
 };
 const CHANGE_STATE_KEY = 'gainlog.healthConnect.healthSyncState.v1';
+const CHANGE_STATE_META_KEY = 'gainlog.healthConnect.healthSyncState.v2.meta';
+const CHANGE_STATE_SHARD_PREFIX = 'gainlog.healthConnect.healthSyncState.v2.shard.';
+const CHANGE_STATE_SHARD_COUNT = 128;
 const changeRecordTypes = readPermissions.map(permission => permission.recordType) as any[];
+
+const changeStateShardKey = (index: number) => (
+  `${CHANGE_STATE_SHARD_PREFIX}${index.toString().padStart(3, '0')}`
+);
+
+async function loadPersistedHealthConnectState(): Promise<HealthConnectSyncState | null> {
+  const rawMetadata = await AsyncStorage.getItem(CHANGE_STATE_META_KEY);
+  if (rawMetadata) {
+    try {
+      const metadata = JSON.parse(rawMetadata);
+      const shardCount = metadata?.shardCount;
+      if (!Number.isSafeInteger(shardCount) || shardCount < 1 || shardCount > 1_024) return null;
+      const values = await AsyncStorage.multiGet(
+        Array.from({ length: shardCount }, (_, index) => changeStateShardKey(index)),
+      );
+      if (values.some(([, value]) => value == null)) return null;
+      return combineHealthConnectStateShards(
+        metadata,
+        values.map(([, value]) => value as string),
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  try {
+    return parseHealthConnectSyncState(await AsyncStorage.getItem(CHANGE_STATE_KEY));
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('CursorWindow')) return null;
+    throw error;
+  }
+}
+
+async function savePersistedHealthConnectState(state: HealthConnectSyncState): Promise<void> {
+  const sharded = shardHealthConnectSyncState(state, CHANGE_STATE_SHARD_COUNT);
+  await AsyncStorage.multiSet([
+    [CHANGE_STATE_META_KEY, JSON.stringify(sharded.metadata)],
+    ...sharded.shards.map((value, index) => [changeStateShardKey(index), value] as [string, string]),
+  ]);
+  await AsyncStorage.removeItem(CHANGE_STATE_KEY);
+}
 
 const requestInit = (body: unknown) => ({
   method: 'POST',
@@ -277,15 +323,13 @@ async function syncHealthConnectUnsafe(
     ]);
   }
 
-  const rawState = await AsyncStorage.getItem(CHANGE_STATE_KEY);
-  const currentState = options.repair
-    ? parseHealthConnectSyncState(rawState)
-    : loadHealthConnectSyncState(rawState);
-  const repairState = options.repair || rawState === null
+  const persistedState = await loadPersistedHealthConnectState();
+  const currentState = persistedState;
+  const repairState = options.repair || persistedState === null
     ? await getJson<HealthConnectRepairState>('/health-connect/repair-state')
     : null;
   if (
-    !options.repair && rawState === null && healthConnectInitialBootstrapRequiresRepair(
+    !options.repair && persistedState === null && healthConnectInitialBootstrapRequiresRepair(
       new Date(),
       repairState as HealthConnectRepairState,
       options.days ?? 2,
@@ -325,7 +369,7 @@ async function syncHealthConnectUnsafe(
     }) as Promise<HealthConnectChangePage>,
     reconcileDates: async days => { await reconcileDates(days); },
     deleteWeightRecords: deleteHealthConnectWeightRecords,
-    saveState: state => AsyncStorage.setItem(CHANGE_STATE_KEY, JSON.stringify(state)),
+    saveState: savePersistedHealthConnectState,
   });
   return {
     dailyImported: dailyImports > 0,

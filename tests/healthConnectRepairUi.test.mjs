@@ -45,7 +45,7 @@ test('all native Health Connect sync entry points share one serial queue', () =>
 test('initial native bootstrap checks server ownership before minting a token', () => {
   assert.match(
     nativeSync,
-    /!options\.repair && rawState === null && healthConnectInitialBootstrapRequiresRepair/,
+    /!options\.repair && persistedState === null && healthConnectInitialBootstrapRequiresRepair/,
   );
   assert.match(nativeSync, /throw new HealthConnectRepairRequiredError\(\)/);
 });

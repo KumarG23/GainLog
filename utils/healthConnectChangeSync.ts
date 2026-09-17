@@ -9,6 +9,77 @@ export interface HealthConnectSyncState {
   records: Record<string, HealthConnectRecordIndexEntry>;
 }
 
+export interface HealthConnectStateShardMetadata {
+  version: 2;
+  changesToken: string;
+  shardCount: number;
+}
+
+function healthConnectStateShardIndex(recordId: string, shardCount: number): number {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < recordId.length; index += 1) {
+    hash ^= recordId.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0) % shardCount;
+}
+
+export function shardHealthConnectSyncState(
+  state: HealthConnectSyncState,
+  shardCount: number,
+): { metadata: HealthConnectStateShardMetadata; shards: string[] } {
+  if (!Number.isSafeInteger(shardCount) || shardCount < 1 || shardCount > 1_024) {
+    throw new Error('Health Connect state shard count is invalid.');
+  }
+  const shards = Array.from(
+    { length: shardCount },
+    () => ({} as Record<string, HealthConnectRecordIndexEntry>),
+  );
+  for (const [recordId, entry] of Object.entries(state.records)) {
+    shards[healthConnectStateShardIndex(recordId, shardCount)][recordId] = entry;
+  }
+  return {
+    metadata: { version: 2, changesToken: state.changesToken, shardCount },
+    shards: shards.map(shard => JSON.stringify(shard)),
+  };
+}
+
+export function combineHealthConnectStateShards(
+  metadata: HealthConnectStateShardMetadata,
+  shards: string[],
+): HealthConnectSyncState | null {
+  if (
+    metadata?.version !== 2
+    || typeof metadata.changesToken !== 'string'
+    || metadata.changesToken.length === 0
+    || !Number.isSafeInteger(metadata.shardCount)
+    || metadata.shardCount < 1
+    || metadata.shardCount > 1_024
+    || shards.length !== metadata.shardCount
+  ) return null;
+
+  try {
+    const records: Record<string, HealthConnectRecordIndexEntry> = {};
+    for (const rawShard of shards) {
+      const shard = JSON.parse(rawShard) as unknown;
+      if (!shard || typeof shard !== 'object' || Array.isArray(shard)) return null;
+      for (const [recordId, entry] of Object.entries(
+        shard as Record<string, HealthConnectRecordIndexEntry>,
+      )) {
+        if (records[recordId]) return null;
+        records[recordId] = entry;
+      }
+    }
+    return parseHealthConnectSyncState(JSON.stringify({
+      version: 1,
+      changesToken: metadata.changesToken,
+      records,
+    }));
+  } catch {
+    return null;
+  }
+}
+
 export interface HealthConnectChangeRecord {
   recordType: string;
   metadata?: { id?: string };
