@@ -24,6 +24,16 @@ import {
   type GoogleHealthStatus,
 } from '../utils/googleHealth';
 
+const errorMessage = (error: unknown, fallback: string) => {
+  if (error instanceof Error && error.message) return error.message;
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string' && message) return message;
+  }
+  if (typeof error === 'string' && error) return error;
+  return fallback;
+};
+
 export default function SettingsScreen() {
   const { refresh, syncNutritionToHealthConnect, nutritionHealthConnectError } = useHealth();
   const [syncingHealthConnect, setSyncingHealthConnect] = useState(false);
@@ -98,7 +108,7 @@ export default function SettingsScreen() {
     } catch (error) {
       Alert.alert(
         'Health Connect sync unavailable',
-        error instanceof Error ? error.message : 'Unable to sync Health Connect.',
+        errorMessage(error, 'Unable to sync Health Connect.'),
       );
     } finally {
       setSyncingHealthConnect(false);
@@ -117,7 +127,7 @@ export default function SettingsScreen() {
     } catch (error) {
       Alert.alert(
         'Health Connect repair unavailable',
-        error instanceof Error ? error.message : 'Unable to repair Health Connect.',
+        errorMessage(error, 'Unable to repair Health Connect.'),
       );
     } finally {
       setSyncingHealthConnect(false);

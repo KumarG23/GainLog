@@ -103,9 +103,11 @@ async function loadPersistedHealthConnectState(): Promise<HealthConnectSyncState
 
   try {
     return parseHealthConnectSyncState(await AsyncStorage.getItem(CHANGE_STATE_KEY));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('CursorWindow')) return null;
-    throw error;
+  } catch {
+    // The legacy state is disposable once it cannot be read. Native Android
+    // storage failures do not consistently cross the RN boundary as Error
+    // instances, so any failed v1 read must rebuild from the authoritative API.
+    return null;
   }
 }
 
