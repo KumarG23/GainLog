@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system/legacy';
 import {
   aggregateRecord,
   getChanges,
@@ -26,7 +27,6 @@ import {
   type HealthConnectRepairState,
 } from './healthConnect';
 import {
-  combineHealthConnectStateShards,
   createSerialTaskRunner,
   HealthConnectRepairRequiredError,
   indexHealthConnectRecords,
@@ -34,7 +34,6 @@ import {
   prepareHealthConnectWeightReconciliation,
   runHealthConnectChangeSync,
   runHealthConnectRepairFallback,
-  shardHealthConnectSyncState,
   stampHealthConnectRecordType,
   type HealthConnectChangePage,
   type HealthConnectChangeRecord,
@@ -76,48 +75,88 @@ const CHANGE_STATE_META_KEY = 'gainlog.healthConnect.healthSyncState.v2.meta';
 const CHANGE_STATE_SHARD_PREFIX = 'gainlog.healthConnect.healthSyncState.v2.shard.';
 const CHANGE_STATE_SHARD_COUNT = 128;
 const changeRecordTypes = readPermissions.map(permission => permission.recordType) as any[];
+const STATE_FILE_NAME = 'gainlog-health-connect-state.json';
+const stateFileUri = FileSystem.documentDirectory
+  ? `${FileSystem.documentDirectory}${STATE_FILE_NAME}`
+  : null;
+const stateBackupFileUri = stateFileUri ? `${stateFileUri}.backup` : null;
+const stateTemporaryFileUri = stateFileUri ? `${stateFileUri}.temporary` : null;
 
 const changeStateShardKey = (index: number) => (
   `${CHANGE_STATE_SHARD_PREFIX}${index.toString().padStart(3, '0')}`
 );
 
-async function loadPersistedHealthConnectState(): Promise<HealthConnectSyncState | null> {
-  const rawMetadata = await AsyncStorage.getItem(CHANGE_STATE_META_KEY);
-  if (rawMetadata) {
-    try {
-      const metadata = JSON.parse(rawMetadata);
-      const shardCount = metadata?.shardCount;
-      if (!Number.isSafeInteger(shardCount) || shardCount < 1 || shardCount > 1_024) return null;
-      const values = await AsyncStorage.multiGet(
-        Array.from({ length: shardCount }, (_, index) => changeStateShardKey(index)),
-      );
-      if (values.some(([, value]) => value == null)) return null;
-      return combineHealthConnectStateShards(
-        metadata,
-        values.map(([, value]) => value as string),
-      );
-    } catch {
-      return null;
-    }
+const rejectedValueDescription = (error: unknown): string => {
+  if (error instanceof Error && error.message) return error.message;
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string' && message) return message;
   }
-
+  if (typeof error === 'string' && error) return error;
   try {
-    return parseHealthConnectSyncState(await AsyncStorage.getItem(CHANGE_STATE_KEY));
+    const serialized = JSON.stringify(error);
+    if (serialized && serialized !== '{}') return serialized;
   } catch {
-    // The legacy state is disposable once it cannot be read. Native Android
-    // storage failures do not consistently cross the RN boundary as Error
-    // instances, so any failed v1 read must rebuild from the authoritative API.
-    return null;
+    // Fall through for non-serializable native rejection values.
+  }
+  return 'native module rejected without error details';
+};
+
+async function atHealthConnectStage<T>(
+  stage: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    throw new Error(`Health Connect ${stage} failed: ${rejectedValueDescription(error)}`);
   }
 }
 
+async function loadPersistedHealthConnectState(): Promise<HealthConnectSyncState | null> {
+  if (!stateFileUri || !stateBackupFileUri) return null;
+  for (const uri of [stateFileUri, stateBackupFileUri]) {
+    const info = await FileSystem.getInfoAsync(uri);
+    if (!info.exists) continue;
+    const parsed = parseHealthConnectSyncState(await FileSystem.readAsStringAsync(uri));
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
 async function savePersistedHealthConnectState(state: HealthConnectSyncState): Promise<void> {
-  const sharded = shardHealthConnectSyncState(state, CHANGE_STATE_SHARD_COUNT);
-  await AsyncStorage.multiSet([
-    [CHANGE_STATE_META_KEY, JSON.stringify(sharded.metadata)],
-    ...sharded.shards.map((value, index) => [changeStateShardKey(index), value] as [string, string]),
-  ]);
-  await AsyncStorage.removeItem(CHANGE_STATE_KEY);
+  if (!stateFileUri || !stateBackupFileUri || !stateTemporaryFileUri) {
+    throw new Error('Health Connect private storage is unavailable.');
+  }
+
+  await FileSystem.writeAsStringAsync(stateTemporaryFileUri, JSON.stringify(state));
+  await FileSystem.deleteAsync(stateBackupFileUri, { idempotent: true });
+  const current = await FileSystem.getInfoAsync(stateFileUri);
+  if (current.exists) {
+    await FileSystem.moveAsync({ from: stateFileUri, to: stateBackupFileUri });
+  }
+  try {
+    await FileSystem.moveAsync({ from: stateTemporaryFileUri, to: stateFileUri });
+  } catch (error) {
+    const backup = await FileSystem.getInfoAsync(stateBackupFileUri);
+    if (backup.exists) {
+      await FileSystem.moveAsync({ from: stateBackupFileUri, to: stateFileUri });
+    }
+    throw error;
+  }
+  await FileSystem.deleteAsync(stateBackupFileUri, { idempotent: true });
+
+  // The file is now authoritative. Reclaim obsolete SQLite state without
+  // allowing cleanup failure to invalidate an otherwise successful sync.
+  try {
+    await AsyncStorage.multiRemove([
+      CHANGE_STATE_KEY,
+      CHANGE_STATE_META_KEY,
+      ...Array.from({ length: CHANGE_STATE_SHARD_COUNT }, (_, index) => changeStateShardKey(index)),
+    ]);
+  } catch {
+    // A future successful sync will retry the cleanup.
+  }
 }
 
 const requestInit = (body: unknown) => ({
@@ -314,21 +353,28 @@ async function deleteHealthConnectWeightRecords(recordIds: string[]): Promise<vo
 async function syncHealthConnectUnsafe(
   options: HealthConnectSyncOptions = {},
 ): Promise<HealthConnectSyncResult> {
-  if (!await initialize()) throw new Error('Health Connect is unavailable on this device.');
+  const initialized = await atHealthConnectStage('initialization', initialize);
+  if (!initialized) throw new Error('Health Connect is unavailable on this device.');
   if (options.requestPermissions !== false) {
     // react-native-health-connect 4.1.3 omits special history access from the
     // returned grant list. The first historical read is the authoritative gate.
-    await requestPermission([
+    await atHealthConnectStage('permission request', () => requestPermission([
       ...permissions,
       ...(options.requestBackgroundAccess ? [backgroundPermission] : []),
       ...(options.repair ? [historyPermission] : []),
-    ]);
+    ]));
   }
 
-  const persistedState = await loadPersistedHealthConnectState();
+  const persistedState = await atHealthConnectStage(
+    'local state load',
+    loadPersistedHealthConnectState,
+  );
   const currentState = persistedState;
   const repairState = options.repair || persistedState === null
-    ? await getJson<HealthConnectRepairState>('/health-connect/repair-state')
+    ? await atHealthConnectStage(
+      'repair-state request',
+      () => getJson<HealthConnectRepairState>('/health-connect/repair-state'),
+    )
     : null;
   if (
     !options.repair && persistedState === null && healthConnectInitialBootstrapRequiresRepair(
@@ -371,7 +417,10 @@ async function syncHealthConnectUnsafe(
     }) as Promise<HealthConnectChangePage>,
     reconcileDates: async days => { await reconcileDates(days); },
     deleteWeightRecords: deleteHealthConnectWeightRecords,
-    saveState: savePersistedHealthConnectState,
+    saveState: state => atHealthConnectStage(
+      'local state save',
+      () => savePersistedHealthConnectState(state),
+    ),
   });
   return {
     dailyImported: dailyImports > 0,

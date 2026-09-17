@@ -57,3 +57,14 @@ test('native repair marks its authoritative baseline as tombstone-complete', () 
     /allowUnknownTombstonesAfterBaseline: options\.repair/,
   );
 });
+
+
+test('native cursor persistence uses private files with recoverable replacement', () => {
+  assert.match(nativeSync, /from 'expo-file-system\/legacy'/);
+  assert.match(nativeSync, /gainlog-health-connect-state\.json/);
+  assert.match(nativeSync, /FileSystem\.writeAsStringAsync\(stateTemporaryFileUri/);
+  assert.match(nativeSync, /FileSystem\.moveAsync\(\{ from: stateFileUri, to: stateBackupFileUri \}\)/);
+  assert.match(nativeSync, /FileSystem\.moveAsync\(\{ from: stateTemporaryFileUri, to: stateFileUri \}\)/);
+  assert.match(nativeSync, /for \(const uri of \[stateFileUri, stateBackupFileUri\]\)/);
+  assert.match(nativeSync, /allowing cleanup failure to invalidate an otherwise successful sync/);
+});

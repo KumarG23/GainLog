@@ -1,7 +1,7 @@
 {
   "name": "gainlog-sdk54",
   "main": "expo-router/entry",
-  "version": "1.1.11",
+  "version": "1.1.15",
   "scripts": {
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
@@ -36,6 +36,7 @@
     "expo-background-task": "~1.0.10",
     "expo-constants": "~18.0.14",
     "expo-dev-client": "~6.0.21",
+    "expo-file-system": "~19.0.24",
     "expo-font": "~14.0.12",
     "expo-haptics": "~15.0.8",
     "expo-image": "~3.0.11",
