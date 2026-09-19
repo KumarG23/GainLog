@@ -1,0 +1,11 @@
+[Unit]
+Description=Run GainLog V2 retention dry-run weekly
+
+[Timer]
+OnCalendar=Sat *-*-* 04:15:00
+Persistent=true
+RandomizedDelaySec=10min
+Unit=gainlog-health-v2-retention.service
+
+[Install]
+WantedBy=timers.target

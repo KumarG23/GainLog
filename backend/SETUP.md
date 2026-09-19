@@ -84,8 +84,12 @@ ANTHROPIC_MODEL=claude-sonnet-4-20250514
 sudo cp /opt/gainlog/backend-git/gainlog.service /etc/systemd/system/gainlog.service
 sudo cp /opt/gainlog/backend-git/gainlog-google-health-sync.service /etc/systemd/system/
 sudo cp /opt/gainlog/backend-git/gainlog-google-health-sync.timer /etc/systemd/system/
+sudo cp /opt/gainlog/backend-git/gainlog-health-v2-retention.service /etc/systemd/system/
+sudo cp /opt/gainlog/backend-git/gainlog-health-v2-retention.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now gainlog.service gainlog-google-health-sync.timer
+# Keep the retention timer disabled until its production dry-run is accepted.
+sudo systemctl start gainlog-health-v2-retention.service
 ```
 
 ## 7. Verify it's running
@@ -116,6 +120,10 @@ sudo journalctl -u gainlog -f
 
 # Restart after updating files
 sudo systemctl restart gainlog
+
+# Aggregate-only retention dry run (default; no deletion)
+sudo systemctl start gainlog-health-v2-retention.service
+sudo journalctl -u gainlog-health-v2-retention.service -n 20 --no-pager
 
 # Database connection and migration/backup runbook
 /etc/gainlog.env

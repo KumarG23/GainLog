@@ -39,9 +39,11 @@ Stable IDs and payload hashes make overlapping windows idempotent and allow prov
 
 Each Google endpoint uses pages of at most 1,000 provider points. A page is normalized and committed before requesting the next page. No endpoint accumulates its entire history in memory. Sleep child rows are bounded by their containing page/session. Derived minute rows are aggregated one day at a time, and quality rows use bounded daily database aggregates.
 
-## Retention target
+## Retention policy
 
-Retention deletion is intentionally not enabled during initial validation. The schema separates raw and derived records so later jobs can enforce:
+`python -m backend.health_v2_retention --json` performs a dry run by default. `--apply` is the only write path. Cutoffs use complete Eastern civil days, deletion commits in bounded batches, and unknown sample or interval types are reported and retained. The weekly systemd unit is deliberately installed without `--apply` until a production dry-run receipt is accepted.
+
+The policy enforces:
 
 - full-resolution HR: 90 days
 - one-minute HR summaries: long-term
@@ -50,6 +52,20 @@ Retention deletion is intentionally not enabled during initial validation. The s
 - raw SpO2, respiratory, and high-frequency activity: 90 days
 - source-specific steps: 12 months
 - daily metrics, provenance, and import diagnostics: indefinite
+
+Full-resolution heart-rate samples are eligible only when a matching long-term minute summary exists for the same local date, source, provenance, and UTC minute. Retention never runs `VACUUM`; PostgreSQL reuses dead space through normal maintenance. Retention and every V2 writer—including API-triggered sync, timers, direct CLI imports, and backfill chunks—hold the same PostgreSQL session-level advisory lock on a dedicated connection across incremental commits.
+
+## Historical backfill
+
+Run complete-day history in deterministic oldest-first chunks:
+
+```bash
+python -m backend.google_health_v2_backfill \
+  --start 2026-06-20 --end 2026-09-18 \
+  --chunk-days 7 --max-chunks 1 --json
+```
+
+`--end` is exclusive. Exact successful windows in `health_v2_import_run` are skipped unless `--replay` is supplied. `--max-chunks` limits provider executions rather than completed-window checks, so a canary cannot stall on an already-complete first chunk. A failed chunk stops later work; rerunning resumes by skipping exact successful chunks. Receipts contain aggregate chunk, record, API/page, runtime, peak-memory, and database-growth diagnostics only.
 
 ## Phase 1 data types
 

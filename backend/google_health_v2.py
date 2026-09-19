@@ -22,8 +22,10 @@ from sqlmodel import Session, SQLModel, select
 
 try:
     from .database import database_bytes, dialect_insert
+    from .health_v2_lock import health_v2_writer_locked
 except ImportError:
     from database import database_bytes, dialect_insert
+    from health_v2_lock import health_v2_writer_locked
 
 try:
     from .google_health import (
@@ -1308,6 +1310,7 @@ class GoogleHealthV2Importer:
         self.build_quality()
 
 
+@health_v2_writer_locked
 def sync_google_health_v2(
     db: Session,
     *,

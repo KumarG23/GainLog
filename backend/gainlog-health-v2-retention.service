@@ -1,0 +1,22 @@
+[Unit]
+Description=GainLog V2 retention dry-run
+After=postgresql.service gainlog-backup.service gainlog-google-health-sync.service
+
+[Service]
+Type=oneshot
+User=gainlog
+Group=gainlog
+WorkingDirectory=/opt/gainlog/backend-git
+EnvironmentFile=/etc/gainlog.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/gainlog/venv-new/bin/python -m health_v2_retention --json
+TimeoutStartSec=30min
+MemoryMax=512M
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateNetwork=true
+ProtectHome=true
+ProtectSystem=strict
+BindReadOnlyPaths=/run/postgresql
+ReadWritePaths=/opt/gainlog/backend-git/data

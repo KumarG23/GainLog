@@ -85,3 +85,24 @@ def test_postgresql_backup_is_atomic_and_restore_verified() -> None:
     assert "User=root" in service
     assert "After=postgresql.service" in service
     assert "ExecStart=/usr/local/sbin/gainlog-backup daily" in service
+
+
+def test_retention_unit_is_separate_hardened_and_dry_run_by_default() -> None:
+    service = (BACKEND_DIR / "gainlog-health-v2-retention.service").read_text()
+    timer = (BACKEND_DIR / "gainlog-health-v2-retention.timer").read_text()
+
+    for required in (
+        "User=gainlog",
+        "EnvironmentFile=/etc/gainlog.env",
+        "NoNewPrivileges=true",
+        "ProtectSystem=strict",
+        "MemoryMax=512M",
+        "TimeoutStartSec=30min",
+        "python -m health_v2_retention --json",
+    ):
+        assert required in service
+    assert "--apply" not in service
+    assert "gainlog-google-health-sync.service" in service
+    assert "/usr/bin/flock" not in service
+    assert "OnCalendar=Sat *-*-* 04:15:00" in timer
+    assert "Persistent=true" in timer
