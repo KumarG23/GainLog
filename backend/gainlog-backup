@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+TIER="${1:-daily}"
+case "$TIER" in
+  daily|pre-migration|pre-upgrade) ;;
+  *) printf 'unsupported backup tier: %s\n' "$TIER" >&2; exit 2 ;;
+esac
+
+BACKUP_ROOT=/mnt/gainlog-backups
+DEST="$BACKUP_ROOT/$TIER"
+LOCK=/run/lock/gainlog-backup.lock
+DATABASE=gainlog
+STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+FINAL="$DEST/gainlog-$STAMP.dump"
+TEMP="$DEST/.gainlog-$STAMP.dump.tmp"
+RESTORE_DB="gainlog_restore_${STAMP,,}_$$"
+
+install -d -o root -g gainlog -m 0750 "$DEST"
+exec 9>"$LOCK"
+flock -n 9
+umask 077
+
+cleanup() {
+  runuser -u postgres -- dropdb --if-exists "$RESTORE_DB" >/dev/null 2>&1 || true
+  rm -f -- "$TEMP" "$TEMP.sha256"
+}
+trap cleanup EXIT
+
+install -o gainlog -g gainlog -m 0600 /dev/null "$TEMP"
+runuser -u gainlog -- pg_dump --format=custom --file="$TEMP" "$DATABASE"
+
+runuser -u postgres -- createdb --owner=gainlog "$RESTORE_DB"
+runuser -u gainlog -- pg_restore --exit-on-error --no-owner --no-privileges \
+  --dbname="$RESTORE_DB" "$TEMP"
+VERSION_COUNT="$(runuser -u gainlog -- psql -Atq --dbname="$RESTORE_DB" \
+  --command='SELECT count(*) FROM gainlog_schema_version WHERE version = 1')"
+test "$VERSION_COUNT" = 1
+
+runuser -u postgres -- dropdb "$RESTORE_DB"
+chown root:root "$TEMP"
+chmod 0600 "$TEMP"
+mv -- "$TEMP" "$FINAL"
+(
+  cd "$DEST"
+  sha256sum "$(basename "$FINAL")" >"$(basename "$FINAL").sha256.tmp"
+  mv -- "$(basename "$FINAL").sha256.tmp" "$(basename "$FINAL").sha256"
+)
+
+KEEP=14
+if test "$TIER" != daily; then KEEP=30; fi
+mapfile -t ARCHIVES < <(printf '%s\n' "$DEST"/gainlog-*.dump | sort -r)
+if ((${#ARCHIVES[@]} > KEEP)); then
+  for OLD in "${ARCHIVES[@]:KEEP}"; do
+    rm -f -- "$OLD" "$OLD.sha256"
+  done
+fi
+
+trap - EXIT
+printf 'backup=%s bytes=%s\n' "$FINAL" "$(stat -c %s "$FINAL")"

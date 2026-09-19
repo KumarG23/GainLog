@@ -3,7 +3,7 @@
 ## 1. System prerequisites
 
 ```bash
-sudo apt update && sudo apt install -y python3 python3-venv python3-pip rsync
+sudo apt update && sudo apt install -y python3 python3-venv python3-pip rsync postgresql-client
 ```
 
 ## 2. Create a dedicated user and directory
@@ -22,8 +22,9 @@ sudo rsync -a --delete --exclude='data/' --exclude='__pycache__/' \
 sudo chown -R gainlog:gainlog /opt/gainlog/backend-git
 ```
 
-The `data/` exclusion is mandatory: deployment must never overwrite or delete
-the production SQLite database.
+The `data/` exclusion preserves the cold SQLite rollback artifact. Deployment
+must never overwrite or delete it. PostgreSQL provisioning, migration, backup,
+and rollback are documented in [POSTGRESQL.md](POSTGRESQL.md).
 
 ## 4. Create a virtual environment and install dependencies
 
@@ -43,7 +44,7 @@ Environment variables are loaded by systemd from `/etc/gainlog.env`:
 sudo install -m 600 -o root -g root /dev/null /etc/gainlog.env
 sudo tee /etc/gainlog.env >/dev/null <<'EOF'
 GAINLOG_COACH_PROVIDER=ollama
-GAINLOG_DATABASE_URL=sqlite:////opt/gainlog/backend-git/data/gainlog.db
+GAINLOG_DATABASE_URL=postgresql+psycopg:///gainlog?host=/var/run/postgresql
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen2.5:7b
 OLLAMA_TIMEOUT_SECONDS=60
@@ -116,14 +117,13 @@ sudo journalctl -u gainlog -f
 # Restart after updating files
 sudo systemctl restart gainlog
 
-# Database location
-/opt/gainlog/backend-git/data/gainlog.db
+# Database connection and migration/backup runbook
+/etc/gainlog.env
+/opt/gainlog/backend-git/POSTGRESQL.md
 ```
 
-## Firewall (ufw)
+## Network boundary
 
-If ufw is active and you need external access:
-
-```bash
-sudo ufw allow 8000/tcp
-```
+Do not open port 8000 or PostgreSQL in `ufw`. Uvicorn remains on loopback,
+PostgreSQL uses only its local Unix socket, and the supported remote API path is
+the existing private Tailscale Serve hostname.

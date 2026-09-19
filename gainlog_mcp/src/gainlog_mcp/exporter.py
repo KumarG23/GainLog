@@ -8,6 +8,10 @@ from pathlib import Path
 import sqlite3
 import stat
 import tempfile
+from typing import Any
+
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.engine import Connection, Engine
 
 
 SCHEMA_VERSION = 1
@@ -144,7 +148,51 @@ class ExportError(Exception):
     pass
 
 
-def _open_source(path: Path) -> tuple[sqlite3.Connection, os.stat_result]:
+class _Source:
+    def __init__(
+        self,
+        connection: sqlite3.Connection | Connection,
+        *,
+        dialect: str,
+        modified_at: str,
+        engine: Engine | None = None,
+    ) -> None:
+        self.connection = connection
+        self.dialect = dialect
+        self.modified_at = modified_at
+        self.engine = engine
+
+    def close(self) -> None:
+        self.connection.close()
+        if self.engine is not None:
+            self.engine.dispose()
+
+
+def _open_source(source: str | Path) -> _Source:
+    if isinstance(source, str) and "://" in source:
+        try:
+            engine = create_engine(source)
+            if engine.dialect.name != "postgresql":
+                raise ExportError("source URL must use PostgreSQL")
+            connection = engine.connect()
+            connection.begin()
+            connection.execute(text(
+                "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"
+            ))
+            observed = connection.execute(text("SELECT CURRENT_TIMESTAMP")).scalar_one()
+            modified_at = observed.isoformat().replace("+00:00", "Z")
+            return _Source(
+                connection,
+                dialect="postgresql",
+                modified_at=modified_at,
+                engine=engine,
+            )
+        except ExportError:
+            raise
+        except Exception as exc:
+            raise ExportError("source unavailable") from exc
+
+    path = Path(source)
     try:
         if path.is_symlink():
             raise ExportError("source must be a regular file")
@@ -155,14 +203,22 @@ def _open_source(path: Path) -> tuple[sqlite3.Connection, os.stat_result]:
         db = sqlite3.connect(uri, uri=True)
         db.execute("PRAGMA query_only=ON")
         db.execute("BEGIN")
-        return db, info
+        return _Source(db, dialect="sqlite", modified_at=_iso_mtime(info))
     except ExportError:
         raise
     except Exception as exc:
         raise ExportError("source unavailable") from exc
 
 
-def _source_schema(db: sqlite3.Connection) -> dict[str, set[str]]:
+def _source_schema(source: _Source) -> dict[str, set[str]]:
+    if source.dialect == "postgresql":
+        inspector = inspect(source.connection)
+        return {
+            table: {column["name"] for column in inspector.get_columns(table)}
+            for table in inspector.get_table_names()
+        }
+    db = source.connection
+    assert isinstance(db, sqlite3.Connection)
     tables = {
         row[0] for row in db.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
@@ -175,12 +231,12 @@ def _source_schema(db: sqlite3.Connection) -> dict[str, set[str]]:
     return schema
 
 
-def _validate_schema(db: sqlite3.Connection) -> dict[str, set[str]]:
-    schema = _source_schema(db)
+def _validate_schema(source: _Source) -> dict[str, set[str]]:
+    schema = _source_schema(source)
     if not EXPECTED_SOURCE_TABLES.issubset(schema):
         raise ExportError("source schema is incompatible")
-    for source, (_, columns) in COPY_TABLES.items():
-        if not set(columns).issubset(schema[source]):
+    for source_table, (_, columns) in COPY_TABLES.items():
+        if not set(columns).issubset(schema[source_table]):
             raise ExportError("source schema is incompatible")
     connection_columns = {
         "status", "encrypted_refresh_token", "last_success_at", "last_attempt_at",
@@ -191,14 +247,24 @@ def _validate_schema(db: sqlite3.Connection) -> dict[str, set[str]]:
     return schema
 
 
-def preflight(source: Path) -> dict[str, object]:
-    db, _ = _open_source(source)
+def _fetchall(source: _Source, statement: str) -> list[tuple[Any, ...]]:
+    if source.dialect == "postgresql":
+        connection = source.connection
+        assert isinstance(connection, Connection)
+        return [tuple(row) for row in connection.execute(text(statement)).all()]
+    db = source.connection
+    assert isinstance(db, sqlite3.Connection)
+    return db.execute(statement).fetchall()
+
+
+def preflight(source: str | Path) -> dict[str, object]:
+    db = _open_source(source)
     try:
         schema = _validate_schema(db)
         row_counts = {}
         for table in sorted(schema):
             quoted = table.replace('"', '""')
-            row_counts[table] = int(db.execute(f'SELECT COUNT(*) FROM "{quoted}"').fetchone()[0])
+            row_counts[table] = int(_fetchall(db, f'SELECT COUNT(*) FROM "{quoted}"')[0][0])
         return {
             "compatible": True,
             "table_count": len(schema),
@@ -213,18 +279,18 @@ def _iso_mtime(info: os.stat_result) -> str:
     return datetime.fromtimestamp(info.st_mtime, timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _copy_rows(source: sqlite3.Connection, destination: sqlite3.Connection) -> dict[str, int]:
+def _copy_rows(source: _Source, destination: sqlite3.Connection) -> dict[str, int]:
     counts: dict[str, int] = {}
     for source_table, (destination_table, columns) in COPY_TABLES.items():
         names = ",".join(f'"{column}"' for column in columns)
         placeholders = ",".join("?" for _ in columns)
-        rows = source.execute(f'SELECT {names} FROM "{source_table}"').fetchall()
+        rows = _fetchall(source, f'SELECT {names} FROM "{source_table}"')
         destination.executemany(
             f'INSERT INTO "{destination_table}" ({names}) VALUES ({placeholders})', rows
         )
         counts[destination_table] = len(rows)
 
-    connection = source.execute(
+    connection_rows = _fetchall(source,
         """
         SELECT status,
                CASE WHEN status = 'connected' AND encrypted_refresh_token IS NOT NULL
@@ -234,7 +300,8 @@ def _copy_rows(source: sqlite3.Connection, destination: sqlite3.Connection) -> d
           FROM google_health_connection
          WHERE id = 'primary'
         """
-    ).fetchone()
+    )
+    connection = connection_rows[0] if connection_rows else None
     if connection is not None:
         destination.execute(
             "INSERT INTO source_connections VALUES (?,?,?,?,?,?,?,?)",
@@ -245,19 +312,18 @@ def _copy_rows(source: sqlite3.Connection, destination: sqlite3.Connection) -> d
 
 
 def export_projection(
-    source: Path,
+    source: str | Path,
     destination: Path,
     *,
     exported_at: str | None = None,
 ) -> dict[str, object]:
-    source = Path(source)
     destination = Path(destination)
     if destination.is_symlink():
         raise ExportError("destination must not be a symlink")
     destination.parent.mkdir(parents=True, exist_ok=True, mode=0o750)
     exported_at = exported_at or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
-    source_db, source_info = _open_source(source)
+    source_db = _open_source(source)
     temporary: str | None = None
     try:
         _validate_schema(source_db)
@@ -272,7 +338,7 @@ def export_projection(
                 [
                     ("schema_version", str(SCHEMA_VERSION)),
                     ("exported_at", exported_at),
-                    ("source_db_modified_at", _iso_mtime(source_info)),
+                    ("source_db_modified_at", source_db.modified_at),
                 ],
             )
             projection.execute(f"PRAGMA application_id={APPLICATION_ID}")
@@ -309,7 +375,7 @@ def export_projection(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Export an allowlisted GainLog read-only projection")
-    parser.add_argument("--source", required=True, type=Path)
+    parser.add_argument("--source", required=True)
     parser.add_argument("--destination", type=Path)
     parser.add_argument("--preflight", action="store_true")
     args = parser.parse_args()

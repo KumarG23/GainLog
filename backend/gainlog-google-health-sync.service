@@ -1,7 +1,7 @@
 [Unit]
 Description=GainLog bounded Google Health reconciliation
 Wants=network-online.target
-After=network-online.target
+After=network-online.target postgresql.service
 
 [Service]
 Type=oneshot
@@ -10,7 +10,6 @@ Group=gainlog
 WorkingDirectory=/opt/gainlog/backend-git
 EnvironmentFile=/etc/gainlog.env
 Environment=PYTHONDONTWRITEBYTECODE=1
-Environment="GAINLOG_DATABASE_URL=sqlite:////opt/gainlog/backend-git/data/gainlog.db"
 ExecStart=/opt/gainlog/venv-new/bin/python -m google_health_sync
 # A seven-day V2 shadow replay is page-streamed and can take several minutes.
 TimeoutStartSec=15min

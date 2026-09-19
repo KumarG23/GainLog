@@ -5,9 +5,10 @@ ConditionPathIsReadWrite=/var/lib/gainlog-mcp-source
 
 [Service]
 Type=oneshot
-User=gainlog
-Group=gainlog
-ExecStart=/usr/bin/env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 /opt/gainlog-mcp-source/.venv/bin/gainlog-mcp-export --source /opt/gainlog/backend-git/data/gainlog.db --destination /var/lib/gainlog-mcp-source/projection.db
+User=gainlog-mcp-source
+Group=gainlog-mcp-source
+EnvironmentFile=/etc/gainlog-mcp.env
+ExecStart=/usr/bin/env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 /opt/gainlog-mcp-source/.venv/bin/gainlog-mcp-export --source ${GAINLOG_MCP_DATABASE_URL} --destination /var/lib/gainlog-mcp-source/projection.db
 Environment=PYTHONDONTWRITEBYTECODE=1
 UMask=0027
 NoNewPrivileges=yes
@@ -18,7 +19,7 @@ PrivateDevices=yes
 PrivateNetwork=yes
 RestrictAddressFamilies=AF_UNIX
 TemporaryFileSystem=/run:ro
-ReadOnlyPaths=/opt/gainlog/backend-git/data
+BindReadOnlyPaths=/run/postgresql
 ReadWritePaths=/var/lib/gainlog-mcp-source
 InaccessiblePaths=-/etc/gainlog.env -/home -/root
 CapabilityBoundingSet=

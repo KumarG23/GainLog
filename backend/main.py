@@ -16,8 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 from pydantic.alias_generators import to_camel
 from sqlalchemy import func, text
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlmodel import Field, Relationship, Session, SQLModel, create_engine, select
+from sqlmodel import Field, Relationship, Session, SQLModel, select
 import requests
 
 # Register the additive V2 shadow-health tables with SQLModel metadata. The
@@ -45,6 +44,13 @@ try:
 except ImportError:
     from coach import get_coach_provider
 
+try:
+    from .database import create_database_engine, dialect_insert
+    from .migrations.schema import apply_schema_migrations
+except ImportError:
+    from database import create_database_engine, dialect_insert
+    from migrations.schema import apply_schema_migrations
+
 load_dotenv()
 
 DATA_DIR = Path(__file__).parent / "data"
@@ -53,7 +59,7 @@ DATABASE_URL = os.environ.get(
     "GAINLOG_DATABASE_URL",
     f"sqlite:///{DATA_DIR}/gainlog.db",
 )
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+engine = create_database_engine(DATABASE_URL)
 
 
 # ── DB Models ──────────────────────────────────────────────────────────────────
@@ -64,6 +70,7 @@ class WorkoutSetDB(SQLModel, table=True):
     reps: int
     weight: float
     exercise_id: str = Field(foreign_key="exercise.id")
+    position: int = 0
     exercise: Optional["ExerciseDB"] = Relationship(back_populates="sets")
 
 
@@ -77,7 +84,11 @@ class ExerciseDB(SQLModel, table=True):
     resistance_level: Optional[float] = None
     incline_percent: Optional[float] = None
     session_id: str = Field(foreign_key="workout_session.id")
-    sets: List[WorkoutSetDB] = Relationship(back_populates="exercise")
+    position: int = 0
+    sets: List[WorkoutSetDB] = Relationship(
+        back_populates="exercise",
+        sa_relationship_kwargs={"order_by": "WorkoutSetDB.position"},
+    )
     session: Optional["WorkoutSessionDB"] = Relationship(back_populates="exercises")
 
 
@@ -103,7 +114,10 @@ class WorkoutSessionDB(SQLModel, table=True):
     template_id: Optional[str] = None
     effort: Optional[str] = None
     pain: bool = False
-    exercises: List[ExerciseDB] = Relationship(back_populates="session")
+    exercises: List[ExerciseDB] = Relationship(
+        back_populates="session",
+        sa_relationship_kwargs={"order_by": "ExerciseDB.position"},
+    )
 
 
 class BodyWeightEntryDB(SQLModel, table=True):
@@ -171,6 +185,7 @@ class NutritionEntryDB(SQLModel, table=True):
     fat_g: float = 0
     fiber_g: float = 0
     notes: Optional[str] = None
+    position: int = 0
 
 
 class NutritionSyncEventDB(SQLModel, table=True):
@@ -694,58 +709,7 @@ class TrendSummaryOut(CamelModel):
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    SQLModel.metadata.create_all(engine)
-    # Add fields to existing SQLite databases that predate them.
-    with engine.connect() as conn:
-        migrations = [
-            "ALTER TABLE workout_session ADD COLUMN insight TEXT",
-            "ALTER TABLE exercise ADD COLUMN kind TEXT DEFAULT 'strength'",
-            "ALTER TABLE exercise ADD COLUMN cardio_duration_minutes INTEGER",
-            "ALTER TABLE exercise ADD COLUMN distance_miles REAL",
-            "ALTER TABLE exercise ADD COLUMN resistance_level REAL",
-            "ALTER TABLE exercise ADD COLUMN incline_percent REAL",
-            "ALTER TABLE workout_session ADD COLUMN strength_duration_minutes INTEGER",
-            "ALTER TABLE workout_session ADD COLUMN strength_avg_heart_rate INTEGER",
-            "ALTER TABLE workout_session ADD COLUMN strength_active_calories INTEGER",
-            "ALTER TABLE workout_session ADD COLUMN total_calories INTEGER",
-            "ALTER TABLE workout_session ADD COLUMN strength_total_calories INTEGER",
-            "ALTER TABLE workout_session ADD COLUMN cardio_duration_minutes INTEGER",
-            "ALTER TABLE workout_session ADD COLUMN cardio_avg_heart_rate INTEGER",
-            "ALTER TABLE workout_session ADD COLUMN cardio_active_calories INTEGER",
-            "ALTER TABLE workout_session ADD COLUMN cardio_total_calories INTEGER",
-            "ALTER TABLE workout_session ADD COLUMN insight_json TEXT",
-            "ALTER TABLE workout_session ADD COLUMN template_id TEXT",
-            "ALTER TABLE workout_session ADD COLUMN effort TEXT",
-            "ALTER TABLE workout_session ADD COLUMN pain BOOLEAN DEFAULT 0",
-            "ALTER TABLE nutrition_entry ADD COLUMN fiber_g REAL DEFAULT 0",
-            "ALTER TABLE body_weight_entry ADD COLUMN body_fat_percent REAL",
-            "ALTER TABLE body_weight_entry ADD COLUMN lean_body_mass_lbs REAL",
-            "ALTER TABLE body_weight_entry ADD COLUMN bmi REAL",
-            "ALTER TABLE body_weight_entry ADD COLUMN source TEXT",
-            "ALTER TABLE body_weight_entry ADD COLUMN source_record_id TEXT",
-            "ALTER TABLE goal ADD COLUMN minimum_value REAL",
-            "ALTER TABLE goal ADD COLUMN maximum_value REAL",
-            "ALTER TABLE apple_health_daily ADD COLUMN total_calories REAL",
-        ]
-        for statement in migrations:
-            try:
-                conn.execute(text(statement))
-                conn.commit()
-            except Exception:
-                pass  # Column already exists
-        conn.execute(
-            text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS ux_body_weight_source_record "
-                "ON body_weight_entry (source, source_record_id)"
-            )
-        )
-        conn.execute(
-            text(
-                "INSERT OR IGNORE INTO health_connect_daily_ownership (date) "
-                "SELECT date FROM apple_health_daily WHERE source = 'health-connect'"
-            )
-        )
-        conn.commit()
+    apply_schema_migrations(engine)
     yield
 
 
@@ -1872,7 +1836,7 @@ def generate_trend_summary(payload: TrendSummaryIn, db: Session = Depends(get_db
         raise HTTPException(status_code=503, detail="Sol trend summary unavailable") from exc
 
     generated_at = datetime.now(timezone.utc).isoformat()
-    statement = sqlite_insert(TrendSummaryDB).values(
+    statement = dialect_insert(db, TrendSummaryDB).values(
         cache_key=cache_key,
         data_hash=data_hash,
         summary=summary,
@@ -2201,7 +2165,7 @@ def _upsert_sourced_body_weight(
         )
     ).first()
     entry_id = payload.id or str(uuid.uuid4())
-    insert_statement = sqlite_insert(BodyWeightEntryDB).values(
+    insert_statement = dialect_insert(db, BodyWeightEntryDB).values(
         id=entry_id,
         date=payload.date,
         weight_lbs=payload.weight_lbs,
@@ -2485,7 +2449,7 @@ def _upsert_apple_health_daily(
         db.add(existing)
         return existing, False
 
-    insert_statement = sqlite_insert(AppleHealthDailyDB).values(
+    insert_statement = dialect_insert(db, AppleHealthDailyDB).values(
         date=payload.date,
         source=effective_source,
         updated_at=updated_at,
@@ -2864,13 +2828,17 @@ def list_nutrition(date: Optional[str] = None, db: Session = Depends(get_db)):
     query = select(NutritionEntryDB)
     if date:
         query = query.where(NutritionEntryDB.date.startswith(date))
-    rows = db.exec(query.order_by(NutritionEntryDB.date.desc())).all()
+    rows = db.exec(
+        query.order_by(NutritionEntryDB.date.desc(), NutritionEntryDB.position)
+    ).all()
     return [_nutrition_to_out(row) for row in rows]
 
 
 @app.post("/nutrition/", response_model=NutritionEntryOut, response_model_by_alias=True, status_code=201)
 def create_nutrition(payload: NutritionEntryIn, db: Session = Depends(get_db)):
     entry_id = payload.id or str(uuid.uuid4())
+    current_position = db.exec(select(func.max(NutritionEntryDB.position))).one()
+    next_position = (current_position if current_position is not None else -1) + 1
     row = NutritionEntryDB(
         id=entry_id,
         date=payload.date,
@@ -2882,6 +2850,7 @@ def create_nutrition(payload: NutritionEntryIn, db: Session = Depends(get_db)):
         fat_g=payload.fat_g,
         fiber_g=payload.fiber_g,
         notes=payload.notes,
+        position=next_position,
     )
     db.add(row)
     _queue_nutrition_sync_event(db, "upsert", entry_id, row)
@@ -2905,7 +2874,7 @@ def get_nutrition_sync_bootstrap(
     rows = db.exec(
         select(NutritionEntryDB)
         .where(NutritionEntryDB.date >= since)
-        .order_by(NutritionEntryDB.date.desc())
+        .order_by(NutritionEntryDB.date.desc(), NutritionEntryDB.position)
     ).all()
     return NutritionSyncBootstrapOut(
         entries=[_nutrition_to_out(row) for row in rows],
@@ -3060,7 +3029,7 @@ def create_workout(payload: WorkoutSessionIn, db: Session = Depends(get_db)):
         pain=payload.pain,
     )
     db.add(row)
-    for ex in payload.exercises:
+    for exercise_position, ex in enumerate(payload.exercises):
         eid = ex.id or str(uuid.uuid4())
         db_ex = ExerciseDB(
             id=eid,
@@ -3071,14 +3040,16 @@ def create_workout(payload: WorkoutSessionIn, db: Session = Depends(get_db)):
             resistance_level=ex.resistance_level,
             incline_percent=ex.incline_percent,
             session_id=sid,
+            position=exercise_position,
         )
         db.add(db_ex)
-        for s in ex.sets:
+        for set_position, s in enumerate(ex.sets):
             db.add(WorkoutSetDB(
                 id=s.id or str(uuid.uuid4()),
                 reps=s.reps,
                 weight=s.weight,
                 exercise_id=eid,
+                position=set_position,
             ))
     db.commit()
     row = db.get(WorkoutSessionDB, sid)

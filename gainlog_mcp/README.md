@@ -1,6 +1,6 @@
 GainLog read-only MCP
 
-This self-contained Python subproject exports a credential-free allowlisted SQLite projection from GainLog and serves it through eight read-only MCP tools. It does not import the GainLog backend, call its HTTP routes, invoke AI, synchronize providers, perform OAuth, or write to the application database.
+This self-contained Python subproject reads GainLog through a PostgreSQL read-only role, exports a credential-free allowlisted SQLite projection, and serves it through eight read-only MCP tools. It does not import the GainLog backend, call its HTTP routes, invoke AI, synchronize providers, perform OAuth, or write to the application database.
 
 Tools
 
@@ -25,10 +25,10 @@ The official mcp==1.26.0 SDK is pinned in uv.lock. Subprocess tests perform init
 
 Exporter
 
-    uv run gainlog-mcp-export --preflight --source /absolute/path/to/gainlog.db
-    uv run gainlog-mcp-export --source /absolute/path/to/gainlog.db --destination /absolute/path/to/projection.db
+    uv run gainlog-mcp-export --preflight --source 'postgresql+psycopg://gainlog_mcp:...@/gainlog?host=/var/run/postgresql'
+    uv run gainlog-mcp-export --source 'postgresql+psycopg://gainlog_mcp:...@/gainlog?host=/var/run/postgresql' --destination /absolute/path/to/projection.db
 
-Preflight emits only table counts and compatibility metadata. Normal export emits no health payload. The source is opened mode=ro with query_only, the destination is built from fixed table/column allowlists, integrity-checked, fsynced, chmod 0640, and atomically replaced.
+Preflight emits only table counts and compatibility metadata. Normal export emits no health payload. PostgreSQL is opened in a read-only transaction and must also use the restricted `gainlog_mcp` role. The destination is built from fixed table/column allowlists, integrity-checked, fsynced, chmod 0640, and atomically replaced. SQLite source paths remain supported only for rollback tests.
 
 Split transfer
 

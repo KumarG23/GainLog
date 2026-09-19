@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily GainLog PostgreSQL backup
+
+[Timer]
+OnCalendar=*-*-* 05:30:00 UTC
+Persistent=true
+RandomizedDelaySec=10min
+Unit=gainlog-backup.service
+
+[Install]
+WantedBy=timers.target

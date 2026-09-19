@@ -18,8 +18,12 @@ from typing import Any, Callable, Iterable
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import delete, func, text, update
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, SQLModel, select
+
+try:
+    from .database import database_bytes, dialect_insert
+except ImportError:
+    from database import database_bytes, dialect_insert
 
 try:
     from .google_health import (
@@ -196,9 +200,7 @@ def _validate_range(start_date: str, end_date: str) -> tuple[str, str]:
 
 
 def _db_bytes(db: Session) -> int:
-    page_count = int(db.exec(text("PRAGMA page_count")).one()[0])
-    page_size = int(db.exec(text("PRAGMA page_size")).one()[0])
-    return page_count * page_size
+    return database_bytes(db)
 
 
 def _rss_kb() -> int:
@@ -283,7 +285,7 @@ def _bulk_upsert(
     unchanged = len(rows) - len(changed_rows)
     if changed_rows:
         table = model.__table__  # type: ignore[attr-defined]
-        statement = sqlite_insert(table).values(changed_rows)
+        statement = dialect_insert(db, table).values(changed_rows)
         update_values = {
             column.name: getattr(statement.excluded, column.name)
             for column in table.columns

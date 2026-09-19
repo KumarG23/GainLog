@@ -19,11 +19,15 @@ def test_split_units_keep_source_acquisition_reader_and_tunnel_separate():
     socket = read("gainlog-mcp-reader.socket")
     tunnel = read("gainlog-mcp-tunnel.service")
 
-    assert "User=gainlog\n" in exporter
+    assert "User=gainlog-mcp-source\n" in exporter
+    assert "Group=gainlog-mcp-source\n" in exporter
     assert "PrivateNetwork=yes" in exporter
+    assert "EnvironmentFile=/etc/gainlog-mcp.env" in exporter
+    assert "--source ${GAINLOG_MCP_DATABASE_URL}" in exporter
+    assert "gainlog.db" not in exporter
     assert "--destination /var/lib/gainlog-mcp-source/projection.db" in exporter
-    assert "ReadOnlyPaths=/opt/gainlog/backend-git/data" in exporter
     assert "ReadWritePaths=/var/lib/gainlog-mcp-source" in exporter
+    assert "BindReadOnlyPaths=/run/postgresql" in exporter
 
     assert "systemd-socket-proxyd 100.80.191.75:22" in source_proxy
     assert "IPAddressDeny=any" in source_proxy
@@ -109,13 +113,19 @@ def test_tunnel_config_reuses_exact_tunnel_and_has_no_public_listener():
 def test_runbook_places_only_export_and_sender_on_lxc_and_skips_redundant_restart():
     runbook = read("README.md")
 
-    assert "LXC 106 / gainlog-api" in runbook
+    assert "VM 111 / gainlog-primary" in runbook
     assert "Hermes VM" in runbook
     assert "192.168.4.37" in runbook
     assert "100.80.191.75:8000" in runbook
     assert "effective UMask is already 0077" in runbook
     assert "Do not restart GainLog" in runbook
     assert "projection.db" in runbook
+    assert (
+        "install -d -o gainlog-mcp-source -g gainlog-mcp-source -m 0750 "
+        "/var/lib/gainlog-mcp-source"
+        in runbook
+    )
+    assert "/var/lib/gainlog/mcp-projection" not in runbook
     assert "encrypted_refresh_token" in runbook
     assert "rollback" in runbook.lower()
     assert (

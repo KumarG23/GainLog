@@ -8,10 +8,10 @@ Observer component, or health row was changed by the placement repair.
 
 Placement and trust boundary
 
-LXC 106 / gainlog-api (`100.80.191.75`) runs only:
+VM 111 / gainlog-primary (`100.80.191.75`) runs only:
 
 - the existing GainLog service as `gainlog`;
-- a short-lived credential-free exporter as `gainlog`, writing only the fixed
+- a short-lived exporter as the read-only `gainlog-mcp-source` identity, writing only the fixed
   allowlisted SQLite projection at `/var/lib/gainlog-mcp-source/projection.db`;
 - a locked `gainlog-mcp-source` SSH identity whose two independent fixed-command
   controls can only stream that projection.
@@ -131,13 +131,14 @@ parent maintenance path. Do not use a shared fixed `/tmp` path.
     sha256sum dist/gainlog_readonly_mcp-0.1.0-py3-none-any.whl
 
 On every target, verify the recorded wheel checksum and every staged unit/config checksum
-before privileged installation. The source venv installs this wheel with `--no-deps`; only
-the stdlib exporter/sender entry points run there. Hermes installs the locked full runtime.
+before privileged installation. The source venv installs the wheel and its pinned SQLAlchemy/
+psycopg dependencies because the exporter reads PostgreSQL. Hermes installs the locked full runtime.
 
-LXC 106 installation
+VM 111 installation
 
-Capture rollback first. Record existing bytes/metadata for every destination and numeric
-source modes. Never save or copy the credential-bearing database itself.
+This section assumes the PostgreSQL cutover in `backend/POSTGRESQL.md` has completed. Capture
+rollback first and record existing bytes/metadata for every destination. Never save or copy
+database credentials into the rollback directory.
 
     rollback=/root/gainlog-mcp-source-rollback-$(date +%Y%m%dT%H%M%S)
     install -d -o root -g root -m 0700 "$rollback/files"
@@ -147,35 +148,26 @@ source modes. Never save or copy the credential-bearing database itself.
       /etc/systemd/system/gainlog-mcp-export.timer \
       /etc/ssh/sshd_config.d/60-gainlog-mcp-source.conf \
       /etc/ssh/authorized_keys/gainlog-mcp-source; do record_path "$p"; done
-    stat -c '%n %u %g %a' /opt/gainlog/backend-git/data \
-      /opt/gainlog/backend-git/data/gainlog.db >"$rollback/source-permissions"
-    for p in /opt/gainlog/backend-git/data/gainlog.db-wal \
-      /opt/gainlog/backend-git/data/gainlog.db-shm; do test ! -e "$p" || stat -c '%n %u %g %a' "$p" >>"$rollback/source-permissions"; done
-    chmod 0600 "$rollback/paths" "$rollback/source-permissions"
+    chmod 0600 "$rollback/paths"
 
 The effective UMask is already 0077; no drop-in is required. Do not restart GainLog.
-Health-check before and after chmod while discarding the body, then create the new identity
-only after world-read access is gone:
+Health-check first, then create the projection transfer identity and root-owned exporter URL:
 
     test "$(systemctl show gainlog -p UMask --value)" = 0077
     systemctl is-active --quiet gainlog
     curl --fail --silent --show-error --output /dev/null http://100.80.191.75:8000/health
-    chown gainlog:gainlog /opt/gainlog/backend-git/data /opt/gainlog/backend-git/data/gainlog.db
-    chmod 0750 /opt/gainlog/backend-git/data
-    chmod 0640 /opt/gainlog/backend-git/data/gainlog.db
-    for p in /opt/gainlog/backend-git/data/gainlog.db-wal \
-      /opt/gainlog/backend-git/data/gainlog.db-shm; do test ! -e "$p" || { chown gainlog:gainlog "$p"; chmod 0640 "$p"; }; done
-    curl --fail --silent --show-error --output /dev/null http://100.80.191.75:8000/health
+    install -o root -g root -m 0600 /dev/null /etc/gainlog-mcp.env
+    # Write only GAINLOG_MCP_DATABASE_URL for the read-only gainlog-mcp-source role.
     groupadd --system gainlog-mcp-source
     useradd --system --gid gainlog-mcp-source --home-dir /nonexistent --shell /bin/sh gainlog-mcp-source
     passwd --lock gainlog-mcp-source
-    install -d -o gainlog -g gainlog-mcp-source -m 2750 /var/lib/gainlog-mcp-source
+    install -d -o gainlog-mcp-source -g gainlog-mcp-source -m 0750 /var/lib/gainlog-mcp-source
 
 Install only the verified wheel into a source-only venv and the two source units:
 
     install -d -o root -g root -m 0755 /opt/gainlog-mcp-source
     python3 -m venv /opt/gainlog-mcp-source/.venv
-    /opt/gainlog-mcp-source/.venv/bin/pip install --no-index --no-deps VERIFIED_WHEEL
+    /opt/gainlog-mcp-source/.venv/bin/pip install VERIFIED_WHEEL
     /opt/gainlog-mcp-source/.venv/bin/python -c 'import gainlog_mcp.exporter, gainlog_mcp.transfer'
     /opt/gainlog-mcp-source/.venv/bin/python -c 'import mcp' && exit 1 || true
     test -x /opt/gainlog-mcp-source/.venv/bin/gainlog-mcp-export
@@ -184,7 +176,7 @@ Install only the verified wheel into a source-only venv and the two source units
     install -o root -g root -m 0644 deploy/gainlog-mcp-export.timer /etc/systemd/system/
     systemctl daemon-reload
     systemctl start gainlog-mcp-export.service
-    test "$(stat -c '%U:%G %a' /var/lib/gainlog-mcp-source/projection.db)" = 'gainlog:gainlog-mcp-source 640'
+    test "$(stat -c '%U:%G %a' /var/lib/gainlog-mcp-source/projection.db)" = 'gainlog-mcp-source:gainlog-mcp-source 640'
     runuser -u gainlog-mcp-source -- env -i PATH=/usr/bin:/bin \
       /opt/gainlog-mcp-source/.venv/bin/gainlog-mcp-send >/dev/null
 

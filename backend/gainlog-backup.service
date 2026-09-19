@@ -1,0 +1,19 @@
+[Unit]
+Description=GainLog PostgreSQL backup with isolated restore verification
+RequiresMountsFor=/mnt/gainlog-backups
+After=postgresql.service mnt-gainlog\x2dbackups.mount
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/local/sbin/gainlog-backup daily
+UMask=0077
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/mnt/gainlog-backups /run/lock
+TimeoutStartSec=30min
