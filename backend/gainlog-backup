@@ -27,12 +27,56 @@ cleanup() {
 }
 trap cleanup EXIT
 
+capture_counts() {
+  local database="$1"
+  local mode="$2"
+  runuser -u gainlog -- /opt/gainlog/venv-new/bin/python - "$database" "$mode" <<'PY'
+import json
+import os
+import subprocess
+import sys
+
+import psycopg
+from psycopg import sql
+
+database, mode = sys.argv[1:]
+with psycopg.connect(dbname=database) as connection:
+    connection.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+    if mode == "dump":
+        snapshot = connection.execute("SELECT pg_export_snapshot()").fetchone()[0]
+        with os.fdopen(3, "wb", closefd=False) as archive:
+            subprocess.run(
+                ["pg_dump", "--format=custom", f"--snapshot={snapshot}", database],
+                check=True,
+                stdout=archive,
+            )
+    tables = [
+        row[0]
+        for row in connection.execute(
+            "SELECT tablename FROM pg_catalog.pg_tables "
+            "WHERE schemaname = 'public' ORDER BY tablename"
+        )
+    ]
+    counts = {
+        table: connection.execute(
+            sql.SQL("SELECT count(*) FROM {}.{}").format(
+                sql.Identifier("public"), sql.Identifier(table)
+            )
+        ).fetchone()[0]
+        for table in tables
+    }
+print(json.dumps(counts, sort_keys=True, separators=(",", ":")))
+PY
+}
+
 install -o root -g root -m 0600 /dev/null "$TEMP"
-runuser -u gainlog -- pg_dump --format=custom "$DATABASE" >"$TEMP"
+SOURCE_COUNTS="$(capture_counts "$DATABASE" dump 3>"$TEMP")"
 
 runuser -u postgres -- createdb --owner=gainlog "$RESTORE_DB"
 runuser -u gainlog -- pg_restore --exit-on-error --no-owner --no-privileges \
   --dbname="$RESTORE_DB" <"$TEMP"
+RESTORED_COUNTS="$(capture_counts "$RESTORE_DB" count)"
+test "$RESTORED_COUNTS" = "$SOURCE_COUNTS"
 VERSION_COUNT="$(runuser -u gainlog -- psql -Atq --dbname="$RESTORE_DB" \
   --command='SELECT count(*) FROM gainlog_schema_version WHERE version = 1')"
 test "$VERSION_COUNT" = 1

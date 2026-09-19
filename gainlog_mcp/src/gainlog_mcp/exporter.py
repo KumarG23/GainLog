@@ -60,9 +60,7 @@ COPY_TABLES: dict[str, tuple[str, tuple[str, ...]]] = {
     )),
 }
 
-EXPECTED_SOURCE_TABLES = set(COPY_TABLES) | {
-    "nutrition_sync_event", "google_health_oauth_state", "google_health_connection"
-}
+EXPECTED_SOURCE_TABLES = set(COPY_TABLES) | {"google_health_connection"}
 
 DDL = """
 PRAGMA foreign_keys=ON;
@@ -215,7 +213,7 @@ def _source_schema(source: _Source) -> dict[str, set[str]]:
         inspector = inspect(source.connection)
         return {
             table: {column["name"] for column in inspector.get_columns(table)}
-            for table in inspector.get_table_names()
+            for table in EXPECTED_SOURCE_TABLES
         }
     db = source.connection
     assert isinstance(db, sqlite3.Connection)
@@ -225,7 +223,7 @@ def _source_schema(source: _Source) -> dict[str, set[str]]:
         )
     }
     schema: dict[str, set[str]] = {}
-    for table in tables:
+    for table in EXPECTED_SOURCE_TABLES & tables:
         quoted = table.replace('"', '""')
         schema[table] = {row[1] for row in db.execute(f'PRAGMA table_info("{quoted}")')}
     return schema
@@ -262,7 +260,7 @@ def preflight(source: str | Path) -> dict[str, object]:
     try:
         schema = _validate_schema(db)
         row_counts = {}
-        for table in sorted(schema):
+        for table in sorted(EXPECTED_SOURCE_TABLES):
             quoted = table.replace('"', '""')
             row_counts[table] = int(_fetchall(db, f'SELECT COUNT(*) FROM "{quoted}"')[0][0])
         return {

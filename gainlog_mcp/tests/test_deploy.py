@@ -29,6 +29,11 @@ def test_split_units_keep_source_acquisition_reader_and_tunnel_separate():
     assert "ReadWritePaths=/var/lib/gainlog-mcp-source" in exporter
     assert "BindReadOnlyPaths=/run/postgresql" in exporter
 
+    runbook = read("README.md")
+    assert "CREATE ROLE \"gainlog-mcp-source\"" in runbook
+    assert "GRANT SELECT (" in runbook
+    assert "GRANT SELECT ON ALL TABLES" not in runbook
+
     assert "systemd-socket-proxyd 100.80.191.75:22" in source_proxy
     assert "IPAddressDeny=any" in source_proxy
     assert "IPAddressAllow=100.80.191.75/32" in source_proxy

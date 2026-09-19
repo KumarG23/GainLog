@@ -163,6 +163,33 @@ Health-check first, then create the projection transfer identity and root-owned 
     passwd --lock gainlog-mcp-source
     install -d -o gainlog-mcp-source -g gainlog-mcp-source -m 0750 /var/lib/gainlog-mcp-source
 
+Provision the matching peer-authenticated PostgreSQL role with only the columns consumed by
+the fixed exporter. Run this as `postgres`; do not grant all-table access:
+
+    psql --dbname=gainlog <<'SQL'
+    CREATE ROLE "gainlog-mcp-source" LOGIN;
+    ALTER ROLE "gainlog-mcp-source" SET default_transaction_read_only = on;
+    GRANT CONNECT ON DATABASE gainlog TO "gainlog-mcp-source";
+    GRANT USAGE ON SCHEMA public TO "gainlog-mcp-source";
+    GRANT SELECT (id,date,duration_minutes,avg_heart_rate,active_calories,total_calories,strength_duration_minutes,strength_avg_heart_rate,strength_active_calories,strength_total_calories,cardio_duration_minutes,cardio_avg_heart_rate,cardio_active_calories,cardio_total_calories,notes,insight,insight_json,template_id,effort,pain) ON workout_session TO "gainlog-mcp-source";
+    GRANT SELECT (id,name,kind,cardio_duration_minutes,distance_miles,resistance_level,session_id) ON exercise TO "gainlog-mcp-source";
+    GRANT SELECT (id,reps,weight,exercise_id) ON workout_set TO "gainlog-mcp-source";
+    GRANT SELECT (id,date,weight_lbs,body_fat_percent,lean_body_mass_lbs,bmi,source,source_record_id,notes) ON body_weight_entry TO "gainlog-mcp-source";
+    GRANT SELECT (date,sleep_minutes,deep_sleep_minutes,core_sleep_minutes,rem_sleep_minutes,awake_minutes,resting_heart_rate_bpm,hrv_ms,steps,active_calories,total_calories,exercise_minutes,stand_hours,walking_running_miles,source,updated_at) ON apple_health_daily TO "gainlog-mcp-source";
+    GRANT SELECT (date) ON health_connect_daily_ownership TO "gainlog-mcp-source";
+    GRANT SELECT (id,kind,title,target_value,minimum_value,maximum_value,unit,start_date,target_date,status,notes) ON goal TO "gainlog-mcp-source";
+    GRANT SELECT (id,date,meal,name,calories,protein_g,carbs_g,fat_g,fiber_g,notes) ON nutrition_entry TO "gainlog-mcp-source";
+    GRANT SELECT (date,review,generated_at) ON daily_review TO "gainlog-mcp-source";
+    GRANT SELECT (week_end,week_start,review,generated_at) ON weekly_review TO "gainlog-mcp-source";
+    GRANT SELECT (cache_key,summary,model,generated_at) ON trend_summary TO "gainlog-mcp-source";
+    GRANT SELECT (date,sleep_minutes,deep_sleep_minutes,core_sleep_minutes,rem_sleep_minutes,awake_minutes,resting_heart_rate_bpm,hrv_ms,steps,active_calories,total_calories,exercise_minutes,walking_running_miles,source_updated_at) ON google_health_daily_snapshot TO "gainlog-mcp-source";
+    GRANT SELECT (status,encrypted_refresh_token,last_success_at,last_attempt_at,last_sync_count,last_sync_start,last_sync_end,id) ON google_health_connection TO "gainlog-mcp-source";
+    SQL
+
+Verify peer mapping and the boundary before starting the unit: the OS identity must connect,
+an allowlisted read must succeed, a write must fail, and a read from an unallowlisted table
+such as `google_health_oauth_state` must fail.
+
 Install only the verified wheel into a source-only venv and the two source units:
 
     install -d -o root -g root -m 0755 /opt/gainlog-mcp-source

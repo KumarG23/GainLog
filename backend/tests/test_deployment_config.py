@@ -70,6 +70,10 @@ def test_postgresql_backup_is_atomic_and_restore_verified() -> None:
         "pg_restore",
         "--exit-on-error",
         "gainlog_schema_version",
+        "pg_export_snapshot",
+        "SOURCE_COUNTS",
+        "RESTORED_COUNTS",
+        'test "$RESTORED_COUNTS" = "$SOURCE_COUNTS"',
         "sha256sum",
         "flock",
     ):

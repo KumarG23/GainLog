@@ -53,6 +53,52 @@ def test_nutrition_create_list_filter_delete(client):
     assert missing.status_code == 404
 
 
+def test_nutrition_position_is_serialized_on_postgresql():
+    from backend.main import _next_nutrition_position
+
+    class Dialect:
+        name = "postgresql"
+
+    class Bind:
+        dialect = Dialect()
+
+    class Result:
+        def __init__(self, value):
+            self.value = value
+
+        def one(self):
+            return self.value
+
+    class FakeSession:
+        def __init__(self):
+            self.statements = []
+
+        def get_bind(self):
+            return Bind()
+
+        def exec(self, statement):
+            self.statements.append(str(statement))
+            return Result(None if len(self.statements) == 1 else 41)
+
+    session = FakeSession()
+    assert _next_nutrition_position(session) == 42
+    assert "pg_advisory_xact_lock" in session.statements[0]
+    assert "max(nutrition_entry.position)" in session.statements[1].lower()
+
+
+def test_nutrition_list_uses_id_as_stable_position_tiebreaker(client):
+    from sqlmodel import Session
+    from backend.main import NutritionEntryDB, engine
+
+    with Session(engine) as db:
+        db.add(NutritionEntryDB(id="tie-b", date="2026-06-15T08:00:00Z", meal="breakfast", name="B", calories=1, position=9))
+        db.add(NutritionEntryDB(id="tie-a", date="2026-06-15T08:00:00Z", meal="breakfast", name="A", calories=1, position=9))
+        db.commit()
+
+    rows = client.get("/nutrition/?date=2026-06-15").json()
+    assert [row["id"] for row in rows] == ["tie-a", "tie-b"]
+
+
 def test_nutrition_sync_feed_returns_only_changes_after_cursor(client):
     created = client.post(
         "/nutrition/",

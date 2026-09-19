@@ -126,7 +126,7 @@ def test_preflight_reports_only_structure_and_counts(source_db: Path):
 
     result = preflight(source_db)
     assert result["compatible"] is True
-    assert result["table_count"] == 15
+    assert result["table_count"] == 13
     assert result["row_counts"]["apple_health_daily"] == 1
     rendered = str(result)
     assert CANARY not in rendered

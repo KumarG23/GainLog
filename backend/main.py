@@ -2829,16 +2829,26 @@ def list_nutrition(date: Optional[str] = None, db: Session = Depends(get_db)):
     if date:
         query = query.where(NutritionEntryDB.date.startswith(date))
     rows = db.exec(
-        query.order_by(NutritionEntryDB.date.desc(), NutritionEntryDB.position)
+        query.order_by(
+            NutritionEntryDB.date.desc(), NutritionEntryDB.position, NutritionEntryDB.id
+        )
     ).all()
     return [_nutrition_to_out(row) for row in rows]
+
+
+def _next_nutrition_position(db: Session) -> int:
+    # PostgreSQL permits concurrent writers, unlike the former SQLite store.
+    # Serialize this small ordering allocation inside the caller's transaction.
+    if db.get_bind().dialect.name == "postgresql":
+        db.exec(text("SELECT pg_advisory_xact_lock(1735289201)"))
+    current_position = db.exec(select(func.max(NutritionEntryDB.position))).one()
+    return (current_position if current_position is not None else -1) + 1
 
 
 @app.post("/nutrition/", response_model=NutritionEntryOut, response_model_by_alias=True, status_code=201)
 def create_nutrition(payload: NutritionEntryIn, db: Session = Depends(get_db)):
     entry_id = payload.id or str(uuid.uuid4())
-    current_position = db.exec(select(func.max(NutritionEntryDB.position))).one()
-    next_position = (current_position if current_position is not None else -1) + 1
+    next_position = _next_nutrition_position(db)
     row = NutritionEntryDB(
         id=entry_id,
         date=payload.date,
@@ -2874,7 +2884,9 @@ def get_nutrition_sync_bootstrap(
     rows = db.exec(
         select(NutritionEntryDB)
         .where(NutritionEntryDB.date >= since)
-        .order_by(NutritionEntryDB.date.desc(), NutritionEntryDB.position)
+        .order_by(
+            NutritionEntryDB.date.desc(), NutritionEntryDB.position, NutritionEntryDB.id
+        )
     ).all()
     return NutritionSyncBootstrapOut(
         entries=[_nutrition_to_out(row) for row in rows],

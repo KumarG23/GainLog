@@ -8,7 +8,7 @@ GainLog uses PostgreSQL 16 on the application VM. PostgreSQL is reachable only t
 - `listen_addresses = ''`; socket: `/var/run/postgresql`.
 - Data checksums enabled.
 - OS/database role `gainlog` owns the application database and is used by the API and sync workers through peer authentication.
-- OS/database role `gainlog-mcp-source` has `CONNECT`, schema `USAGE`, and table `SELECT` only. Its default transactions are read-only.
+- OS/database role `gainlog-mcp-source` has `CONNECT`, schema `USAGE`, and column-level `SELECT` only for the fixed projection inputs. Its default transactions are read-only. Executable provisioning and negative permission probes are in `gainlog_mcp/deploy/README.md`.
 - Application URL in root-owned `/etc/gainlog.env`:
 
 ```dotenv
@@ -88,6 +88,7 @@ Install repository file `gainlog-backup` as `/usr/local/sbin/gainlog-backup` and
 
 - creates a custom-format `pg_dump`;
 - restores it into a temporary isolated database with `pg_restore --exit-on-error`;
+- exports one repeatable-read snapshot, uses that exact snapshot for `pg_dump`, and verifies every public application-table row count after restore;
 - verifies `gainlog_schema_version`;
 - writes an atomic archive and SHA-256 sidecar only after restore succeeds;
 - retains 14 daily and 30 manual-tier archives.
