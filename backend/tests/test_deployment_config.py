@@ -75,6 +75,9 @@ def test_postgresql_backup_is_atomic_and_restore_verified() -> None:
     ):
         assert required in script
     assert "gainlog.db" not in script
+    assert '>"$TEMP"' in script
+    assert '<"$TEMP"' in script
+    assert "--file=" not in script
     assert "User=root" in service
     assert "After=postgresql.service" in service
     assert "ExecStart=/usr/local/sbin/gainlog-backup daily" in service

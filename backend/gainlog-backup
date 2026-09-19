@@ -27,12 +27,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
-install -o gainlog -g gainlog -m 0600 /dev/null "$TEMP"
-runuser -u gainlog -- pg_dump --format=custom --file="$TEMP" "$DATABASE"
+install -o root -g root -m 0600 /dev/null "$TEMP"
+runuser -u gainlog -- pg_dump --format=custom "$DATABASE" >"$TEMP"
 
 runuser -u postgres -- createdb --owner=gainlog "$RESTORE_DB"
 runuser -u gainlog -- pg_restore --exit-on-error --no-owner --no-privileges \
-  --dbname="$RESTORE_DB" "$TEMP"
+  --dbname="$RESTORE_DB" <"$TEMP"
 VERSION_COUNT="$(runuser -u gainlog -- psql -Atq --dbname="$RESTORE_DB" \
   --command='SELECT count(*) FROM gainlog_schema_version WHERE version = 1')"
 test "$VERSION_COUNT" = 1
