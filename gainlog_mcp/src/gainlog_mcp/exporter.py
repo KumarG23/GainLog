@@ -262,7 +262,11 @@ def preflight(source: str | Path) -> dict[str, object]:
         row_counts = {}
         for table in sorted(EXPECTED_SOURCE_TABLES):
             quoted = table.replace('"', '""')
-            row_counts[table] = int(_fetchall(db, f'SELECT COUNT(*) FROM "{quoted}"')[0][0])
+            count_column = COPY_TABLES[table][1][0] if table in COPY_TABLES else "id"
+            quoted_column = count_column.replace('"', '""')
+            row_counts[table] = int(
+                _fetchall(db, f'SELECT COUNT("{quoted_column}") FROM "{quoted}"')[0][0]
+            )
         return {
             "compatible": True,
             "table_count": len(schema),
