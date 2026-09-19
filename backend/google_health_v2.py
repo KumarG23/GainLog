@@ -17,7 +17,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Iterable
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, func, text, update
+from sqlalchemy import delete, func, literal_column, text, update
 from sqlmodel import Session, SQLModel, select
 
 try:
@@ -1154,9 +1154,14 @@ class GoogleHealthV2Importer:
         end = date.fromisoformat(self.end)
         for offset in range((end - start).days):
             day = (start + timedelta(days=offset)).isoformat()
+            minute_expression = func.substr(
+                HealthSampleObservationDB.observed_at_utc,
+                literal_column("1"),
+                literal_column("16"),
+            )
             aggregates = self.db.exec(
                 select(
-                    func.substr(HealthSampleObservationDB.observed_at_utc, 1, 16),
+                    minute_expression,
                     HealthSampleObservationDB.local_date,
                     HealthSampleObservationDB.source_id,
                     HealthSampleObservationDB.provenance,
@@ -1169,7 +1174,7 @@ class GoogleHealthV2Importer:
                     HealthSampleObservationDB.local_date == day,
                     HealthSampleObservationDB.is_deleted == False,  # noqa: E712
                 ).group_by(
-                    func.substr(HealthSampleObservationDB.observed_at_utc, 1, 16),
+                    minute_expression,
                     HealthSampleObservationDB.local_date,
                     HealthSampleObservationDB.source_id,
                     HealthSampleObservationDB.provenance,

@@ -2,10 +2,16 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import text
-from sqlmodel import Session, create_engine
+from sqlmodel import Session, create_engine, select
 
 from backend import main
-from backend.health_v2_models import HealthIntervalObservationDB
+from backend.google_health_v2 import GoogleHealthV2Importer
+from backend.health_v2_models import (
+    HealthImportRunDB,
+    HealthIntervalObservationDB,
+    HealthMinuteSummaryDB,
+    HealthSampleObservationDB,
+)
 import backend.migrate_sqlite_to_postgres as migrator
 from backend.migrate_sqlite_to_postgres import MigrationError, migrate_database
 from backend.migrations.schema import apply_schema_migrations
@@ -57,3 +63,50 @@ def test_bounded_migration_validates_parity_repairs_sequences_and_resumes(tmp_pa
     assert resumed["counts"] == receipt["counts"]
     with pytest.raises(MigrationError, match="target is not empty"):
         migrate_database(source, POSTGRES_URL, batch_size=2)
+
+
+def test_postgresql_minute_summary_groups_by_the_selected_minute_expression():
+    target = create_engine(POSTGRES_URL)
+    with target.begin() as connection:
+        connection.execute(text("DROP SCHEMA public CASCADE"))
+        connection.execute(text("CREATE SCHEMA public"))
+    apply_schema_migrations(target)
+
+    with Session(target) as session:
+        run = HealthImportRunDB(
+            id="minute-run",
+            requested_start="2026-09-01",
+            requested_end="2026-09-02",
+            started_at="2026-09-02T00:00:00Z",
+            status="running",
+        )
+        session.add(run)
+        session.add(
+            HealthSampleObservationDB(
+                id="sample-1",
+                provenance="source_raw",
+                data_type="heart_rate",
+                observed_at_utc="2026-09-01T12:34:56Z",
+                local_date="2026-09-01",
+                numeric_value=72,
+                unit="bpm",
+                payload_hash="sample-hash",
+                import_run_id=run.id,
+                ingested_at="2026-09-02T00:00:00Z",
+            )
+        )
+        session.commit()
+
+        GoogleHealthV2Importer(
+            session,
+            object(),
+            "unused-token",
+            run,
+            "2026-09-01",
+            "2026-09-02",
+        ).build_minute_summaries()
+
+        summaries = session.exec(select(HealthMinuteSummaryDB)).all()
+        assert len(summaries) == 1
+        assert summaries[0].minute_utc == "2026-09-01T12:34:00Z"
+        assert summaries[0].average == 72
