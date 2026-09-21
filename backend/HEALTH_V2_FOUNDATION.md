@@ -77,3 +77,19 @@ python -m backend.google_health_v2_backfill \
 - Steps: source-raw intervals/totals, Google-wearables reconciled intervals/totals, Google all-source reconciled intervals/totals, and the unchanged current GainLog canonical total.
 
 Distance, active energy, and total calories continue through the existing authoritative daily pipeline in Phase 1.
+
+## Experimental shadow models
+
+`health_v2_sleep_model.py` is the first read-only Phase 2 evaluator. Version `0.1-experimental` does not write tables, alter APIs, feed coaching, or drive UI state.
+
+The sleep evaluator:
+
+- chooses one `MAIN_SLEEP` session per local end date, preferring `google_wearables_reconciled` over duplicate `source_raw` sessions;
+- scores duration at 60% and sleep efficiency at 25% when a valid sleep-period denominator exists;
+- adds 15% midpoint consistency only after seven prior complete days, using circular midnight-aware distance over at most 28 trailing days;
+- renormalizes over available components instead of treating missing optional inputs as bad physiology;
+- returns unavailable rather than a low score when sleep is absent;
+- caps confidence at 0.5 for a partial-day quality row;
+- emits aggregate-only CLI receipts so routine evaluation does not log day-level health details.
+
+Production aggregate evaluation for 2026-08-21 through 2026-09-21 found 32 available days, zero unavailable days, a score range of 27–100, and a median of 88.5. This is calibration evidence only, not validation or authorization to expose the score. Sleep-stage percentages are deliberately excluded from v0.1 scoring because consumer stage estimates are too noisy to deserve score weight without stronger evidence.
