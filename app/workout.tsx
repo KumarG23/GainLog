@@ -1,0 +1,1 @@
+export { WorkoutLogScreen as default } from './(tabs)/index';

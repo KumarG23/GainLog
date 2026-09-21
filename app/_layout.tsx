@@ -29,6 +29,13 @@ export default function RootLayout() {
         >
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen
+            name="workout"
+            options={{
+              title: 'Log Workout',
+              headerBackTitle: 'Train',
+            }}
+          />
+          <Stack.Screen
             name="session/[id]"
             options={{
               title: 'Session Detail',

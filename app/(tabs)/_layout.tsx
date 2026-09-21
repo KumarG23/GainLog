@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from 'react';
-import { Tabs, usePathname, useRouter, type Href } from 'expo-router';
+import React from 'react';
+import { Tabs, useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -26,13 +26,7 @@ const legacyTabs: Tab[] = [
 ];
 export default function TabLayout() {
   const enabled = isHealthspanEnabled(); const legacyToday = isHealthV2TodayEnabled();
-  const router = useRouter(); const pathname = usePathname(); const mounted = useRef(false); const insets = useSafeAreaInsets();
-  // Only redirect a cold root launch. Later visits to / are the existing workout form.
-  useEffect(() => {
-    if (mounted.current) return;
-    mounted.current = true;
-    if (enabled && pathname === '/') router.replace('/(tabs)/today' as Href);
-  }, [enabled, pathname, router]);
+  const router = useRouter(); const insets = useSafeAreaInsets();
   const visible = enabled ? v2Tabs : legacyTabs;
   const hidden = enabled ? legacyTabs : v2Tabs;
   return <Tabs initialRouteName={enabled ? 'today' : 'index'} backBehavior="history" screenOptions={{
