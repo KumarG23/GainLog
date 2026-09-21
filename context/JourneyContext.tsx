@@ -3,15 +3,15 @@ import { AppState } from 'react-native';
 import { API_URL } from '../constants/api';
 import type { CheckInPatch, DayCheckIn, JourneyPreferences, JourneySnapshot } from '../types/journey';
 import { dayKey, daysBefore, isHealthspanEnabled } from '../utils/healthspan';
-import { emptyDay, EMPTY_PREFERENCES } from '../utils/dayJourney';
+import { assertDraftRevision, emptyDay, EMPTY_PREFERENCES } from '../utils/dayJourney';
 
 interface JourneyValue {
   now: Date; snapshot: JourneySnapshot | null; check: DayCheckIn; preferences: JourneyPreferences;
   error: string | null; loading: boolean; busy: boolean;
   refresh: () => Promise<void>;
-  saveDay: (date: string, patch: CheckInPatch) => Promise<void>;
-  clearDay: (date: string) => Promise<void>;
-  savePreferences: (patch: Partial<Omit<JourneyPreferences, 'revision'>>) => Promise<void>;
+  saveDay: (date: string, patch: CheckInPatch, expectedRevision: number) => Promise<void>;
+  clearDay: (date: string, expectedRevision: number) => Promise<void>;
+  savePreferences: (patch: Partial<Omit<JourneyPreferences, 'revision'>>, expectedRevision: number) => Promise<void>;
 }
 const Context = createContext<JourneyValue | null>(null);
 
@@ -60,28 +60,32 @@ export function JourneyProvider({ children }: React.PropsWithChildren) {
     } catch (err) { if (ticket === epoch.current) setError(abort.signal.aborted ? 'Check-ins could not be refreshed. Pull to retry.' : err instanceof Error ? err.message : 'Check-ins are unavailable.'); }
     finally { clearTimeout(timeout); if (ticket === epoch.current) setLoading(false); }
   }, [publish]);
-  const mutate = useCallback(async (kind: 'day' | 'clear' | 'preferences', date: string, patch: CheckInPatch | Partial<JourneyPreferences>) => {
+  const mutate = useCallback(async (kind: 'day' | 'clear' | 'preferences', date: string, patch: CheckInPatch | Partial<JourneyPreferences>, expectedRevision: number) => {
     if (writing.current) throw new Error('A save is already in progress.');
     const current = latest.current;
-    if (!current || error) throw new Error('Refresh check-ins before saving.');
-    writing.current = true; setBusy(true); controller.current?.abort(); ++epoch.current; setLoading(false);
+    if (!current || error || loading || current.endDate !== dayKey()) throw new Error('Refresh check-ins before saving.');
     const revision = kind === 'preferences' ? current.preferences.revision : current.days.find(d => d.date === date)?.revision ?? 0;
+    assertDraftRevision(expectedRevision, revision);
+    writing.current = true; setBusy(true); controller.current?.abort(); ++epoch.current; setLoading(false);
     const abort = new AbortController(), timeout = setTimeout(() => abort.abort(), 12000);
     try {
       const tz = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York');
       const path = kind === 'preferences' ? '/preferences' : `/days/${date}${kind === 'clear' ? `?expectedRevision=${revision}` : `?timeZone=${tz}`}`;
       const value = await journeyRequest<DayCheckIn | JourneyPreferences>(path, { method: kind === 'clear' ? 'DELETE' : 'PATCH', ...(kind === 'clear' ? {} : { body: JSON.stringify({ ...patch, expectedRevision: revision }) }) }, abort.signal);
       if (!Number.isInteger(value.revision) || value.revision !== revision + 1) throw new Error('Save confirmation was incomplete. Reload before trying again.');
-      publish(kind === 'preferences' ? { ...current, preferences: value as JourneyPreferences } : { ...current, days: [...current.days.filter(d => d.date !== date), value as DayCheckIn] });
+      if (kind !== 'preferences' && (value as DayCheckIn).date !== date) throw new Error('Save confirmation returned a different date. Reload before trying again.');
+      const next = kind === 'preferences' ? { ...current, preferences: value as JourneyPreferences } : { ...current, days: [...current.days.filter(d => d.date !== date), value as DayCheckIn] };
+      if (!validSnapshot(next, current.endDate)) throw new Error('Save confirmation was incomplete. Reload before trying again.');
+      publish(current.endDate === dayKey() ? next : null);
     } catch (err) {
       // A lost response may still have committed. Block another write until a fresh read.
       setError('Save could not be confirmed. Refresh before trying again.');
       throw new Error(abort.signal.aborted ? 'Save confirmation timed out. Refresh to check whether it was saved; your draft stays here.' : err instanceof Error ? err.message : 'Save could not be confirmed.');
     } finally { clearTimeout(timeout); writing.current = false; setBusy(false); }
-  }, [error, publish]);
-  const saveDay = useCallback((date: string, patch: CheckInPatch) => mutate('day', date, patch), [mutate]);
-  const clearDay = useCallback((date: string) => mutate('clear', date, {}), [mutate]);
-  const savePreferences = useCallback((patch: Partial<Omit<JourneyPreferences, 'revision'>>) => mutate('preferences', '', patch), [mutate]);
+  }, [error, loading, publish]);
+  const saveDay = useCallback((date: string, patch: CheckInPatch, revision: number) => mutate('day', date, patch, revision), [mutate]);
+  const clearDay = useCallback((date: string, revision: number) => mutate('clear', date, {}, revision), [mutate]);
+  const savePreferences = useCallback((patch: Partial<Omit<JourneyPreferences, 'revision'>>, revision: number) => mutate('preferences', '', patch, revision), [mutate]);
   useEffect(() => {
     if (!isHealthspanEnabled()) return;
     void refresh();

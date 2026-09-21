@@ -6,6 +6,12 @@ import { dayKey, daysBefore, duration, entryDay, finite } from './healthspan.ts'
 
 export const EMPTY_PREFERENCES: JourneyPreferences = { revision: 0, wakeTime: null, sleepMinutes: null, windDownMinutes: 30, focus: null };
 export const FOCUS_LABELS: Record<Focus, string> = { sleep: 'Sleep rhythm', movement: 'Everyday movement', strength: 'Strength', nutrition: 'Nutrition', stress: 'Stress awareness' };
+/** Pin writes to the revision the user actually edited, including after a refresh. */
+export function assertDraftRevision(expected: number, current: number): void {
+  if (!Number.isSafeInteger(expected) || expected < 0 || expected !== current) {
+    throw new Error('The saved entry changed. Close and reopen the editor to review the latest version before saving.');
+  }
+}
 export function emptyDay(date: string): DayCheckIn {
   return { date, revision: 0, updatedAt: null, energy: null, soreness: null, stress: null, trainingIntent: null, note: null, stressMinute: null, reflection: null, nutritionReviewed: false, nutritionReviewedAt: null, nutritionFingerprint: null };
 }
@@ -71,7 +77,7 @@ export function buildDailyBrief(input: BriefInput): DailyBrief {
   }
   if (sessions.length) return { ...base, title: 'Your workout is done. Own the rest of your day.', body: reviewedFood(check, meals) ? 'Your training and food-log review are recorded. Your next step is simply to check tonight’s plan.' : 'Your session is logged. Review your food entries next—an incomplete log does not mean you have not eaten.', action: reviewedFood(check, meals) ? 'sleep' : 'fuel', actionLabel: reviewedFood(check, meals) ? 'Plan tonight' : 'Review nutrition' };
   if (check.trainingIntent === 'rest') return { ...base, title: 'Rest is part of your plan.', body: 'You chose rest today. GainLog will not turn the absence of a workout into a missed target for this day.', action: 'sleep', actionLabel: 'Plan tonight' };
-  if (check.energy === null && check.soreness === null && check.stress === null) return { ...base, title: 'Start with how you feel.', body: `${model && model.recovery.state !== 'unavailable' ? 'Your overnight signals are ready. ' : 'Your day does not have to wait for a recovery score. '}${planTitle ? `${planTitle} is on your existing schedule. ` : ''}A quick check-in adds the context a wearable cannot supply.`, action: 'checkin', actionLabel: 'Check in · 20 seconds' };
+  if (check.energy === null && check.soreness === null && check.stress === null) return { ...base, title: 'Start with how you feel.', body: `${model && model.recovery.state !== 'unavailable' ? 'Your overnight signals are ready. ' : 'Your day does not have to wait for a recovery score. '}${planTitle ? `${planTitle} is on your existing schedule. ` : ''}A quick check-in adds the context a wearable cannot supply.`, action: 'checkin', actionLabel: 'Check in · optional' };
   return { ...base, title: planTitle ? `${planTitle}, on your terms.` : 'Make space for your priorities.', body: planTitle ? 'Review your existing workout plan with today’s signals and your check-in together. Nothing has been automatically changed.' : 'No scheduled template today. Choose training or rest, and keep your longer-term focus in view.', action: 'training', actionLabel: 'Review today’s plan' };
 }
 export function targetProgress(value: number | null, goal?: Goal) {

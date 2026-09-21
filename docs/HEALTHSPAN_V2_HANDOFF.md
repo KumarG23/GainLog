@@ -1,152 +1,155 @@
 # GainLog V2 — Connected day / Build Your Healthspan
 
-## Authoritative delivery branch
+## One authoritative branch
 
-Continue **`feat/healthspan-v2-shell` / PR #3**, based on Jarvis's working
-`056325b7df9b1c0cedb23f25ff90a4b2d95353e8` (1.1.19, code 36) plus the CI checkpoint
-`7096407`. Do not switch to the older parallel PR #4 branch. The declarative cold
-start, dedicated `/workout` route, increased tab height, identifiers and signing
-lineage are preserved. The global Quick Log workout shortcut now also uses
-`/workout` in the full shell. Main is not merged or deployed by this work.
+Continue **`feat/healthspan-v2-shell` / PR #3**. This extends Jarvis's working
+`056325b7df9b1c0cedb23f25ff90a4b2d95353e8` (1.1.19, Android code 36), preserving
+the declarative cold start, dedicated `/workout` route, tab-height fix, app ID,
+signing lineage, and existing logging workflows. Do not use the older parallel
+PR #4. Do not merge main or deploy automatically.
 
-## What changed beyond the visual shell
+The interrupted implementation was recovered from verified source tree
+`8691c9d60dd6845d1b8a5a0893abc495d6f2d3db`, then tightened around draft revision
+conflicts and first-load/rollover behavior. Temporary delivery patches and their
+publishing workflow are removed. Actual application source is now in this branch.
 
-Today now leads with a deterministic **connected daily brief**. It consumes the
-current local day, available recovery/sleep, recorded sessions, food entries,
-a lightweight self-reported check-in and the existing weekday template. It has
-morning, daytime, after-training and evening states. A high recovery estimate
-cannot dismiss reported low energy or soreness. A logged workout is acknowledged
-rather than turning into another workout prompt. Missing/stale inputs suppress
-unsupported conclusions; food log gaps do not become instructions to eat.
+## Product scope
 
-The check-in captures optional energy, soreness, perceived stress (1–5), training
-intention, and a note. There is one editable entry per calendar day, with an
-optional stress-timeline minute link and an evening reflection. The note and its
-minute link are a single daily context note, not a multi-event journal.
+Today leads with a rule-based, connected daily brief: morning, daytime,
+after-training and evening. It connects the local day, recorded workouts, food
+entries, available sleep/recovery signals, the existing weekday template and an
+optional self-report. Completed exercise is acknowledged; low energy or soreness
+is not dismissed by a high recovery estimate. Missing/stale inputs are not
+instructions to train or eat. The brief does not alter scores, plans or targets.
 
-Sleep planning saves a user-chosen wake time, time-in-bed opportunity and wind-down
-lead time. No inferred sleep need, automatic alarm, notification or goal changes.
-A weekly focus is a preference, not a new health goal or score.
+Check-ins support optional energy, soreness and perceived stress (1–5), training
+intention, one daily note, an optional stress-timeline minute link and an evening
+reflection. This is one editable daily entry, not a multi-event journal or causal
+correlation engine. A note does not establish what caused physiological activation.
 
-Health is now a completed-week foundation review: sleep, strength, everyday
-movement, nutrition logging, and reported stress. Behaviors/logs are separated
-from observations. Missing points stay gaps. Weight direction and saved evening
-reflections are available alongside the week. This is a descriptive review, not
-causal analysis, biological age, or an automatic longitudinal coaching engine.
+Sleep planning saves the user's chosen wake time, time-in-bed window and wind-down
+lead time. No inferred sleep requirement, alarm or notification is introduced.
+Weekly focus is a preference, not a new health goal. Health shows seven completed
+local days of sleep, recorded training, movement, nutrition logging and reported
+stress, with coverage and saved reflections. These are descriptive foundations,
+not biological age, a healthspan score or a validated coaching model.
 
-Fuel now shows saved protein/fiber target ranges and a deliberate log-review
-confirmation. Its non-security change fingerprint invalidates the confirmation
-when entries, macros, dates or notes change, including deletion. Confirmation
-means only that the user reviewed the log, not independent proof of full intake.
+Fuel presents saved protein/fiber ranges and explicit food-log review. Its
+non-security fingerprint invalidates a review after a food entry changes or is
+removed. Reviewing a log does not independently establish complete intake.
 
-Recovery and load have deliberately composed explanations. Sleep has a new
-read-only endpoint for a single preferred main session, actual stage intervals,
-and prior-night history. The selection mirrors the existing sleep evaluator;
-no stages from another source are spliced in. Overlap/invalid timing is withheld.
-The stress timeline supports selection/scrubbing and accessible period controls;
-context notes are self-report, never inferred causes of activation.
+Recovery/load details are composed explanations. Sleep detail reads one preferred
+main session, its actual stage intervals and prior nights. Missing or invalid
+stages are withheld, not manufactured. Stress supports touch selection and
+accessible previous/next controls. Quick Log now reaches `/workout` correctly.
 
-## Backend change — this is NOT an APK-only release
+## Backend required — NOT an APK-only update
 
-`backend/journey.py` adds two tables through the existing SQLModel schema startup:
-`journey_day` and `journey_preferences`. Existing tables, scoring formulas,
-ingestion, OAuth, MCP and stored goals are unchanged. No private records are
-bundled in this commit or its tests.
+`backend/journey.py` adds `journey_day` and `journey_preferences` through the
+existing SQLModel schema startup. Its router is registered before lifespan runs.
+No new Python dependency, destructive migration, scoring formula, provider
+reconciliation, OAuth, MCP or stored-goal change is required.
 
-The module is registered at the end of `backend/main.py`, before application
-lifespan runs. There is no new Python dependency. Existing SQLite/Postgres schema
-setup creates the two additive tables; it does not drop or replace old tables.
+New routes use the application's existing **private single-user API boundary**:
 
-New routes (existing private, single-user API boundary; no new auth model):
+- `GET /journey?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD` (1–35 inclusive days).
+- `PATCH /journey/days/{date}` with `expectedRevision` and explicit partial fields.
+- `DELETE /journey/days/{date}?expectedRevision=N` erases values/notes and retains
+  only a monotonic revision tombstone to prevent stale recreation.
+- `PATCH /journey/preferences` with `expectedRevision`.
+- `GET /journey/sleep/{date}` returns selected night, stages and prior-night history.
 
-- `GET /journey?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD` — bounded to 35 days.
-- `PATCH /journey/days/{date}` — explicit partial save with `expectedRevision`.
-- `DELETE /journey/days/{date}?expectedRevision=N` — erases values and notes,
-  retaining only a monotonically increasing revision tombstone.
-- `PATCH /journey/preferences` — revision-checked sleep/focus preferences.
-- `GET /journey/sleep/{date}` — read-only selected main night/stages/history.
+Writes use optimistic compare-and-swap. Editors pin the revision present when the
+draft opened; foreground refresh cannot silently rebase an old draft onto a new
+record. Stale drafts must be closed/reopened to review the saved entry. Requests
+are bounded and abortable. A lost save confirmation blocks more writes until a
+fresh read. Date and response validation prevent publishing malformed confirmations.
+There is no offline write queue. An old backend returns an update-needed state.
 
-Writes use compare-and-swap revisions; stale clients get 409. No blind retry or
-queued write. A lost save confirmation blocks another save until refresh. A 404
-from an older backend is shown as an upgrade-needed state, while other app records
-remain available. Check-ins are not put into local unencrypted persistence,
-provider writes, public logs, or AI prompts. API responses have `no-store`.
+New check-ins are not copied to local unencrypted persistence, AI prompts, wearable
+providers or public logs. Responses use `Cache-Control: no-store`. Preserve the
+private API access controls; do not expose these endpoints publicly.
 
-The physiology pipeline still uses America/New_York. Check-ins use the device's
-local calendar day and pass a validated IANA time zone. Plans are local wall-clock
-windows, not elapsed-duration promises across DST. Multi-timezone physiology is
-not newly solved here.
+Check-in days use the device's IANA time zone. Physiology still follows the existing
+America/New_York pipeline. Sleep planning uses local clock times, not a promise of
+elapsed hours across DST; multi-timezone physiology is not newly solved here.
 
-## Validation and real-device acceptance
+## Verification and acceptance
 
-The local configured frontend test suite passes with native TypeScript stripping;
-28 new behavioral tests cover the daily brief, stale/missing inputs, source/day
-boundaries, duplicate/future records, reviewed-log change detection, midnight
-planning, and saved ranges. Syntax checks are not a replacement for the complete
-CI TypeScript/lint/exports. See the latest PR checkpoint/run for exact CI results.
+See the latest PR #3 checkpoint and Actions run for exact commit-specific results.
+The configured frontend suite includes 30 connected-day tests, plus retained V2,
+logging, sync and chart tests. Coverage includes brief phase changes, self-report
+versus wearable disagreement, missing/stale days, future/duplicate records, food
+review invalidation, midnight planning, and pinned editor revisions.
 
-Backend tests use only isolated `/tmp` databases and synthetic fixtures. They
-cover defaults, additive schema startup, partial saves, revision conflicts,
-erasure, validation, restricted windows, unchanged existing domains, and actual
-sleep timeline selection/gaps/overlap withholding. Do NOT point tests at a real
-SQLite file, live Postgres database, or health provider.
+Backend tests use only isolated synthetic fixtures. They cover additive startup,
+partial updates, conflicts, erasure, invalid inputs, bounded dates, unchanged
+existing domains, preferred sleep-session selection and invalid stage withholding.
+JavaScript exports are NOT native APKs or proof of physical-device behavior.
 
-A native signed APK and physical-device acceptance remain Jarvis's responsibility.
-Do not interpret web/Android JavaScript exports as a signed or installed APK.
+Use an isolated worktree, preserving local work and existing environment files:
 
-## Jarvis rollout
+```sh
+git fetch origin
+git worktree add ../gainlog-connected-day origin/feat/healthspan-v2-shell
+cd ../gainlog-connected-day
+npm ci
+npm test
+npx tsc --noEmit
+npm run lint
+GAINLOG_DATABASE_URL=sqlite:////tmp/gainlog-test.db python -m pytest backend/tests -q
+EXPO_PUBLIC_GAINLOG_V2_SHELL=1 npx expo export --platform web --output-dir dist-journey-web
+EXPO_PUBLIC_GAINLOG_V2_SHELL=1 npx expo export --platform android --output-dir dist-journey-android
+EXPO_PUBLIC_GAINLOG_V2_SHELL=0 EXPO_PUBLIC_GAINLOG_V2_TODAY=0 npx expo export --platform web --output-dir dist-journey-rollback
+```
 
-1. Preserve all local work. Fetch this branch into the existing review worktree or
-   a clean worktree. Record the actual HEAD; do not reset to an old SHA in this doc.
-2. Run `npm ci`, `npm test`, `npx tsc --noEmit`, `npm run lint`, and
-   `python -m pytest backend/tests -q` with the tests' isolated environment.
-   Verify V2 web/Android exports with `EXPO_PUBLIC_GAINLOG_V2_SHELL=1` and the
-   flag-off rollback export. Inspect the diff and dependency audit separately;
-   do not run a blind audit-fix upgrade.
-3. Back up the existing runtime database using the established procedure. Deploy
-   the updated backend code to the existing private service and restart normally.
-   Verify existing health/workout/nutrition endpoints and a **read-only** GET to
-   `/journey` and `/journey/sleep/{date}`. This change does not need a provider
-   resync, backfill, goal change, or storage reset.
-4. Advance the Android version/code to the next unused release above code 36.
-   Use the established local signed ARM64 release workflow, not a new EAS login:
+Use the repo-compatible Node version (CI uses Node 24). Older Node 22 may require
+`NODE_OPTIONS=--experimental-strip-types`. Never point tests at the real database.
+
+## Jarvis delivery: established local signed workflow, not EAS
+
+1. Verify the current branch/commit and preserve the working tree. Check for newer
+   Jarvis changes before building; do not reset, overwrite or force-push them.
+2. Back up the runtime database using the established process. Deploy this branch's
+   backend through the normal service workflow; restart so additive tables exist.
+   Verify `/journey` and `/journey/sleep/{date}` with read-only calls. Check existing
+   domains still work. Do not run provider resync, reimport or database reset.
+3. Advance version/build metadata to the next unused version above code 36, checking
+   the actual current installed lineage. Keep `com.gainlog.app` and release signing.
+4. Generate/prebuild with `EXPO_PUBLIC_GAINLOG_V2_SHELL=1`, preserve/reapply the
+   established local release signing configuration, and use the same ARM64 path:
 
 ```sh
 EXPO_PUBLIC_GAINLOG_V2_SHELL=1 npx expo prebuild --platform android
-# Reapply the existing release-signing configuration after prebuild.
+# Reapply the established private signing configuration; never commit key material.
 NODE_ENV=production \
-  EXPO_PUBLIC_API_URL='https://gainlog-api.tailc88c35.ts.net' \
-  EXPO_PUBLIC_GAINLOG_V2_SHELL=1 \
-  ./android/gradlew -p android \
-    :react-native-worklets:prefabReleasePackage app:assembleRelease \
-    -PreactNativeArchitectures=arm64-v8a
+EXPO_PUBLIC_API_URL='https://gainlog-api.tailc88c35.ts.net' \
+EXPO_PUBLIC_GAINLOG_V2_SHELL=1 \
+./android/gradlew -p android \
+  :react-native-worklets:prefabReleasePackage app:assembleRelease \
+  -PreactNativeArchitectures=arm64-v8a
 ```
 
-5. Verify package `com.gainlog.app`, version/code, ABI, signature continuity and
-   APK integrity. Stage via the established checksum-verified private delivery
-   to `Downloads/Jarvis-APK`, and remove the temporary hosting route afterward.
-6. Check cold launch, all five tabs, **both** Train and global Quick Log workout
-   paths, hardware back, sheet/keyboard handling, 320px width, large text, and
-   TalkBack. Check normal, unavailable and failed-refresh states. No uninstall or
-   clear-data operation. The native startup fix must not be replaced.
-7. Exercise check-in save/edit/clear, a lost-response retry, sleep planning, a
-   food-log review then an edit, and an evening reflection **only against isolated
-   test data**. Do not add test food, workouts, weights or targets to the real account.
-   Actual user-entered check-ins in normal use are explicit writes by the user.
-8. Record the build identity, results, screenshots and remaining issues in PR #3.
-   Keep the PR draft until the user approves the device experience. Do not merge
-   or promote production automatically.
+5. Verify package, version, ZIP integrity, certificate continuity, API URL and flag.
+   Stage the checksum-verified APK to `Downloads/Jarvis-APK/` through the existing
+   private delivery workflow; remove temporary hosting afterward. Install in place:
+   **no uninstall or clear-data step**. No Expo login/token is needed for this path.
+6. Record build ID, checksum, commands, results and non-sensitive screenshots in
+   PR #3. Keep it draft/unmerged until physical-device acceptance and user approval.
 
-## Rollback and remaining depth
+## Device checks
 
-Rebuild with the full-shell flag disabled (and previous single-tab setting) to
-restore the prior navigation; retain the additive tables. Reverting the connected
-experience commit restores the working 1.1.19-era frontend; the additional tables
-can remain for preservation. Do not drop user check-ins as a rollback step.
+Verify cold launch, all tabs, Quick Log and Train to `/workout`, back navigation,
+existing editors, large system text, narrow widths, keyboard and launcher icons.
+Test morning, post-workout, evening, missing model, old backend and offline states.
 
-Causal experiments, multi-event journaling, automatic plan optimization, clinical
-BP/lab analysis, and validated healthspan/biological-age scoring are NOT shipped.
-No claims of causality, live emotional-stress measurement, or calibrated medical
-confidence are made. Older detailed training/food editors remain intentionally
-familiar. The improvement is the connected day and feedback loop, not a rewrite
-of every underlying form.
+Use isolated test data for check-in save/edit/clear, sleep plan, weekly focus, food
+review invalidation, lost save confirmation and revision conflicts. Open an editor,
+change the saved record elsewhere, refresh and confirm the old draft cannot
+silently overwrite it. Check midnight rollover and that a recorded workout is not
+presented as still awaiting completion. Test actual sleep-stage gaps and stress
+selection. Never use the user's real goals/logs as write-test fixtures.
+
+Rollback may disable the full-shell flag and restore the previous single-tab flag,
+or revert this feature while retaining the additive tables. Preserve all existing
+and newly user-entered records. Do not drop tables as an automatic rollback step.

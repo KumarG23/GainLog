@@ -16,7 +16,7 @@ export function FuelOverview() {
   const date = dayKey(journey.now), meals = foodOnDay(health.nutritionEntries, date, journey.now), totals = foodTotals(meals);
   const reviewed = reviewedFood(journey.check, meals);
   const goal = (kind: string) => health.goals.find(g => g.status === 'active' && g.kind === kind);
-  const review = async () => { try { await journey.saveDay(date, { nutritionReviewed: !reviewed, nutritionFingerprint: reviewed ? null : foodFingerprint(meals) }); } catch (e) { setError(e instanceof Error ? e.message : 'Review not saved.'); } };
+  const review = async () => { try { await journey.saveDay(date, { nutritionReviewed: !reviewed, nutritionFingerprint: reviewed ? null : foodFingerprint(meals) }, journey.check.revision); } catch (e) { setError(e instanceof Error ? e.message : 'Review not saved.'); } };
   return <Page title="Fuel your day" subtitle="Your saved targets. Your actual entries." refreshing={health.loading} onRefresh={health.refresh} error={health.error}>
     <View style={j.hero}><Text style={j.eyebrow}>{date} · logged intake</Text><Text style={j.title}>{health.error || !meals.length ? '—' : numberLabel(totals.calories)} kcal</Text><Text style={j.body}>{meals.length ? `${meals.length} food entries · ${goalLabel(goal('calories'))}` : 'No entries loaded. That does not mean you have not eaten.'}</Text><Button title="Log or edit food" onPress={() => router.push('/(tabs)/nutrition' as Href)} /></View>
     {([{ key: 'protein', field: 'proteinG', title: 'Protein' }, { key: 'fiber', field: 'fiberG', title: 'Fiber' }] as const).map(metric => {

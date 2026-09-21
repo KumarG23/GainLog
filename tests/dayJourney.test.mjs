@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { buildDailyBrief, buildFoundations, emptyDay, EMPTY_PREFERENCES, foodFingerprint, foodOnDay, foodTotals, reviewedFood, sessionsOnDay, sleepPlan, sleepTimingSpread, sourceClock, targetProgress } from '../utils/dayJourney.ts';
+import { assertDraftRevision, buildDailyBrief, buildFoundations, emptyDay, EMPTY_PREFERENCES, foodFingerprint, foodOnDay, foodTotals, reviewedFood, sessionsOnDay, sleepPlan, sleepTimingSpread, sourceClock, targetProgress } from '../utils/dayJourney.ts';
 
 const date = '2026-09-21';
 const meal = { id: 'synthetic-food', date: date + 'T08:00:00-04:00', meal: 'Breakfast', name: 'Test entry', calories: 400, proteinG: 25, fiberG: 5, carbsG: 40, fatG: 15 };
@@ -36,3 +36,24 @@ test('target progress distinguishes absence from a recorded zero', () => { const
 test('foundations use completed days, keep gaps, and separate logs from observations', () => { const foundations = buildFoundations([{ date: '2026-09-20', updatedAt: '2026-09-20', sleepMinutes: 400, steps: 0 }, { date, updatedAt: date, sleepMinutes: 999 }], [session], [meal], [], date); assert.equal(foundations[0].days.filter(v => v !== null).length, 1); assert.equal(foundations[0].value, '6h 40m'); assert.equal(foundations[1].value, '0 sessions'); assert.equal(foundations[2].value, '0 steps'); assert.equal(foundations[3].value, '0/7 days logged'); assert.equal(foundations[4].value, '0/7 check-ins'); });
 test('Quick Log shares the dedicated workout route; cold-start repair is retained', () => { const ui = fs.readFileSync(new URL('../components/v2/ui.tsx', import.meta.url), 'utf8'); assert.match(ui, /isHealthspanEnabled\(\) \? '\/workout' : '\/\(tabs\)'/); const layout = fs.readFileSync(new URL('../app/(tabs)/_layout.tsx', import.meta.url), 'utf8'); assert.doesNotMatch(layout, /router\.replace/); });
 test('new journey never invokes AI generation or provider synchronization', () => { const source = fs.readFileSync(new URL('../components/journey/DailyExperience.tsx', import.meta.url), 'utf8'); assert.doesNotMatch(source, /generateDailyReview|generateWeeklyReview|syncGoogle|writeNutrition/); });
+
+
+test('an editor pins the revision it opened instead of silently adopting refreshed data', () => {
+  assert.doesNotThrow(() => assertDraftRevision(0, 0));
+  assert.doesNotThrow(() => assertDraftRevision(3, 3));
+  assert.throws(() => assertDraftRevision(3, 4), /Close and reopen/);
+  assert.throws(() => assertDraftRevision(1, 2), /saved entry changed/);
+  for (const revision of [-1, NaN, 1.5]) assert.throws(() => assertDraftRevision(revision, revision));
+});
+test('check-in, delete and sleep-plan editors pass their original revision', () => {
+  const check = fs.readFileSync(new URL('../components/journey/CheckInSheet.tsx', import.meta.url), 'utf8');
+  const sleep = fs.readFileSync(new URL('../components/journey/SleepPlanSheet.tsx', import.meta.url), 'utf8');
+  const context = fs.readFileSync(new URL('../context/JourneyContext.tsx', import.meta.url), 'utf8');
+  assert.match(check, /useState\(initial.revision\)/);
+  assert.match(check, /saveDay\(entryDate, patch, draftRevision\)/);
+  assert.match(check, /clearDay\(entryDate, draftRevision\)/);
+  assert.match(sleep, /useState\(journey.preferences.revision\)/);
+  assert.match(sleep, /windDownMinutes: wind }, draftRevision/);
+  assert.ok(context.indexOf('assertDraftRevision(expectedRevision, revision)') < context.indexOf("journeyRequest<DayCheckIn | JourneyPreferences>"));
+  assert.match(context, /current.endDate !== dayKey\(\)/);
+});
