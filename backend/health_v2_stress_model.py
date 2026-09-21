@@ -198,7 +198,13 @@ def _mark_context(
         cursor += timedelta(minutes=1)
 
 
-def evaluate_stress_window(engine: Engine, start: date, end: date) -> dict[str, Any]:
+def evaluate_stress_window(
+    engine: Engine,
+    start: date,
+    end: date,
+    *,
+    include_timeline: bool = True,
+) -> dict[str, Any]:
     """Build an explicit minute timeline with personal baseline and context semantics."""
     if start >= end:
         raise ValueError("start must be before end")
@@ -299,9 +305,8 @@ def evaluate_stress_window(engine: Engine, start: date, end: date) -> dict[str, 
         if cursor >= start:
             states = Counter(row["state"] for row in timeline)
             scores = [row["stress_score"] for row in timeline if row["stress_score"] is not None]
-            days.append({
+            day_result = {
                 "date": key,
-                "timeline": timeline,
                 "summary": {
                     "expected_minutes": len(timeline),
                     "observed_heart_rate_minutes": len(minute_map),
@@ -313,7 +318,10 @@ def evaluate_stress_window(engine: Engine, start: date, end: date) -> dict[str, 
                     "baseline_days": baseline.days if baseline else 0,
                     "baseline_minutes": len(baseline.sorted_heart_rates) if baseline else 0,
                 },
-            })
+            }
+            if include_timeline:
+                day_result["timeline"] = timeline
+            days.append(day_result)
         cursor += timedelta(days=1)
     aggregate_states: Counter[str] = Counter()
     for day_result in days:
@@ -346,7 +354,12 @@ def main(argv: list[str] | None = None, *, engine_override: Engine | None = None
         except ImportError:
             from main import engine as application_engine
         engine_override = application_engine
-    evaluation = evaluate_stress_window(engine_override, start, end)
+    evaluation = evaluate_stress_window(
+        engine_override,
+        start,
+        end,
+        include_timeline=False,
+    )
     receipt = {
         "model": "stress",
         "version": "0.1-experimental",

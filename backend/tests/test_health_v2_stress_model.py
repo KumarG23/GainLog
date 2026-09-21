@@ -254,3 +254,18 @@ def test_cli_receipt_is_aggregate_only(tmp_path, capsys):
     assert '"total_days":1' in payload
     assert '"timeline"' not in payload
     assert '"components"' not in payload
+
+
+def test_aggregate_evaluation_can_discard_minute_timeline(tmp_path):
+    from backend.health_v2_stress_model import evaluate_stress_window
+
+    engine = _stress_engine(tmp_path)
+    result = evaluate_stress_window(
+        engine,
+        date(2026, 9, 20),
+        date(2026, 9, 21),
+        include_timeline=False,
+    )
+
+    assert "timeline" not in result["days"][0]
+    assert result["days"][0]["summary"]["expected_minutes"] == 1440
