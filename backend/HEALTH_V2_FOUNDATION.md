@@ -93,3 +93,16 @@ The sleep evaluator:
 - emits aggregate-only CLI receipts so routine evaluation does not log day-level health details.
 
 Production aggregate evaluation for 2026-08-21 through 2026-09-21 found 32 available days, zero unavailable days, a score range of 27–100, and a median of 88.5. This is calibration evidence only, not validation or authorization to expose the score. Sleep-stage percentages are deliberately excluded from v0.1 scoring because consumer stage estimates are too noisy to deserve score weight without stronger evidence.
+
+`health_v2_recovery_model.py` is the second read-only Phase 2 evaluator. Version `0.1-experimental` composes the shadow Sleep result with daily HRV RMSSD and resting heart rate without writing or serving the result.
+
+The Recovery evaluator:
+
+- weights Sleep at 40%, HRV at 35%, and resting heart rate at 25%, then renormalizes over available components;
+- scores HRV and resting heart rate only after 14 prior complete observations, using the median of at most 28 trailing days and never including the target day in its own baseline;
+- anchors a personal-baseline biomarker day at 70, with higher HRV and lower resting heart rate improving the component score, and clamps each component to 0–100;
+- carries Sleep's source confidence into Recovery confidence and does not convert unavailable biomarkers into penalties;
+- returns unavailable only when no component can be scored and caps confidence at 0.5 for partial-day data;
+- emits aggregate-only CLI receipts and remains disconnected from APIs, coaching, persistence, and UI.
+
+Production aggregate evaluation over the same 32-day window found 32 available days, a score range of 52–100, and a median of 81.5: 18 high, 12 moderate, and 2 low days. All 32 days had Sleep; the trailing-baseline gate admitted HRV on 18 days and resting heart rate on 19. Median confidence was 1.0, with early Sleep-only days as low as 0.34. Component medians were 88.5 for Sleep, 75.5 for HRV, and 77 for resting heart rate. These results are calibration evidence only; longitudinal face-validity review is still required before exposure.
