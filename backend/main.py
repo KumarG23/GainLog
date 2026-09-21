@@ -46,9 +46,11 @@ except ImportError:
 
 try:
     from .database import create_database_engine, dialect_insert
+    from .health_v2_today import build_health_v2_today
     from .migrations.schema import apply_schema_migrations
 except ImportError:
     from database import create_database_engine, dialect_insert
+    from health_v2_today import build_health_v2_today
     from migrations.schema import apply_schema_migrations
 
 load_dotenv()
@@ -2965,6 +2967,12 @@ def delete_nutrition(entry_id: str, db: Session = Depends(get_db)):
     db.delete(row)
     _queue_nutrition_sync_event(db, "delete", entry_id)
     db.commit()
+
+
+@app.get("/health-v2/today")
+def get_health_v2_today(date: Optional[date_cls] = Query(default=None)):
+    target_date = date or date_cls.today()
+    return build_health_v2_today(engine, target_date)
 
 
 @app.get("/dashboard/summary", response_model=DashboardSummaryOut, response_model_by_alias=True)

@@ -2,6 +2,7 @@ import { Tabs, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize } from '../../constants/theme';
 import { Platform, TouchableOpacity } from 'react-native';
+import { isHealthV2TodayEnabled } from '../../utils/healthV2Today';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -21,6 +22,7 @@ function TabIcon({ name, activeName, color, size, focused }: TabIconProps) {
 
 export default function TabLayout() {
   const router = useRouter();
+  const v2TodayEnabled = isHealthV2TodayEnabled();
 
   return (
     <Tabs
@@ -99,7 +101,8 @@ export default function TabLayout() {
       <Tabs.Screen
         name="health"
         options={{
-          title: 'Health',
+          title: v2TodayEnabled ? 'Today' : 'Health',
+          headerShown: !v2TodayEnabled,
           headerRight: () => (
             <TouchableOpacity
               onPress={() => router.push('/settings')}
@@ -119,8 +122,8 @@ export default function TabLayout() {
           ),
           tabBarIcon: ({ color, size, focused }) => (
             <TabIcon
-              name="scale-outline"
-              activeName="scale"
+              name={v2TodayEnabled ? 'home-outline' : 'scale-outline'}
+              activeName={v2TodayEnabled ? 'home' : 'scale'}
               color={color}
               size={size}
               focused={focused}

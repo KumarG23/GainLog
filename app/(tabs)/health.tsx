@@ -20,6 +20,8 @@ import { formatVolume } from '../../utils/stats';
 import { localDateKey, localIsoTimestamp, previousLocalDateKey } from '../../utils/date';
 import { formatGoalTarget } from '../../utils/goals';
 import { formatHealthUpdatedAt, selectRecoveryCalories } from '../../utils/healthDisplay';
+import { isHealthV2TodayEnabled } from '../../utils/healthV2Today';
+import { TodayV2 } from '../../components/TodayV2';
 
 type GoalKind = 'weight' | 'calories' | 'protein' | 'fiber' | 'workout_frequency';
 
@@ -65,7 +67,11 @@ function SummaryTile({ icon, label, value, color, onPress }: SummaryTileProps) {
   );
 }
 
-export default function HealthScreen() {
+export default function HealthRoute() {
+  return isHealthV2TodayEnabled() ? <TodayV2 /> : <LegacyHealthScreen />;
+}
+
+function LegacyHealthScreen() {
   const router = useRouter();
   const {
     dashboardSummary,
