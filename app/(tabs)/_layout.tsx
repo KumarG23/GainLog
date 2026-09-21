@@ -1,6 +1,7 @@
 import { Tabs, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize } from '../../constants/theme';
+import { V2Colors } from '../../constants/v2Theme';
 import { Platform, TouchableOpacity } from 'react-native';
 import { isHealthV2TodayEnabled } from '../../utils/healthV2Today';
 
@@ -28,15 +29,15 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         tabBarStyle: {
-          backgroundColor: Colors.tabBar,
-          borderTopColor: Colors.border,
+          backgroundColor: v2TodayEnabled ? V2Colors.surface : Colors.tabBar,
+          borderTopColor: v2TodayEnabled ? V2Colors.divider : Colors.border,
           borderTopWidth: 0.5,
           height: Platform.OS === 'ios' ? 84 : 60,
           paddingBottom: Platform.OS === 'ios' ? 28 : 8,
           paddingTop: 8,
         },
-        tabBarActiveTintColor: Colors.primary,
-        tabBarInactiveTintColor: Colors.textMuted,
+        tabBarActiveTintColor: v2TodayEnabled ? V2Colors.primary : Colors.primary,
+        tabBarInactiveTintColor: v2TodayEnabled ? V2Colors.textMuted : Colors.textMuted,
         tabBarLabelStyle: {
           fontSize: FontSize.xs,
           fontWeight: '600',
