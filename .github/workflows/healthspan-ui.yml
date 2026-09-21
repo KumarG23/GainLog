@@ -1,0 +1,50 @@
+name: Healthspan UI checks
+
+on:
+  push:
+    branches: [feat/healthspan-v2]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: healthspan-ui-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: '1'
+      TZ: America/New_York
+      EXPO_NO_TELEMETRY: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Package the exact review source
+        run: git archive --format=tar --output=review-source.tar HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: healthspan-review-source
+          path: review-source.tar
+          retention-days: 3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Lint
+        run: npm run lint
+      - name: Export web and Android bundles (not a signed app)
+        env:
+          EXPO_PUBLIC_GAINLOG_V2_TODAY: '1'
+          EXPO_PUBLIC_GAINLOG_V2_UI: '1'
+        run: npx expo export --platform web --platform android --output-dir dist-review
