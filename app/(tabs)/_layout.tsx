@@ -39,8 +39,8 @@ export default function TabLayout() {
     headerStyle: { backgroundColor: Colors.surface }, headerTintColor: Colors.text, headerShadowVisible: false,
     tabBarActiveTintColor: enabled || legacyToday ? V2Colors.primary : Colors.primary,
     tabBarInactiveTintColor: enabled || legacyToday ? V2Colors.textSecondary : Colors.textMuted,
-    tabBarStyle: { backgroundColor: enabled || legacyToday ? V2Colors.surface : Colors.tabBar, borderTopColor: enabled || legacyToday ? V2Colors.divider : Colors.border, borderTopWidth: 0.5, height: 60 + insets.bottom, paddingBottom: Math.max(8, insets.bottom), paddingTop: 8 },
-    tabBarLabelStyle: { fontSize: 11, fontWeight: '600' }, tabBarHideOnKeyboard: true,
+    tabBarStyle: { backgroundColor: enabled || legacyToday ? V2Colors.surface : Colors.tabBar, borderTopColor: enabled || legacyToday ? V2Colors.divider : Colors.border, borderTopWidth: 0.5, height: 68 + insets.bottom, paddingBottom: Math.max(10, insets.bottom), paddingTop: 8 },
+    tabBarLabelStyle: { fontSize: 11, lineHeight: 14, fontWeight: '600' }, tabBarHideOnKeyboard: true,
   }}>
     {visible.map(tab => <Tabs.Screen key={tab.name} name={tab.name} options={{
       title: tab.name === 'health' && legacyToday ? 'Today' : tab.title,

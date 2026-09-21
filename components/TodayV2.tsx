@@ -25,7 +25,8 @@ export function TodayV2() {
   const feed = useTodayHealth(); const health = useHealth(); const router = useRouter();
   useHealthspanRefresh(health.refresh);
   const [detail, setDetail] = useState<'recovery' | 'sleep' | 'load' | null>(null);
-  const refresh = useCallback(async () => { await Promise.all([feed.refresh(), health.refresh()]); }, [feed.refresh, health.refresh]);
+  const feedRefresh = feed.refresh; const healthRefresh = health.refresh;
+  const refresh = useCallback(async () => { await Promise.all([feedRefresh(), healthRefresh()]); }, [feedRefresh, healthRefresh]);
   const today = feed.today;
   const sleepMinutes = today?.sleep.components.duration?.valueMinutes;
   const hrv = today?.recovery.components.hrv;
@@ -43,10 +44,10 @@ export function TodayV2() {
       <Card title="What matters today"><Text style={s.body}>{todayInterpretation(today.recovery, sleepMinutes)}</Text><Text style={s.note}>Use the estimate alongside how you feel. It does not prescribe your training or diagnose a condition.</Text></Card>
       <StressTimeline data={today.stress} />
       <Card title="Movement today"><View style={s.grid}><Stat label="Recorded steps" value={numberLabel(currentDaily?.steps)} /><Stat label="Recorded exercise" value={duration(currentDaily?.exerciseMinutes)} /></View><Text style={s.note}>{currentDaily ? `Daily feed: ${currentDaily.source} · updated ${new Date(currentDaily.updatedAt).toLocaleString()}` : 'No current-day movement data is loaded.'}</Text><Action title="Explore activity trends" icon="walk-outline" onPress={() => router.push('/trends?metric=recovery' as Href)} /></Card>
-      <Text style={s.note}>Health model {today.version} · response checked {feed.checkedAt?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) ?? '—'}. Checked time is not the wearable's last sync time. GainLog estimates are not Fitbit or WHOOP scores.</Text>
+      <Text style={s.note}>Health model {today.version} · response checked {feed.checkedAt?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) ?? '—'}. Checked time is not the wearable’s last sync time. GainLog estimates are not Fitbit or WHOOP scores.</Text>
     </>}
     <Sheet visible={detail !== null} title={detail ? `${stateLabel(detail)} explained` : 'Estimate details'} onClose={() => setDetail(null)}>
-      <Text style={s.body}>An experimental GainLog model using available signals and personal baselines. Confidence describes the model's inputs; it is not a probability of medical accuracy.</Text>
+      <Text style={s.body}>An experimental GainLog model using available signals and personal baselines. Confidence describes the model’s inputs; it is not a probability of medical accuracy.</Text>
       {selected && <><Text style={s.note}>State: {stateLabel(selected.state)} · confidence: {confidenceLabel(selected.confidence)}</Text>{Object.entries(selected.components).map(([name, component]) => <View key={name}><Text style={s.heading}>{stateLabel(name.replace(/([A-Z])/g, ' $1'))}</Text>{Object.entries(component ?? {}).filter(([, value]) => finite(value)).map(([key, value]) => <Text style={s.note} key={key}>{stateLabel(key.replace(/([A-Z])/g, ' $1'))}: {numberLabel(value, 1)}</Text>)}</View>)}</>}
       <Text style={s.note}>Missing observations remain missing. Scoring formulas and existing backend thresholds are unchanged in this UI release.</Text>
     </Sheet>

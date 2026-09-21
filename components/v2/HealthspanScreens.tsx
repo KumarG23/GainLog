@@ -31,7 +31,8 @@ export function HealthspanScreen() {
 }
 export function TrainScreen() {
   const workouts = useWorkouts(); const health = useHealth(); const router = useRouter();
-  const refresh = useCallback(async () => { await Promise.all([workouts.refresh(), health.refresh()]); }, [workouts.refresh, health.refresh]);
+  const workoutsRefresh = workouts.refresh; const healthRefresh = health.refresh;
+  const refresh = useCallback(async () => { await Promise.all([workoutsRefresh(), healthRefresh()]); }, [workoutsRefresh, healthRefresh]);
   useHealthspanRefresh(refresh);
   const week = calendarWeekSessions(workouts.sessions);
   const goal = health.goals.find(item => item.status === 'active' && item.kind === 'workout_frequency');
