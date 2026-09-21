@@ -15,12 +15,12 @@ export default function TabLayout() {
   const v2 = isHealthspanUIEnabled();
   const todayOnly = isHealthV2TodayEnabled();
   const hidden = { href: null } as const;
-  const icon = (name: Icon) => ({ color, size }: { color: string; size: number }) => <Ionicons name={name} color={color} size={size} />;
-  const back = (fallback: '/train' | '/fuel' | '/healthspan') => () => (
+  const icon = (name: Icon) => function TabIcon({ color, size }: { color: string; size: number }) { return <Ionicons name={name} color={color} size={size} />; };
+  const back = (fallback: '/train' | '/fuel' | '/healthspan') => function BackButton() { return (
     <Pressable accessibilityRole="button" accessibilityLabel="Back to overview" style={{ width: 48, height: 48, justifyContent: 'center', alignItems: 'center' }} onPress={() => router.canGoBack() ? router.back() : router.replace(fallback)}>
       <Ionicons name="arrow-back" size={23} color={Colors.text} />
     </Pressable>
-  );
+  ); };
   const detail = (title: string, fallback: '/train' | '/fuel' | '/healthspan') => ({ ...hidden, title, headerShown: true, headerLeft: back(fallback) });
   const settings = () => <Pressable accessibilityRole="button" accessibilityLabel="Open settings" onPress={() => router.push('/settings')} style={{ width: 48, height: 48, alignItems: 'center', justifyContent: 'center' }}><Ionicons name="settings-outline" size={22} color={Colors.text} /></Pressable>;
   return (
