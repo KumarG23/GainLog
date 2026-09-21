@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 import os
 
 import pytest
 
 from conftest import CANARY, digest
+
+
+def test_postgresql_source_timestamp_is_normalized_to_utc_z():
+    from gainlog_mcp.exporter import _utc_z
+
+    assert _utc_z(datetime.fromisoformat("2026-09-21T08:20:04.474593-04:00")) == (
+        "2026-09-21T12:20:04.474593Z"
+    )
 
 
 def test_export_is_allowlisted_atomic_and_does_not_modify_source(source_db: Path, tmp_path: Path):

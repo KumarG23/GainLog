@@ -146,6 +146,10 @@ class ExportError(Exception):
     pass
 
 
+def _utc_z(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 class _Source:
     def __init__(
         self,
@@ -178,7 +182,7 @@ def _open_source(source: str | Path) -> _Source:
                 "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"
             ))
             observed = connection.execute(text("SELECT CURRENT_TIMESTAMP")).scalar_one()
-            modified_at = observed.isoformat().replace("+00:00", "Z")
+            modified_at = _utc_z(observed)
             return _Source(
                 connection,
                 dialect="postgresql",
