@@ -80,7 +80,7 @@ Distance, active energy, and total calories continue through the existing author
 
 ## Experimental shadow models
 
-`health_v2_sleep_model.py` is the first read-only Phase 2 evaluator. Version `0.1-experimental` does not write tables, alter APIs, feed coaching, or drive UI state.
+`health_v2_sleep_model.py` is the first read-only Phase 2 evaluator. Version `0.1-experimental` does not write tables or feed coaching. After the cross-model gate passed, its output became available only through the read-only, feature-flagged Today V2 presentation.
 
 The sleep evaluator:
 
@@ -103,9 +103,9 @@ The Recovery evaluator:
 - anchors a personal-baseline biomarker day at 70, with higher HRV and lower resting heart rate improving the component score, and clamps each component to 0–100;
 - carries Sleep's source confidence into Recovery confidence and does not convert unavailable biomarkers into penalties;
 - returns unavailable only when no component can be scored and caps confidence at 0.5 for partial-day data;
-- emits aggregate-only CLI receipts and remains disconnected from APIs, coaching, persistence, and UI.
+- emits aggregate-only CLI receipts; the evaluator remains write-free and disconnected from coaching, while the validated result is exposed through the read-only Today V2 endpoint.
 
-Production aggregate evaluation over the same 32-day window found 32 available days, a score range of 52–100, and a median of 81.5: 18 high, 12 moderate, and 2 low days. All 32 days had Sleep; the trailing-baseline gate admitted HRV on 18 days and resting heart rate on 19. Median confidence was 1.0, with early Sleep-only days as low as 0.34. Component medians were 88.5 for Sleep, 75.5 for HRV, and 77 for resting heart rate. These results are calibration evidence only; longitudinal face-validity review is still required before exposure.
+Production aggregate evaluation over the same 32-day window found 32 available days, a score range of 52–100, and a median of 81.5: 18 high, 12 moderate, and 2 low days. All 32 days had Sleep; the trailing-baseline gate admitted HRV on 18 days and resting heart rate on 19. Median confidence was 1.0, with early Sleep-only days as low as 0.34. Component medians were 88.5 for Sleep, 75.5 for HRV, and 77 for resting heart rate. These results were calibration evidence for the completed longitudinal gate, not evidence for predictive coaching.
 
 `health_v2_load_model.py` is the third read-only Phase 2 evaluator. Version `0.1-experimental` derives training load from reconciled exercise duration and only the raw heart-rate-zone intervals that overlap those sessions.
 
@@ -116,9 +116,9 @@ The Load evaluator:
 - distinguishes a supported rest day from unavailable data by requiring a heart-rate quality observation when no exercise session exists;
 - reports confidence from exercise-session availability plus zone coverage, capped at 0.5 for partial days;
 - compares active days with the median of at least seven active days inside the prior 28 calendar days, labeling the result low below 0.75×, typical from 0.75–1.25×, and high above 1.25×;
-- emits aggregate-only receipts and remains disconnected from APIs, coaching, persistence, and UI.
+- emits aggregate-only receipts; the evaluator remains write-free and disconnected from coaching, while the validated result is exposed through the read-only Today V2 endpoint.
 
-Production aggregate evaluation for 2026-08-21 through 2026-09-21 found all 32 days available: 24 active and 8 supported rest days. Daily load ranged from 0–380 with a median of 133; active-day load ranged from 38–380 with a median of 145. After the baseline gate, states were 5 low, 8 typical, and 4 high, while 7 early active days remained observed-only. Heart-rate-zone coverage on active days ranged from 0.89–1.0 with a median of 1.0; confidence ranged from 0.5–1.0 with a median of 1.0. The broader 94-day window correctly left 61 days unavailable because retained exercise/heart-rate evidence existed for only 33 days. This is calibration evidence only, not authorization to expose or coach from the model.
+Production aggregate evaluation for 2026-08-21 through 2026-09-21 found all 32 days available: 24 active and 8 supported rest days. Daily load ranged from 0–380 with a median of 133; active-day load ranged from 38–380 with a median of 145. After the baseline gate, states were 5 low, 8 typical, and 4 high, while 7 early active days remained observed-only. Heart-rate-zone coverage on active days ranged from 0.89–1.0 with a median of 1.0; confidence ranged from 0.5–1.0 with a median of 1.0. The broader 94-day window correctly left 61 days unavailable because retained exercise/heart-rate evidence existed for only 33 days. This is calibration evidence for descriptive presentation only, not authorization to coach from the model.
 
 `health_v2_stress_model.py` completes the first read-only Phase 2 model sequence. Version `0.1-experimental` is a retrospective physiological-activation timeline, not a psychological-stress detector, medical claim, or WHOOP-equivalent feature.
 
@@ -133,7 +133,7 @@ The Stress evaluator:
 - derives confidence from heart-rate sample density, caps partial-day confidence at 0.5, and preserves known sleep/exercise/activity context even when heart rate is absent;
 - emits aggregate-only CLI receipts and can discard detailed timelines during aggregate evaluation to keep historical profiling bounded.
 
-Production aggregate evaluation for 2026-08-20 through the exclusive end date 2026-09-21 covered 46,080 local minutes and observed heart rate in 41,033 (89.0%). It scored 11,359 sedentary/context-qualified minutes (24.7% of the full timeline): 5,624 low (49.5%), 3,909 moderate (34.4%), and 1,826 high (16.1%), closely matching the intended personal-percentile calibration rather than manufacturing a population norm. The timeline also retained 14,846 sleep, 1,579 exercise, 4,763 activity, 5,905 context-unavailable, 2,654 baseline-unavailable, and 4,974 unobserved minutes. The baseline was ready on 26 of 32 days; scored-minute confidence had a median of 1.0 and only 10 minutes below 0.5. Aggregate execution completed in about five seconds with approximately 274 MiB peak RSS under a 1 GiB cap. A 94-day run completed with the same bounded memory and left 93,978 minutes unobserved where retained telemetry did not exist. These are calibration and feasibility results only; longitudinal face-validity review remains required before any API, coaching, or UI exposure.
+Production aggregate evaluation for 2026-08-20 through the exclusive end date 2026-09-21 covered 46,080 local minutes and observed heart rate in 41,033 (89.0%). It scored 11,359 sedentary/context-qualified minutes (24.7% of the full timeline): 5,624 low (49.5%), 3,909 moderate (34.4%), and 1,826 high (16.1%), closely matching the intended personal-percentile calibration rather than manufacturing a population norm. The timeline also retained 14,846 sleep, 1,579 exercise, 4,763 activity, 5,905 context-unavailable, 2,654 baseline-unavailable, and 4,974 unobserved minutes. The baseline was ready on 26 of 32 days; scored-minute confidence had a median of 1.0 and only 10 minutes below 0.5. Aggregate execution completed in about five seconds with approximately 274 MiB peak RSS under a 1 GiB cap. A 94-day run completed with the same bounded memory and left 93,978 minutes unobserved where retained telemetry did not exist. These calibration and feasibility results fed the subsequent longitudinal gate; they do not authorize coaching or medical claims.
 
 ## Cross-model shadow validation
 
@@ -150,4 +150,18 @@ The 32-day production review for 2026-08-20 through the exclusive end date 2026-
 - same-day Recovery and high-activation fraction were positive (`0.584`, `n=25`), so the Stress tile must remain a retrospective activation view rather than being misread as inverse readiness;
 - prior-day high activation versus next-day Recovery was neutral over the whole mature sample (`-0.060`, `n=24`) but became moderately inverse in the fully baseline-ready later half (`-0.537`, `n=15`). The early half had only eight lagged observations and changed sign, confirming that baseline warm-up must remain visibly unavailable rather than being trended as stable data.
 
-The structural and interaction gate passes for feature-flagged presentation. This does not validate outcome prediction, causal coaching, medical interpretation, or persistence of derived scores. The first UI integration must preserve unavailable/warm-up states, explain component provenance, keep Stress labeled as physiological activation, and remain disconnected from coaching and writes.
+The structural and interaction gate passes for feature-flagged presentation. This does not validate outcome prediction, causal coaching, medical interpretation, or persistence of derived scores. The deployed first UI integration preserves unavailable/warm-up states, explains component provenance, keeps Stress labeled as physiological activation, and remains disconnected from coaching and writes.
+
+## Feature-flagged Today V2 presentation
+
+The first Today V2 increment is deployed behind `EXPO_PUBLIC_GAINLOG_V2_TODAY=1`. The legacy Health screen remains the default when the flag is absent. The enabled presentation uses the approved midnight/aqua direction and provides:
+
+- a Recovery arc with explicit component confidence and source values;
+- Sleep and Training Load summaries that preserve unavailable, observed-only, rest, typical, and high states;
+- a physiological-activation ribbon that distinguishes scored low/moderate/high minutes from sleep, exercise, activity, baseline warm-up, missing context, unobserved time, and future time;
+- a deterministic descriptive focus statement, not predictive coaching;
+- visible experimental/personal-baseline labeling and pull-to-refresh behavior.
+
+`GET /health-v2/today?date=YYYY-MM-DD` composes the four existing evaluators without writes. The payload contains aggregate component data plus 30-minute Stress display segments; it does not persist scores or return raw minute-level telemetry. Current-day Stress excludes future minutes from aggregate counts and labels future display segments explicitly. Sleep evaluation includes the prior 28-day window so Today uses the same personal consistency baseline as Recovery.
+
+Production smoke testing on 2026-09-21 returned Recovery 82, Sleep 95, Load 149 (`typical`), Stress 74, 48 display segments, and HTTP 200. The API response completed in approximately 2.67 seconds during the final check. Web rendering, scroll behavior, accessibility labels, midnight/aqua tab state, and browser console output were inspected live; the only new runtime error found during review was an unsupported SVG web accessibility prop, which was removed before final acceptance. Derived values remain read-only, experimental, unpersisted, and disconnected from coaching.
