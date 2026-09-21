@@ -119,3 +119,18 @@ The Load evaluator:
 - emits aggregate-only receipts and remains disconnected from APIs, coaching, persistence, and UI.
 
 Production aggregate evaluation for 2026-08-21 through 2026-09-21 found all 32 days available: 24 active and 8 supported rest days. Daily load ranged from 0–380 with a median of 133; active-day load ranged from 38–380 with a median of 145. After the baseline gate, states were 5 low, 8 typical, and 4 high, while 7 early active days remained observed-only. Heart-rate-zone coverage on active days ranged from 0.89–1.0 with a median of 1.0; confidence ranged from 0.5–1.0 with a median of 1.0. The broader 94-day window correctly left 61 days unavailable because retained exercise/heart-rate evidence existed for only 33 days. This is calibration evidence only, not authorization to expose or coach from the model.
+
+`health_v2_stress_model.py` completes the first read-only Phase 2 model sequence. Version `0.1-experimental` is a retrospective physiological-activation timeline, not a psychological-stress detector, medical claim, or WHOOP-equivalent feature.
+
+The Stress evaluator:
+
+- chooses one heart-rate source and one activity-context source per local day by greatest minute coverage, preventing overlapping Pixel Watch and Fitbit Air telemetry from being blended;
+- emits an explicit DST-aware `America/New_York` minute timeline and keeps unobserved telemetry distinct from low stress;
+- overlays reconciled main sleep and exercise, excludes active movement from stress scoring, and scores only minutes with both heart rate and sedentary context;
+- does not infer non-wear from a gap: absent telemetry remains `unobserved`, while observed heart rate without activity context remains `context_unavailable`;
+- requires at least seven prior qualifying days inside 14 calendar days, at least 30 sedentary minutes per qualifying day, and at least 300 total baseline minutes;
+- reports each scored minute as its midrank percentile against the personal sedentary-heart-rate baseline, provisionally labeling below the 50th percentile low, the 50th–84th moderate, and the 85th percentile or higher high;
+- derives confidence from heart-rate sample density, caps partial-day confidence at 0.5, and preserves known sleep/exercise/activity context even when heart rate is absent;
+- emits aggregate-only CLI receipts and can discard detailed timelines during aggregate evaluation to keep historical profiling bounded.
+
+Production aggregate evaluation for 2026-08-21 through 2026-09-21 covered 46,080 local minutes and observed heart rate in 41,033 (89.0%). It scored 11,359 sedentary/context-qualified minutes (24.7% of the full timeline): 5,624 low (49.5%), 3,909 moderate (34.4%), and 1,826 high (16.1%), closely matching the intended personal-percentile calibration rather than manufacturing a population norm. The timeline also retained 14,846 sleep, 1,579 exercise, 4,763 activity, 5,905 context-unavailable, 2,654 baseline-unavailable, and 4,974 unobserved minutes. The baseline was ready on 26 of 32 days; scored-minute confidence had a median of 1.0 and only 10 minutes below 0.5. Aggregate execution completed in about five seconds with approximately 274 MiB peak RSS under a 1 GiB cap. A 94-day run completed with the same bounded memory and left 93,978 minutes unobserved where retained telemetry did not exist. These are calibration and feasibility results only; longitudinal face-validity review remains required before any API, coaching, or UI exposure.
