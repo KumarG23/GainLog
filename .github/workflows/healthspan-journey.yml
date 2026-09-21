@@ -19,13 +19,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Package exact review source
-        run: git archive --format=tar --output=review-source.tar HEAD
-      - uses: actions/upload-artifact@v4
-        with:
-          name: journey-review-source
-          path: review-source.tar
-          retention-days: 1
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -48,13 +41,25 @@ jobs:
         run: |
           npx expo export --platform web --output-dir dist-journey-web
           npx expo export --platform android --output-dir dist-journey-android
-      - uses: actions/upload-artifact@v4
-        with:
-          name: journey-web-preview
-          path: dist-journey-web
-          retention-days: 1
       - name: Export rollback navigation
         env:
           EXPO_PUBLIC_GAINLOG_V2_SHELL: '0'
           EXPO_PUBLIC_GAINLOG_V2_TODAY: '0'
         run: npx expo export --platform web --output-dir dist-journey-rollback
+      - name: Package exact review source
+        run: git archive --format=tar --output=review-source.tar HEAD
+      # Archival is optional; an upload outage must not prevent or mask the gates above.
+      - name: Archive reviewed source (optional)
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: journey-review-source
+          path: review-source.tar
+          retention-days: 1
+      - name: Archive web preview (optional)
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: journey-web-preview
+          path: dist-journey-web
+          retention-days: 1
