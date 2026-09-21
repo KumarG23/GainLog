@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { KeyboardAvoidingView, Platform, Text, TextInput, View } from 'react-native';
+import { Text, TextInput, View } from 'react-native';
 import { useJourney } from '../../context/JourneyContext';
 import type { CheckInPatch, DayCheckIn } from '../../types/journey';
 import { dayKey } from '../../utils/healthspan';
@@ -20,7 +20,7 @@ export function CheckInSheet({ initial, mode = 'checkin', onClose, stressMinute 
     try { await journey.saveDay(entryDate, patch, draftRevision); onClose(); } catch (e) { setError(e instanceof Error ? e.message : 'Not saved.'); }
   };
   return <Sheet visible title={mode === 'reflection' ? 'Close the day' : 'How do you feel?'} onClose={() => { if (!journey.busy) onClose(); }}>
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ gap: 18 }}>
+    <View style={{ gap: 18 }}>
       <Text style={j.note}>{entryDate}</Text>
       <Text style={j.body}>{mode === 'reflection' ? 'One thing that worked, or something to remember tomorrow. This stays with your day.' : 'Your perspective belongs beside the wearable. All answers are optional; no score or target changes automatically.'}</Text>
       {mode === 'checkin' && <>
@@ -35,6 +35,6 @@ export function CheckInSheet({ initial, mode = 'checkin', onClose, stressMinute 
       <Button title={journey.busy ? 'Saving…' : 'Save to my day'} onPress={() => void save()} disabled={!journey.snapshot || journey.busy || journey.loading || !!journey.error || changedDay || staleDraft} />
       {draftRevision > 0 && <Button secondary title={confirmDelete ? 'Confirm: clear this day’s entry & reflection' : 'Clear my entry for this day'} disabled={journey.busy || journey.loading || !!journey.error || changedDay || staleDraft} onPress={() => { if (!confirmDelete) { setConfirmDelete(true); return; } void journey.clearDay(entryDate, draftRevision).then(onClose).catch(e => setError(e.message)); }} />}
       <Text style={j.note}>Saved to your private GainLog backend. Nothing is sent to an AI model or wearable provider.</Text>
-    </KeyboardAvoidingView>
+    </View>
   </Sheet>;
 }

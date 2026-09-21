@@ -44,6 +44,11 @@ export function foodFingerprint(meals: readonly NutritionEntry[]) {
 export function reviewedFood(check: DayCheckIn, meals: readonly NutritionEntry[]) {
   return !!check.nutritionReviewed && check.nutritionFingerprint === foodFingerprint(meals);
 }
+export function segmentIndexForMinute(segments: readonly { startMinute: number }[], minute: number) {
+  if (!segments.length) return -1;
+  const boundedMinute = Math.max(0, Math.min(1439, minute));
+  return segments.findIndex((segment, index) => boundedMinute >= segment.startMinute && boundedMinute < (segments[index + 1]?.startMinute ?? 1440));
+}
 export type BriefAction = 'checkin' | 'training' | 'fuel' | 'sleep' | 'reflection';
 export interface DailyBrief { phase: 'Morning' | 'Daytime' | 'After training' | 'Evening'; title: string; body: string; action: BriefAction; actionLabel: string; evidence: string[] }
 export interface BriefInput {

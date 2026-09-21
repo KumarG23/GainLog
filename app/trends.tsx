@@ -337,7 +337,7 @@ export default function TrendsScreen() {
 
   useEffect(() => {
     if (trendSummaryRequest.points.length < 2) {
-      setTrendSummary('Need at least two observed points before Sol can interpret this chart.');
+      setTrendSummary('Need at least two observed points before GainLog can interpret this chart.');
       setTrendSummaryLoading(false);
       setTrendSummaryError(false);
       return undefined;
@@ -360,7 +360,7 @@ export default function TrendsScreen() {
         if (!controller.signal.aborted) setTrendSummary(result.summary);
       } catch (error) {
         if (!controller.signal.aborted) {
-          console.warn('Sol trend summary unavailable', error);
+          console.warn('Trend summary unavailable', error);
           setTrendSummaryError(true);
         }
       } finally {
@@ -505,7 +505,7 @@ export default function TrendsScreen() {
         <View style={styles.solTakeCard}>
           <View style={styles.solTakeHeader}>
             <Ionicons name="sparkles" size={16} color={Colors.primary} />
-            <Text style={styles.solTakeLabel}>SOL TAKE</Text>
+            <Text style={styles.solTakeLabel}>GAINLOG TAKE</Text>
           </View>
           {trendSummaryLoading ? (
             <View style={styles.solTakeLoading}>
@@ -514,7 +514,7 @@ export default function TrendsScreen() {
             </View>
           ) : trendSummaryError ? (
             <View style={styles.solTakeErrorRow}>
-              <Text style={styles.solTakeMuted}>Sol is unavailable; the chart data is unchanged.</Text>
+              <Text style={styles.solTakeMuted}>Trend interpretation is unavailable; the chart data is unchanged.</Text>
               <TouchableOpacity
                 style={styles.solTakeRetry}
                 onPress={() => setTrendSummaryRetry(value => value + 1)}

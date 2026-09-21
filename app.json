@@ -2,7 +2,7 @@
   "expo": {
     "name": "GainLog",
     "slug": "gainlog",
-    "version": "1.1.20",
+    "version": "1.1.21",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "gainlog",
@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.gainlog.app",
-      "buildNumber": "31",
+      "buildNumber": "32",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -24,6 +24,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "package": "com.gainlog.app",
+      "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "android.permission.health.READ_STEPS",
         "android.permission.health.READ_DISTANCE",
@@ -41,7 +42,7 @@
         "android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND",
         "android.permission.health.READ_HEALTH_DATA_HISTORY"
       ],
-      "versionCode": 37,
+      "versionCode": 38,
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },

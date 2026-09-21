@@ -309,10 +309,11 @@ test('trend summary requests contain only bounded selected chart data and the ac
   assert.equal('goal' in request, false);
 });
 
-test('Trends automatically shows a cached Sol Take for the selected metric and range', () => {
+test('Trends automatically shows a cached model-neutral take for the selected metric and range', () => {
   const screen = readFileSync(new URL('../app/trends.tsx', import.meta.url), 'utf8');
   assert.match(screen, /\/coach\/trend-summary/);
-  assert.match(screen, /SOL TAKE/);
+  assert.match(screen, /GAINLOG TAKE/);
+  assert.doesNotMatch(screen, /Sol is unavailable/);
   assert.match(screen, /buildTrendSummaryRequest/);
   assert.match(screen, /AbortController/);
   assert.match(screen, /Need at least two observed points/);

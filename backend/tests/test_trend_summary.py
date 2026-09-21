@@ -17,7 +17,7 @@ def _payload(values=(72, 78, 75)):
     }
 
 
-def test_trend_summary_uses_sol_and_frames_deep_sleep_as_a_personal_wearable_trend(
+def test_trend_summary_uses_luna_and_frames_deep_sleep_as_a_personal_wearable_trend(
     client,
     monkeypatch,
 ):
@@ -44,14 +44,13 @@ def test_trend_summary_uses_sol_and_frames_deep_sleep_as_a_personal_wearable_tre
     body = response.json()
     assert body["summary"].startswith("Your deep-sleep estimate")
     assert body["cached"] is False
-    assert body["model"] == "gpt-5.6-sol"
+    assert body["model"] == "gpt-5.6-luna"
     assert body["generatedAt"]
     assert provider_config == {
         "model_env_var": "GAINLOG_TREND_SUMMARY_MODEL",
-        "default_model": "gpt-5.6-sol",
+        "default_model": "gpt-5.6-luna",
         "allow_fallback": False,
         "provider_override": "luna-proxy",
-        "model_override": "gpt-5.6-sol",
     }
 
     prompt = calls[0]
@@ -89,6 +88,28 @@ def test_trend_summary_reuses_cache_until_the_underlying_data_changes(client, mo
         rows = db.exec(main.select(main.TrendSummaryDB)).all()
         assert len(rows) == 2
         assert len({row.data_hash for row in rows}) == 2
+
+
+def test_trend_summary_cache_is_scoped_to_the_selected_model(client, monkeypatch):
+    calls = []
+
+    class FakeProvider:
+        def generate(self, _: str) -> str:
+            calls.append(True)
+            return f"Model-specific summary {len(calls)}. Keep watching the multi-day direction."
+
+    monkeypatch.setattr(main, "get_coach_provider", lambda **_: FakeProvider())
+    monkeypatch.setenv("GAINLOG_TREND_SUMMARY_MODEL", "gpt-5.6-luna")
+    luna = client.post("/coach/trend-summary", json=_payload())
+    monkeypatch.setenv("GAINLOG_TREND_SUMMARY_MODEL", "gpt-5.6-sol")
+    sol = client.post("/coach/trend-summary", json=_payload())
+
+    assert luna.status_code == sol.status_code == 200
+    assert luna.json()["model"] == "gpt-5.6-luna"
+    assert sol.json()["model"] == "gpt-5.6-sol"
+    assert luna.json()["cached"] is False
+    assert sol.json()["cached"] is False
+    assert len(calls) == 2
 
 
 def test_trend_summary_rejects_unknown_metrics_and_insufficient_points(client):

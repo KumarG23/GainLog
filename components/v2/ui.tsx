@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, type Href } from 'expo-router';
@@ -16,13 +16,13 @@ export function BrandMark({ size = 36 }: { size?: number }) {
 }
 export function Sheet({ visible, title, onClose, children }: React.PropsWithChildren<{ visible: boolean; title: string; onClose: () => void }>) {
   return <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-    <View style={s.overlay}>
+    <KeyboardAvoidingView style={s.overlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close details" accessibilityRole="button" />
       <SafeAreaView style={s.sheet} edges={['bottom']} accessibilityViewIsModal>
         <View style={s.row}><Text style={s.heading} accessibilityRole="header">{title}</Text><Pressable onPress={onClose} style={s.iconButton} accessibilityRole="button" accessibilityLabel="Close"><Ionicons name="close" size={24} color={C.text} /></Pressable></View>
-        <ScrollView contentContainerStyle={s.sheetContent}>{children}</ScrollView>
+        <ScrollView contentContainerStyle={s.sheetContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">{children}</ScrollView>
       </SafeAreaView>
-    </View>
+    </KeyboardAvoidingView>
   </Modal>;
 }
 export function QuickLog() {
