@@ -39,3 +39,5 @@ test('full V2 shell restores the old Health route as weight and goal tools', () 
   process.env.EXPO_PUBLIC_GAINLOG_V2_SHELL = '1';
   try { assert.equal(isHealthV2TodayEnabled('1'), false); } finally { delete process.env.EXPO_PUBLIC_GAINLOG_V2_SHELL; }
 });
+
+import "./dayJourney.test.mjs";

@@ -3171,3 +3171,12 @@ def get_insight(session_id: str, db: Session = Depends(get_db)):
     db.add(row)
     db.commit()
     return InsightResponse(insight=legacy_insight, coach_insight=coach_insight)
+
+
+# Additive, explicit check-ins and planning preferences. Registered before lifespan
+# runs so the existing cross-dialect schema setup creates only the new tables.
+try:
+    from .journey import create_journey_router
+except ImportError:
+    from journey import create_journey_router
+app.include_router(create_journey_router(get_db))

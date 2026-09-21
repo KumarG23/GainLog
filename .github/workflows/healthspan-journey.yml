@@ -2,14 +2,6 @@ name: Healthspan journey checks
 on:
   push:
     branches: [feat/healthspan-v2-shell]
-  pull_request:
-    branches: [main]
-    paths:
-      - '**/*.ts'
-      - '**/*.tsx'
-      - '**/*.mjs'
-      - 'backend/**'
-      - '.github/workflows/healthspan-journey.yml'
 permissions:
   contents: read
 concurrency:
@@ -38,6 +30,14 @@ jobs:
         with:
           node-version: '24'
           cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r backend/requirements.txt
+      - name: Backend tests on isolated fixtures
+        run: python -m pytest backend/tests -q
+        env:
+          GAINLOG_DATABASE_URL: sqlite:////tmp/gainlog-test.db
       - run: npm ci
       - run: npm test
       - run: npx tsc --noEmit

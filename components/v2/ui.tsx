@@ -30,7 +30,7 @@ export function QuickLog() {
   const go = (href: string) => { setOpen(false); router.push(href as Href); };
   return <><Pressable onPress={() => setOpen(true)} style={[s.iconButton, s.add]} accessibilityRole="button" accessibilityLabel="Quick log"><Ionicons name="add" size={24} color={C.background} /></Pressable>
     <Sheet visible={open} title="Add to your day" onClose={() => setOpen(false)}>
-      <Action title="Log a workout" detail="Your existing templates, sets and cardio" icon="barbell-outline" onPress={() => go('/(tabs)')} />
+      <Action title="Log a workout" detail="Your existing templates, sets and cardio" icon="barbell-outline" onPress={() => go(isHealthspanEnabled() ? '/workout' : '/(tabs)')} />
       <Action title="Log food" detail="Meals, protein, fiber and energy" icon="restaurant-outline" onPress={() => go('/(tabs)/nutrition')} />
       {isHealthspanEnabled() && <Action title="Weight & goals" detail="Record weight or manage your targets" icon="scale-outline" onPress={() => go('/(tabs)/health')} />}
       <Text style={s.note}>Nothing is saved until you submit the entry form.</Text>
