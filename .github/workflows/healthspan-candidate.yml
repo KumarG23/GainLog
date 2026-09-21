@@ -28,12 +28,6 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: pip install -r backend/requirements.txt
-      - name: Full backend tests on isolated synthetic fixtures
-        run: python -m pytest backend/tests -q
       - run: npm ci
       - name: Full frontend tests
         run: npm test
@@ -57,11 +51,17 @@ jobs:
           EXPO_PUBLIC_GAINLOG_V2_SHELL: '0'
           EXPO_PUBLIC_GAINLOG_V2_TODAY: '0'
         run: npx expo export --platform web --output-dir dist-journey-rollback
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r backend/requirements.txt
+      - name: Full backend tests on isolated synthetic fixtures
+        run: python -m pytest backend/tests -q
       - name: Package exact verified source
         run: |
           git diff --exit-code
-          test "$(git write-tree)" = cfa26095b3a09a9d8c80b1f055f72e8c9542f3cb
-          git archive --format=tar --output=connected-day-source.tar cfa26095b3a09a9d8c80b1f055f72e8c9542f3cb
+          test "$(git write-tree)" = 8691c9d60dd6845d1b8a5a0893abc495d6f2d3db
+          git archive --format=tar --output=connected-day-source.tar 8691c9d60dd6845d1b8a5a0893abc495d6f2d3db
       - uses: actions/upload-artifact@v4
         with:
           name: connected-day-verified-source
@@ -86,7 +86,7 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'feat: connect daily briefs, check-ins, sleep plans and healthspan foundations' -m 'Verified source tree cfa26095b3a09a9d8c80b1f055f72e8c9542f3cb. Full frontend/backend tests, application types, lint and V2/rollback exports passed before publication. No native APK or production deployment performed.'
+          git commit -m 'feat: connect daily briefs, check-ins, sleep plans and healthspan foundations' -m 'Verified source tree 8691c9d60dd6845d1b8a5a0893abc495d6f2d3db. Full frontend/backend tests, application types, lint and V2/rollback exports passed before publication. No native APK or production deployment performed.'
           auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/feat/healthspan-v2-shell
-          printf 'Published source commit: `%s`\n\nVerified tree: `cfa26095b3a09a9d8c80b1f055f72e8c9542f3cb`\n' "$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Published source commit: `%s`\n\nVerified tree: `8691c9d60dd6845d1b8a5a0893abc495d6f2d3db`\n' "$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
