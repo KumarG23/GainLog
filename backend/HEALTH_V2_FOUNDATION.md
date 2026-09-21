@@ -106,3 +106,16 @@ The Recovery evaluator:
 - emits aggregate-only CLI receipts and remains disconnected from APIs, coaching, persistence, and UI.
 
 Production aggregate evaluation over the same 32-day window found 32 available days, a score range of 52–100, and a median of 81.5: 18 high, 12 moderate, and 2 low days. All 32 days had Sleep; the trailing-baseline gate admitted HRV on 18 days and resting heart rate on 19. Median confidence was 1.0, with early Sleep-only days as low as 0.34. Component medians were 88.5 for Sleep, 75.5 for HRV, and 77 for resting heart rate. These results are calibration evidence only; longitudinal face-validity review is still required before exposure.
+
+`health_v2_load_model.py` is the third read-only Phase 2 evaluator. Version `0.1-experimental` derives training load from reconciled exercise duration and only the raw heart-rate-zone intervals that overlap those sessions.
+
+The Load evaluator:
+
+- gives every exercise minute one base load point, then adds one point per moderate minute, two per vigorous minute, and three per peak minute;
+- treats uncovered exercise time as base load rather than a penalty and scales overlapping zone totals down to session duration so duplicate/overlapping telemetry cannot inflate load;
+- distinguishes a supported rest day from unavailable data by requiring a heart-rate quality observation when no exercise session exists;
+- reports confidence from exercise-session availability plus zone coverage, capped at 0.5 for partial days;
+- compares active days with the median of at least seven active days inside the prior 28 calendar days, labeling the result low below 0.75×, typical from 0.75–1.25×, and high above 1.25×;
+- emits aggregate-only receipts and remains disconnected from APIs, coaching, persistence, and UI.
+
+Production aggregate evaluation for 2026-08-21 through 2026-09-21 found all 32 days available: 24 active and 8 supported rest days. Daily load ranged from 0–380 with a median of 133; active-day load ranged from 38–380 with a median of 145. After the baseline gate, states were 5 low, 8 typical, and 4 high, while 7 early active days remained observed-only. Heart-rate-zone coverage on active days ranged from 0.89–1.0 with a median of 1.0; confidence ranged from 0.5–1.0 with a median of 1.0. The broader 94-day window correctly left 61 days unavailable because retained exercise/heart-rate evidence existed for only 33 days. This is calibration evidence only, not authorization to expose or coach from the model.
