@@ -133,12 +133,23 @@ Run the following device checks before marking the pull request ready:
 6. Review screenshots on-device, confirm no clinical certainty or live-sync claim,
    and compare a few displayed observations with the actual backend response.
 
-After the gates pass, build with the existing EAS credentials/release workflow:
+After the gates pass, use GainLog's established local signed-release workflow. The
+`healthspan-preview` EAS profile remains available, but EAS authentication is not
+required for Neal's normal private APK delivery path:
 
 ```sh
-eas build --platform android --profile healthspan-preview
+EXPO_PUBLIC_GAINLOG_V2_SHELL=1 npx expo prebuild --platform android
+# Reapply the established release-signing configuration after prebuild.
+NODE_ENV=production \
+  EXPO_PUBLIC_API_URL='https://gainlog-api.tailc88c35.ts.net' \
+  EXPO_PUBLIC_GAINLOG_V2_SHELL=1 \
+  ./android/gradlew -p android \
+    :react-native-worklets:prefabReleasePackage \
+    app:assembleRelease \
+    -PreactNativeArchitectures=arm64-v8a
 ```
 
-Deliver the resulting APK to the user through the established delivery channel.
-Record commands, results, screenshots and build identifier in the pull request.
-The build/deployment steps above have not been executed by ChatGPT.
+Increment `versionCode`, preserve the established signing certificate, and verify
+package/version/ABI/signature before checksum-verified delivery to
+`Downloads/Jarvis-APK`. Record commands, results, screenshots and the local build
+identity in the pull request. Do not use an OTA-only update for branding changes.
