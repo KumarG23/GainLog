@@ -4,7 +4,7 @@ import test from 'node:test';
 
 import * as workoutTemplates from '../utils/workoutTemplates.ts';
 
-const logScreen = readFileSync(new URL('../app/(tabs)/index.tsx', import.meta.url), 'utf8');
+const logScreen = readFileSync(new URL('../app/(tabs)/workout.tsx', import.meta.url), 'utf8');
 
 const {
   PLANET_FITNESS_TEMPLATES,

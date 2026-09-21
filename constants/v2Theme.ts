@@ -7,13 +7,15 @@ export const V2Colors = {
   secondary: '#7C8CFF',
   text: '#F4F7FA',
   textSecondary: '#9BA8B6',
-  textMuted: '#647383',
+  textMuted: '#8E9DAC',
   positive: '#55D98C',
   caution: '#F2C14E',
   alert: '#FF7272',
   divider: '#243241',
   missing: '#34414E',
   future: '#141D27',
+  activity: '#6AB6E9',
+  sleep: '#94A6D4',
 };
 
 export const V2LightColors = {

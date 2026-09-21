@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 
 const source = path => readFileSync(new URL(path, import.meta.url), 'utf8');
 const theme = source('../constants/theme.ts');
-const log = source('../app/(tabs)/index.tsx');
+const log = source('../app/(tabs)/workout.tsx');
 const history = source('../app/(tabs)/history.tsx');
 const stats = source('../app/(tabs)/stats.tsx');
 const health = source('../app/(tabs)/health.tsx');

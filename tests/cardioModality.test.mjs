@@ -35,7 +35,7 @@ test('recovery and optional finisher drafts can swap without changing plan ident
 });
 
 test('Log and history wire separate incline storage and cardio swaps outside strength template guard', () => {
-  const log = readFileSync(new URL('../app/(tabs)/index.tsx', import.meta.url), 'utf8');
+  const log = readFileSync(new URL('../app/(tabs)/workout.tsx', import.meta.url), 'utf8');
   const history = readFileSync(new URL('../app/session/[id].tsx', import.meta.url), 'utf8');
   assert.match(log, /cardioSwapChoices\(exercise.name, exercise.kind\)/);
   assert.match(log, /current.kind === 'cardio'[\s\S]*swapCardioModality[\s\S]*if \(!selectedTemplateId\) return/);
