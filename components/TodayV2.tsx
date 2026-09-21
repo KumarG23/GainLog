@@ -42,7 +42,7 @@ function RecoveryArc({ score, state }: { score: number | null; state: string }) 
   const progress = score == null ? 0 : Math.max(0, Math.min(100, score));
   return (
     <View style={styles.arcWrap} accessibilityLabel={`Recovery ${score ?? 'unavailable'}, ${stateLabel(state)}`}>
-      <Svg width={222} height={126} viewBox="0 0 222 126" accessibilityElementsHidden>
+      <Svg width={222} height={126} viewBox="0 0 222 126">
         <Path
           d="M 21 111 A 90 90 0 0 1 201 111"
           fill="none"
