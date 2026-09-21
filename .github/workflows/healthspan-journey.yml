@@ -1,0 +1,60 @@
+name: Healthspan journey checks
+on:
+  push:
+    branches: [feat/healthspan-v2-shell]
+  pull_request:
+    branches: [main]
+    paths:
+      - '**/*.ts'
+      - '**/*.tsx'
+      - '**/*.mjs'
+      - 'backend/**'
+      - '.github/workflows/healthspan-journey.yml'
+permissions:
+  contents: read
+concurrency:
+  group: healthspan-journey-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CI: '1'
+      TZ: America/New_York
+      EXPO_NO_TELEMETRY: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Package exact review source
+        run: git archive --format=tar --output=review-source.tar HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: journey-review-source
+          path: review-source.tar
+          retention-days: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npx tsc --noEmit
+      - run: npm run lint
+      - name: Export V2 web and Android JavaScript
+        env:
+          EXPO_PUBLIC_GAINLOG_V2_SHELL: '1'
+        run: |
+          npx expo export --platform web --output-dir dist-journey-web
+          npx expo export --platform android --output-dir dist-journey-android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: journey-web-preview
+          path: dist-journey-web
+          retention-days: 1
+      - name: Export rollback navigation
+        env:
+          EXPO_PUBLIC_GAINLOG_V2_SHELL: '0'
+          EXPO_PUBLIC_GAINLOG_V2_TODAY: '0'
+        run: npx expo export --platform web --output-dir dist-journey-rollback
