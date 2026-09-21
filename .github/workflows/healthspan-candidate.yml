@@ -1,0 +1,92 @@
+name: Connected day candidate verification
+on:
+  push:
+    branches: [feat/healthspan-v2-shell]
+permissions:
+  contents: read
+concurrency:
+  group: connected-day-candidate
+  cancel-in-progress: true
+jobs:
+  verify:
+    if: contains(github.event.head_commit.message, '[journey-candidate]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: '1'
+      TZ: America/New_York
+      EXPO_NO_TELEMETRY: '1'
+      GAINLOG_DATABASE_URL: sqlite:////tmp/gainlog-test.db
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Apply and verify exact reviewed source
+        run: python .journey-delivery/apply.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r backend/requirements.txt
+      - name: Full backend tests on isolated synthetic fixtures
+        run: python -m pytest backend/tests -q
+      - run: npm ci
+      - name: Full frontend tests
+        run: npm test
+      - name: Full application TypeScript
+        run: npx tsc --noEmit
+      - name: Lint
+        run: npm run lint
+      - name: V2 web and Android JavaScript exports
+        env:
+          EXPO_PUBLIC_GAINLOG_V2_SHELL: '1'
+        run: |
+          npx expo export --platform web --output-dir dist-journey-web
+          npx expo export --platform android --output-dir dist-journey-android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: connected-day-web-preview
+          path: dist-journey-web
+          retention-days: 1
+      - name: Rollback web export
+        env:
+          EXPO_PUBLIC_GAINLOG_V2_SHELL: '0'
+          EXPO_PUBLIC_GAINLOG_V2_TODAY: '0'
+        run: npx expo export --platform web --output-dir dist-journey-rollback
+      - name: Package exact verified source
+        run: |
+          git diff --exit-code
+          test "$(git write-tree)" = cfa26095b3a09a9d8c80b1f055f72e8c9542f3cb
+          git archive --format=tar --output=connected-day-source.tar cfa26095b3a09a9d8c80b1f055f72e8c9542f3cb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: connected-day-verified-source
+          path: connected-day-source.tar
+          retention-days: 1
+  publish_verified_source:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Reproduce the verified tree without executing application code
+        run: python .journey-delivery/apply.py
+      - name: Commit the verified source to the existing preview branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: connect daily briefs, check-ins, sleep plans and healthspan foundations' -m 'Verified source tree cfa26095b3a09a9d8c80b1f055f72e8c9542f3cb. Full frontend/backend tests, application types, lint and V2/rollback exports passed before publication. No native APK or production deployment performed.'
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/feat/healthspan-v2-shell
+          printf 'Published source commit: `%s`\n\nVerified tree: `cfa26095b3a09a9d8c80b1f055f72e8c9542f3cb`\n' "$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
