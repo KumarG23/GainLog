@@ -24,7 +24,8 @@ export function healthV2Tone(metric: HealthV2Metric, state: string): HealthV2Ton
 }
 
 export function isHealthV2TodayEnabled(value = process.env.EXPO_PUBLIC_GAINLOG_V2_TODAY) {
-  return value === '1';
+  // The full V2 shell owns Today; the legacy Health route remains management.
+  return value === '1' && process.env.EXPO_PUBLIC_GAINLOG_V2_UI !== '1';
 }
 
 export function formatDuration(minutes?: number | null) {

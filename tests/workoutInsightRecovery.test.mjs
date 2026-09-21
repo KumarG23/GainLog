@@ -14,7 +14,7 @@ const { requestWorkoutInsight } = await import(
   `data:text/javascript;base64,${Buffer.from(insightModule).toString('base64')}`
 );
 
-const logScreen = readFileSync(new URL('../app/(tabs)/index.tsx', import.meta.url), 'utf8');
+const logScreen = readFileSync(new URL('../app/(tabs)/workout.tsx', import.meta.url), 'utf8');
 
 const coachInsight = {
   headline: 'Recovery session complete',

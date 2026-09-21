@@ -1,4 +1,6 @@
-export const Colors = {
+import { V2Colors } from './v2Theme';
+
+const LegacyColors = {
   background: '#0D0D0D',
   surface: '#1C1C1E',
   surfaceRaised: '#222225',
@@ -26,6 +28,19 @@ export const Colors = {
   tabBar: '#111111',
   separator: '#2C2C2E',
 };
+
+// Reuse the same semantic tokens in legacy editors and new overview screens.
+export const Colors = process.env.EXPO_PUBLIC_GAINLOG_V2_UI === '1' ? {
+  ...LegacyColors,
+  background: V2Colors.background, surface: V2Colors.surface,
+  surfaceRaised: V2Colors.elevated, card: V2Colors.elevated,
+  cardBorder: V2Colors.divider, primary: '#258476',
+  primaryDim: V2Colors.primaryDim, primaryDark: '#238E80',
+  text: V2Colors.text, textSecondary: V2Colors.textSecondary, textMuted: V2Colors.textMuted,
+  border: V2Colors.divider, borderSubtle: V2Colors.divider,
+  inputBg: V2Colors.surface, tabBar: V2Colors.surface, separator: V2Colors.divider,
+  success: V2Colors.positive, warning: V2Colors.caution, danger: V2Colors.alert,
+} : LegacyColors;
 
 export const Spacing = {
   xs: 4,

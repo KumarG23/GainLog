@@ -1,3 +1,5 @@
+import { TodayHealthProvider } from '../context/TodayHealthContext';
+import { isHealthspanUIEnabled } from '../utils/healthspan';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
@@ -15,6 +17,7 @@ export default function RootLayout() {
   return (
     <WorkoutsProvider>
       <HealthProvider>
+        <TodayHealthProvider enabled={isHealthspanUIEnabled()}>
         <MealNotificationCoordinator />
         <HealthConnectSyncCoordinator />
         <StatusBar style="light" />
@@ -27,6 +30,7 @@ export default function RootLayout() {
             animation: 'slide_from_right',
           }}
         >
+          <Stack.Screen name="health-metric" options={{ title: 'Your signals' }} />
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen
             name="session/[id]"
@@ -50,6 +54,7 @@ export default function RootLayout() {
             }}
           />
         </Stack>
+      </TodayHealthProvider>
       </HealthProvider>
     </WorkoutsProvider>
   );

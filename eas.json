@@ -13,6 +13,17 @@
     },
     "production": {
       "autoIncrement": true
+    },
+    "healthspan-preview": {
+      "extends": "preview",
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_GAINLOG_V2_UI": "1",
+        "EXPO_PUBLIC_GAINLOG_V2_TODAY": "0"
+      },
+      "android": {
+        "buildType": "apk"
+      }
     }
   },
   "submit": {
