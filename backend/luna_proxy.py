@@ -11,8 +11,13 @@ from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 PROVIDER = "openai-codex"
-MODEL = "gpt-5.6-luna"
-AllowedModel = Literal["gpt-5.6-luna", "gpt-5.6-sol"]
+MODEL = "gpt-6-luna"
+AllowedModel = Literal[
+    "gpt-6-luna",
+    "gpt-6-sol",
+    "gpt-5.6-luna",
+    "gpt-5.6-sol",
+]
 
 
 @dataclass(frozen=True)

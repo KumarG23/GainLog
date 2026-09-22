@@ -11,7 +11,7 @@ def test_luna_proxy_requires_auth_and_returns_openai_shape(monkeypatch):
     app = create_app(
         generate_fn=lambda prompt, model: SimpleNamespace(
             text=f"Luna reviewed: {prompt}",
-            model="gpt-5.6-luna",
+            model="gpt-6-luna",
         )
     )
     client = TestClient(app)
@@ -21,7 +21,7 @@ def test_luna_proxy_requires_auth_and_returns_openai_shape(monkeypatch):
     assert health.json() == {
         "status": "ok",
         "provider": "openai-codex",
-        "model": "gpt-5.6-luna",
+        "model": "gpt-6-luna",
         "requests": 0,
         "successes": 0,
         "failures": 0,
@@ -37,7 +37,7 @@ def test_luna_proxy_requires_auth_and_returns_openai_shape(monkeypatch):
         "/v1/chat/completions",
         headers={"Authorization": "Bearer test-secret"},
         json={
-            "model": "gpt-5.6-luna",
+            "model": "gpt-6-luna",
             "messages": [{"role": "user", "content": "Review today"}],
             "max_tokens": 256,
         },
@@ -45,7 +45,7 @@ def test_luna_proxy_requires_auth_and_returns_openai_shape(monkeypatch):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["model"] == "gpt-5.6-luna"
+    assert body["model"] == "gpt-6-luna"
     assert body["choices"][0]["message"] == {
         "role": "assistant",
         "content": "Luna reviewed: Review today",
@@ -79,7 +79,7 @@ def test_luna_proxy_honors_sol_and_rejects_unapproved_models(monkeypatch):
         calls.append(args)
         return SimpleNamespace(
             text="Sol reviewed the completed week.",
-            model="gpt-5.6-sol",
+            model="gpt-6-sol",
         )
 
     client = TestClient(create_app(generate_fn=generate))
@@ -87,14 +87,14 @@ def test_luna_proxy_honors_sol_and_rejects_unapproved_models(monkeypatch):
         "/v1/chat/completions",
         headers={"Authorization": "Bearer test-secret"},
         json={
-            "model": "gpt-5.6-sol",
+            "model": "gpt-6-sol",
             "messages": [{"role": "user", "content": "Review the week"}],
         },
     )
 
     assert sol_response.status_code == 200
-    assert sol_response.json()["model"] == "gpt-5.6-sol"
-    assert calls == [("Review the week", "gpt-5.6-sol")]
+    assert sol_response.json()["model"] == "gpt-6-sol"
+    assert calls == [("Review the week", "gpt-6-sol")]
 
     rejected = client.post(
         "/v1/chat/completions",
@@ -107,13 +107,33 @@ def test_luna_proxy_honors_sol_and_rejects_unapproved_models(monkeypatch):
     assert rejected.status_code == 422
 
 
+def test_luna_proxy_keeps_gpt_56_routes_as_explicit_rollback(monkeypatch):
+    monkeypatch.setenv("GAINLOG_COACH_PROXY_KEY", "test-secret")
+
+    def generate(prompt, model):
+        return SimpleNamespace(text=prompt, model=model)
+
+    client = TestClient(create_app(generate_fn=generate))
+    for model in ("gpt-5.6-luna", "gpt-5.6-sol"):
+        response = client.post(
+            "/v1/chat/completions",
+            headers={"Authorization": "Bearer test-secret"},
+            json={
+                "model": model,
+                "messages": [{"role": "user", "content": "Rollback probe"}],
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["model"] == model
+
+
 def test_luna_proxy_fails_closed_when_actual_model_differs(monkeypatch):
     monkeypatch.setenv("GAINLOG_COACH_PROXY_KEY", "test-secret")
     client = TestClient(
         create_app(
             generate_fn=lambda prompt, model: SimpleNamespace(
                 text="Fallback output must not be relabeled.",
-                model="gpt-5.6-luna",
+                model="gpt-6-luna",
             )
         )
     )
@@ -122,7 +142,7 @@ def test_luna_proxy_fails_closed_when_actual_model_differs(monkeypatch):
         "/v1/chat/completions",
         headers={"Authorization": "Bearer test-secret"},
         json={
-            "model": "gpt-5.6-sol",
+            "model": "gpt-6-sol",
             "messages": [{"role": "user", "content": "Review the week"}],
         },
     )
@@ -135,7 +155,7 @@ def test_generate_with_model_rejects_an_internal_fallback(monkeypatch):
     def fake_call_llm(**kwargs):
         route_info = kwargs.get("route_info")
         assert route_info is not None
-        route_info.update(provider="openai-codex", model="gpt-5.6-luna")
+        route_info.update(provider="openai-codex", model="gpt-6-luna")
         return SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content="Fallback", reasoning_content=None))]
         )
@@ -146,4 +166,4 @@ def test_generate_with_model_rejects_an_internal_fallback(monkeypatch):
     )
 
     with pytest.raises(RuntimeError, match="Unexpected coach route"):
-        generate_with_model("Review the week", "gpt-5.6-sol")
+        generate_with_model("Review the week", "gpt-6-sol")

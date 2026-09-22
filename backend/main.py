@@ -1828,10 +1828,10 @@ def generate_trend_summary(payload: TrendSummaryIn, db: Session = Depends(get_db
     try:
         provider = get_coach_provider(
             model_env_var="GAINLOG_TREND_SUMMARY_MODEL",
-            default_model="gpt-5.6-sol",
+            default_model="gpt-6-sol",
             allow_fallback=False,
             provider_override="luna-proxy",
-            model_override="gpt-5.6-sol",
+            model_override="gpt-6-sol",
         )
         summary = _normalize_trend_summary(provider.generate(_build_trend_summary_prompt(payload)))
     except Exception as exc:
@@ -1842,14 +1842,14 @@ def generate_trend_summary(payload: TrendSummaryIn, db: Session = Depends(get_db
         cache_key=cache_key,
         data_hash=data_hash,
         summary=summary,
-        model="gpt-5.6-sol",
+        model="gpt-6-sol",
         generated_at=generated_at,
     ).on_conflict_do_update(
         index_elements=[TrendSummaryDB.cache_key],
         set_={
             "data_hash": data_hash,
             "summary": summary,
-            "model": "gpt-5.6-sol",
+            "model": "gpt-6-sol",
             "generated_at": generated_at,
         },
     )
@@ -2094,7 +2094,7 @@ def generate_weekly_review(
     try:
         review_text = get_coach_provider(
             model_env_var="GAINLOG_WEEKLY_REVIEW_MODEL",
-            default_model="gpt-5.6-sol",
+            default_model="gpt-6-sol",
         ).generate(prompt)
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Weekly review unavailable") from exc

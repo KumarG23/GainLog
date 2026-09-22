@@ -110,7 +110,7 @@ class AnthropicCoachProvider:
 def get_coach_provider(
     *,
     model_env_var: str = "GAINLOG_COACH_MODEL",
-    default_model: str = "gpt-5.6-luna",
+    default_model: str = "gpt-6-luna",
     allow_fallback: bool = True,
     provider_override: str | None = None,
     model_override: str | None = None,

@@ -44,14 +44,14 @@ def test_trend_summary_uses_sol_and_frames_deep_sleep_as_a_personal_wearable_tre
     body = response.json()
     assert body["summary"].startswith("Your deep-sleep estimate")
     assert body["cached"] is False
-    assert body["model"] == "gpt-5.6-sol"
+    assert body["model"] == "gpt-6-sol"
     assert body["generatedAt"]
     assert provider_config == {
         "model_env_var": "GAINLOG_TREND_SUMMARY_MODEL",
-        "default_model": "gpt-5.6-sol",
+        "default_model": "gpt-6-sol",
         "allow_fallback": False,
         "provider_override": "luna-proxy",
-        "model_override": "gpt-5.6-sol",
+        "model_override": "gpt-6-sol",
     }
 
     prompt = calls[0]

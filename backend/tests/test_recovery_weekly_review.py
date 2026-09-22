@@ -169,7 +169,7 @@ def test_weekly_review_compares_completed_week_to_preceding_baseline_and_persist
     assert body["generatedAt"]
     assert provider_config == {
         "model_env_var": "GAINLOG_WEEKLY_REVIEW_MODEL",
-        "default_model": "gpt-5.6-sol",
+        "default_model": "gpt-6-sol",
     }
 
     prompt = calls["prompt"]
