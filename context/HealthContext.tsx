@@ -7,6 +7,7 @@ import React, {
 } from 'react';
 import { API_URL } from '../constants/api';
 import { localDateKey, previousLocalDateKey } from '../utils/date';
+import { refreshIndependentDomains } from '../utils/domainRefresh';
 import {
   deleteNutritionEntryFromHealthConnect,
   writeNutritionEntryToHealthConnect,
@@ -41,6 +42,11 @@ interface HealthContextValue {
   weeklyReview: WeeklyReview | null;
   loading: boolean;
   error: string | null;
+  bodyWeightError: string | null;
+  goalsError: string | null;
+  nutritionError: string | null;
+  dailyHealthError: string | null;
+  dashboardError: string | null;
   nutritionHealthConnectError: string | null;
   refresh: () => Promise<void>;
   fetchNutritionEntries: (date?: string) => Promise<NutritionEntry[]>;
@@ -81,6 +87,11 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
   const [weeklyReview, setWeeklyReview] = useState<WeeklyReview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [bodyWeightError, setBodyWeightError] = useState<string | null>(null);
+  const [goalsError, setGoalsError] = useState<string | null>(null);
+  const [nutritionError, setNutritionError] = useState<string | null>(null);
+  const [dailyHealthError, setDailyHealthError] = useState<string | null>(null);
+  const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [nutritionHealthConnectError, setNutritionHealthConnectError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -89,34 +100,24 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
     try {
       const today = localDateKey();
       const completedWeekEnd = previousLocalDateKey();
-      const [weights, goalsData, nutrition, healthDaily, summary, coach, review, weekly] = await Promise.all([
-        apiFetch<BodyWeightEntry[]>('/body-weight/'),
-        apiFetch<Goal[]>('/goals/'),
-        apiFetch<NutritionEntry[]>('/nutrition/'),
-        apiFetch<HealthDaily[]>('/health-data/daily'),
-        apiFetch<DashboardSummary>(
-          `/dashboard/summary?date=${encodeURIComponent(today)}`,
-        ),
+      const optional = Promise.all([
         apiFetch<CoachStatus>('/coach/status').catch(() => null),
-        apiFetch<DailyReview>(
-          `/coach/daily-review?date=${encodeURIComponent(today)}`,
-        ).catch(() => null),
-        apiFetch<WeeklyReview>(
-          `/coach/weekly-review?weekEnd=${encodeURIComponent(completedWeekEnd)}`,
-        ).catch(() => null),
+        apiFetch<DailyReview>(`/coach/daily-review?date=${encodeURIComponent(today)}`).catch(() => null),
+        apiFetch<WeeklyReview>(`/coach/weekly-review?weekEnd=${encodeURIComponent(completedWeekEnd)}`).catch(() => null),
+      ]).then(([coach, review, weekly]) => {
+        setCoachStatus(coach);
+        setDailyReview(review);
+        setWeeklyReview(weekly);
+      });
+      const aggregate = await refreshIndependentDomains([
+        { name: 'body weight', setError: setBodyWeightError, run: async () => setBodyWeightEntries(await apiFetch<BodyWeightEntry[]>('/body-weight/')) },
+        { name: 'goals', setError: setGoalsError, run: async () => setGoals(await apiFetch<Goal[]>('/goals/')) },
+        { name: 'nutrition', setError: setNutritionError, run: async () => setNutritionEntries(await apiFetch<NutritionEntry[]>('/nutrition/')) },
+        { name: 'daily health', setError: setDailyHealthError, run: async () => setHealthDailyEntries(await apiFetch<HealthDaily[]>('/health-data/daily')) },
+        { name: 'dashboard', setError: setDashboardError, run: async () => setDashboardSummary(await apiFetch<DashboardSummary>(`/dashboard/summary?date=${encodeURIComponent(today)}`)) },
       ]);
-      setBodyWeightEntries(weights);
-      setGoals(goalsData);
-      setNutritionEntries(nutrition);
-      setHealthDailyEntries(healthDaily);
-      setDashboardSummary(summary);
-      setCoachStatus(coach);
-      setDailyReview(review);
-      setWeeklyReview(weekly);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Failed to load health data. Check your connection.',
-      );
+      setError(aggregate);
+      await optional;
     } finally {
       setLoading(false);
     }
@@ -128,9 +129,15 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
 
   const fetchNutritionEntries = useCallback(async (date?: string) => {
     const query = date ? `?date=${encodeURIComponent(date)}` : '';
-    const entries = await apiFetch<NutritionEntry[]>(`/nutrition/${query}`);
-    setNutritionEntries(entries);
-    return entries;
+    try {
+      const entries = await apiFetch<NutritionEntry[]>(`/nutrition/${query}`);
+      setNutritionEntries(entries);
+      setNutritionError(null);
+      return entries;
+    } catch (err) {
+      setNutritionError(err instanceof Error ? err.message : 'Failed to refresh nutrition.');
+      throw err;
+    }
   }, []);
 
   const addBodyWeightEntry = useCallback(async (data: CreateBodyWeightEntry) => {
@@ -243,6 +250,11 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
         weeklyReview,
         loading,
         error,
+        bodyWeightError,
+        goalsError,
+        nutritionError,
+        dailyHealthError,
+        dashboardError,
         nutritionHealthConnectError,
         refresh,
         fetchNutritionEntries,

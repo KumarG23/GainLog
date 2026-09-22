@@ -5,7 +5,7 @@ import type { HealthV2Today } from '../../types/healthV2';
 import type { SleepDetail } from '../../types/journey';
 import { journeyRequest } from '../../context/JourneyContext';
 import { daysBefore, duration, numberLabel, stateLabel } from '../../utils/healthspan';
-import { clockLabel, sleepTimingSpread, sourceClock } from '../../utils/dayJourney';
+import { buildSleepClockBasis, sleepTimingSpread } from '../../utils/dayJourney';
 import { V2Colors as C } from '../../constants/v2Theme';
 import { Sheet, Stat, s } from '../v2/ui';
 import { Button, j, WeekBars } from './primitives';
@@ -27,7 +27,7 @@ export function MetricDetails({ kind, today, onClose, onPlan }: { kind: 'recover
   }, [kind, today.date, retry]);
   const hrv = today.recovery.components.hrv, resting = today.recovery.components.restingHeartRate;
   const night = sleep?.night, span = night ? Date.parse(night.endUtc) - Date.parse(night.startUtc) : 0;
-  const start = night ? sourceClock(night.startUtc, night.startOffsetSeconds) : null, end = night ? sourceClock(night.endUtc, night.endOffsetSeconds) : null;
+  const clock = night ? buildSleepClockBasis(night, sleep?.stages ?? []) : null;
   const timing = sleep ? sleepTimingSpread(sleep.history) : null;
   const stage = sleep?.stages[stageIndex];
   const colors: Record<string, string> = { DEEP: '#6674E8', REM: C.secondary, LIGHT: C.primary, CORE: C.primary, AWAKE: C.caution, ASLEEP: '#4E9CD9' };
@@ -42,13 +42,13 @@ export function MetricDetails({ kind, today, onClose, onPlan }: { kind: 'recover
       <Text style={j.body}>Recorded sleep: {duration(today.sleep.components.duration?.valueMinutes)}. Missing inputs remain missing rather than turning into a poor score.</Text>
     </>}
     {kind === 'sleep' && <>
-      <Text style={j.title}>{duration(night?.minutesAsleep ?? today.sleep.components.duration?.valueMinutes)}</Text><Text style={j.body}>Recorded sleep · {start === null || end === null ? 'sleep timing not available' : `${clockLabel(start)} → ${clockLabel(end)} in the source’s local time`}</Text>
+      <Text style={j.title}>{duration(night?.minutesAsleep ?? today.sleep.components.duration?.valueMinutes)}</Text><Text style={j.body}>Recorded sleep · {!night || !clock ? 'sleep timing not available' : `${clock.format(night.startUtc)} → ${clock.format(night.endUtc)} · ${clock.label}`}</Text>
       {loading && <ActivityIndicator color={C.primary} />}
       {error && <View style={j.error}><Text style={j.body}>{error}</Text><Button secondary title="Retry sleep detail" onPress={() => setRetry(v => v + 1)} /></View>}
       {sleep?.timelineStatus === 'available' && span > 0 && <>
         <View style={{ height: 120, backgroundColor: C.background, position: 'relative', overflow: 'hidden', borderRadius: 12 }} accessible accessibilityLabel="Sleep stage timeline. Use previous and next stage for exact times.">{sleep.stages.map((st, i) => <View key={`${st.startUtc}-${i}`} style={{ position: 'absolute', left: `${(Date.parse(st.startUtc) - Date.parse(night!.startUtc)) / span * 100}%`, width: `${(Date.parse(st.endUtc) - Date.parse(st.startUtc)) / span * 100}%`, top: st.type.toUpperCase() === 'AWAKE' ? 8 : st.type.toUpperCase() === 'REM' ? 34 : st.type.toUpperCase() === 'DEEP' ? 86 : 60, height: 22, backgroundColor: colors[st.type.toUpperCase()] ?? C.missing, opacity: i === stageIndex ? 1 : 0.6 }} />)}</View>
         <Text style={j.note}>Awake · REM · Light/Core · Deep. Gaps remain unobserved.</Text>
-        {stage && <Text style={j.body}>{stateLabel(stage.type.toLowerCase())} · {duration((Date.parse(stage.endUtc) - Date.parse(stage.startUtc)) / 60000)} · {new Date(stage.startUtc).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })} UTC</Text>}
+        {stage && clock && <Text style={j.body}>{stateLabel(stage.type.toLowerCase())} · {duration((Date.parse(stage.endUtc) - Date.parse(stage.startUtc)) / 60000)} · {clock.format(stage.startUtc)} · {clock.label}</Text>}
         <View style={j.row}><Button secondary title="Previous stage" disabled={stageIndex <= 0} onPress={() => setStageIndex(i => i - 1)} /><Button secondary title="Next stage" disabled={stageIndex >= sleep.stages.length - 1} onPress={() => setStageIndex(i => i + 1)} /></View>
       </>}
       {sleep && sleep.timelineStatus !== 'available' && <Text style={j.body}>{sleep.timelineStatus === 'invalid' ? 'Detailed stages overlap or have invalid timing, so the timeline is withheld.' : 'Detailed stages are not available for this night. No replacement timeline is generated.'}</Text>}

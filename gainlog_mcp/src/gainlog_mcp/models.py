@@ -1,12 +1,18 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
 
 MAX_PAGE_OFFSET = 10000
+
+
+def owner_today() -> str:
+    """Owner-local calendar date; GainLog's current calendar basis is Eastern time."""
+    return datetime.now(ZoneInfo("America/New_York")).date().isoformat()
 
 
 class Closed(BaseModel):
@@ -100,6 +106,24 @@ class ReviewsRequest(PageRequest):
         return self
 
 
+class JourneyRequest(PageRequest):
+    @model_validator(mode="after")
+    def reject_future(self):
+        if self.end_date is not None and self.end_date > owner_today():
+            raise ValueError("future dates are not available")
+        return self
+
+
+class DayContextRequest(Closed):
+    date: str | None = None
+
+    @model_validator(mode="after")
+    def validate_date(self):
+        if self.date is not None and self.date > owner_today():
+            raise ValueError("future dates are not available")
+        return self
+
+
 def parse_date(value: str) -> date:
     try:
         parsed = date.fromisoformat(value)
@@ -113,6 +137,8 @@ def parse_date(value: str) -> date:
 class StoreFields(Closed):
     exported_at: str
     source_db_modified_at: str
+    source_fingerprint: str
+    journey_text_exposure: Literal["included", "withheld"]
     stale: bool
 
 
@@ -134,6 +160,16 @@ class CoverageDomains(Closed):
     daily_reviews: DomainCoverage
     weekly_reviews: DomainCoverage
     trend_summaries: DomainCoverage
+
+
+class JourneyCoverage(Closed):
+    days: int = Field(ge=0)
+    earliest_date: str | None
+    latest_date: str | None
+    rated_days: dict[Literal["energy", "soreness", "stress"], int]
+    preferences_present: bool
+    last_updated_at: str | None
+    text_exposure: Literal["included", "withheld"]
 
 
 class SourceConnection(Closed):
@@ -158,8 +194,9 @@ class Omissions(Closed):
 
 
 class CoverageResult(StoreFields):
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     domains: CoverageDomains
+    journey: JourneyCoverage
     source_connections: list[SourceConnection]
     health_connect_owned_days: int = Field(ge=0)
     source_semantics: str
@@ -340,3 +377,53 @@ class SavedReview(Closed):
 
 class ReviewsResult(PageFields):
     items: list[SavedReview] = Field(max_length=50)
+
+
+class JourneyDay(Closed):
+    date: str
+    revision: int = Field(ge=0)
+    updated_at: str | None
+    energy: int | None = Field(default=None, ge=1, le=5)
+    soreness: int | None = Field(default=None, ge=1, le=5)
+    stress: int | None = Field(default=None, ge=1, le=5)
+    training_intent: Literal["plan", "rest"] | None
+    note: str | None
+    stress_minute: int | None = Field(default=None, ge=0, le=1439)
+    reflection: str | None
+    nutrition_reviewed: bool
+    nutrition_reviewed_at: str | None
+
+
+class JourneyPreferences(Closed):
+    revision: int = Field(ge=0)
+    updated_at: str | None
+    wake_time: str | None
+    sleep_minutes: int | None
+    wind_down_minutes: int
+    weekly_focus: Literal["sleep", "movement", "strength", "nutrition", "stress"] | None
+
+
+class JourneyResult(PageFields):
+    items: list[JourneyDay] = Field(max_length=50)
+    current_preferences: JourneyPreferences | None
+    semantics: dict[str, str]
+
+
+class NutritionDaySummary(Closed):
+    entry_count: int = Field(ge=0)
+    calories: int
+    protein_g: float
+    carbs_g: float
+    fat_g: float
+    fiber_g: float
+
+
+class DayContextResult(StoreFields):
+    date: str
+    daily_health: DailyHealthEntry | None
+    workouts: list[WorkoutSummary] = Field(max_length=50)
+    nutrition: NutritionDaySummary | None
+    journey: JourneyDay | None
+    current_preferences: JourneyPreferences | None
+    semantics: dict[str, str]
+    coverage: dict[str, bool]

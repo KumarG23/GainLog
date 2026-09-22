@@ -45,7 +45,7 @@ URL input. The SSH sender accepts no arguments and rejects any nonempty
 Before atomic replacement on Hermes, the receiver requires all of the following from the
 same bounded stream: successful SSH exit, nonempty size at most 100 MiB, SQLite quick and
 foreign-key checks, exact application ID and schema version, exact table and ordered-column
-allowlist, exactly three metadata keys, valid UTC timestamps, no timestamp over five
+allowlist, exactly five metadata keys (including the source fingerprint and Journey-text policy), valid UTC timestamps, no timestamp over five
 minutes in the future, and age no greater than 15 minutes. Partial, malformed, oversized,
 future, stale, or nonzero-exit transfers fail without replacing the prior snapshot. The
 reader reports a retained snapshot as stale after 15 minutes rather than pretending the
@@ -128,7 +128,7 @@ parent maintenance path. Do not use a shared fixed `/tmp` path.
 
     test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
     uv build --wheel
-    sha256sum dist/gainlog_readonly_mcp-0.1.0-py3-none-any.whl
+    sha256sum dist/gainlog_readonly_mcp-0.2.0-py3-none-any.whl
 
 On every target, verify the recorded wheel checksum and every staged unit/config checksum
 before privileged installation. The source venv installs the wheel and its pinned SQLAlchemy/
@@ -157,7 +157,8 @@ Health-check first, then create the projection transfer identity and root-owned 
     systemctl is-active --quiet gainlog
     curl --fail --silent --show-error --output /dev/null http://100.80.191.75:8000/health
     install -o root -g root -m 0600 /dev/null /etc/gainlog-mcp.env
-    # Write only GAINLOG_MCP_DATABASE_URL for the read-only gainlog-mcp-source role.
+    # Write GAINLOG_MCP_DATABASE_URL for the read-only role. Journey text stays withheld
+    # unless the owner explicitly adds GAINLOG_MCP_INCLUDE_JOURNEY_TEXT=1.
     groupadd --system gainlog-mcp-source
     useradd --system --gid gainlog-mcp-source --home-dir /nonexistent --shell /bin/sh gainlog-mcp-source
     passwd --lock gainlog-mcp-source
@@ -184,6 +185,8 @@ the fixed exporter. Run this as `postgres`; do not grant all-table access:
     GRANT SELECT (cache_key,summary,model,generated_at) ON trend_summary TO "gainlog-mcp-source";
     GRANT SELECT (date,sleep_minutes,deep_sleep_minutes,core_sleep_minutes,rem_sleep_minutes,awake_minutes,resting_heart_rate_bpm,hrv_ms,steps,active_calories,total_calories,exercise_minutes,walking_running_miles,source_updated_at) ON google_health_daily_snapshot TO "gainlog-mcp-source";
     GRANT SELECT (status,encrypted_refresh_token,last_success_at,last_attempt_at,last_sync_count,last_sync_start,last_sync_end,id) ON google_health_connection TO "gainlog-mcp-source";
+    GRANT SELECT (date,revision,payload_json,updated_at) ON journey_day TO "gainlog-mcp-source";
+    GRANT SELECT (id,revision,payload_json,updated_at) ON journey_preferences TO "gainlog-mcp-source";
     SQL
 
 Verify peer mapping and the boundary before starting the unit: the OS identity must connect,
@@ -330,7 +333,7 @@ Runtime acceptance before tunnel activation
    `/etc/gainlog-mcp/openai-runtime-key`, or connect `/run/gainlog-mcp/mcp.sock`, while a
    normal acquisition advances the received projection's `exported_at` and passes
    `gainlog-mcp-validate`.
-3. Prove reader initialization, exact eight-tool discovery, every tool call, freshness,
+3. Prove reader initialization, exact ten-tool discovery, every tool call, freshness,
    bounded errors, and no listener through `/run/gainlog-mcp/mcp.sock`. Do not print health
    rows. Prove reader cannot read source/acquisition/tunnel credentials or write projection.
 4. Run `verify-boundary.py tunnel --denied-host 100.80.191.75 --denied-port 8000` in a
@@ -352,7 +355,7 @@ history:
 
 Run tunnel-client `doctor` under the same `LoadCredential` boundary, then enable only
 `gainlog-mcp-tunnel.service`. Require running/healthy/ready, successful control-plane poll,
-exact eight-tool discovery/calls, fresh data, and no public listener. ChatGPT developer-app
+exact ten-tool discovery/calls, fresh data, and no public listener. ChatGPT developer-app
 creation selecting the existing tunnel and one real hosted call remain separate human
 acceptance gates. This prepared work does none of them.
 

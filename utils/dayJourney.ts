@@ -2,7 +2,7 @@ import type { DayCheckIn, Focus, JourneyPreferences, SleepNight } from '../types
 import type { Goal, HealthDaily, NutritionEntry } from '../types/health';
 import type { WorkoutSession } from '../types/workout';
 import type { HealthV2Today } from '../types/healthV2';
-import { dayKey, daysBefore, duration, entryDay, finite } from './healthspan.ts';
+import { dayKey, daysBefore, duration, finite } from './healthspan.ts';
 
 export const EMPTY_PREFERENCES: JourneyPreferences = { revision: 0, wakeTime: null, sleepMinutes: null, windDownMinutes: 30, focus: null };
 export const FOCUS_LABELS: Record<Focus, string> = { sleep: 'Sleep rhythm', movement: 'Everyday movement', strength: 'Strength', nutrition: 'Nutrition', stress: 'Stress awareness' };
@@ -15,11 +15,15 @@ export function assertDraftRevision(expected: number, current: number): void {
 export function emptyDay(date: string): DayCheckIn {
   return { date, revision: 0, updatedAt: null, energy: null, soreness: null, stress: null, trainingIntent: null, note: null, stressMinute: null, reflection: null, nutritionReviewed: false, nutritionReviewedAt: null, nutritionFingerprint: null };
 }
+export function recordedDay(value: string): string | null {
+  const match = /^(\d{4}-\d{2}-\d{2})(?:$|T)/.exec(value);
+  return match?.[1] ?? null;
+}
 export function sessionsOnDay(sessions: readonly WorkoutSession[], now: Date) {
-  return [...new Map(sessions.filter(s => entryDay(s.date) === dayKey(now) && Date.parse(s.date) <= now.getTime()).map(s => [s.id, s])).values()];
+  return [...new Map(sessions.filter(s => recordedDay(s.date) === dayKey(now) && Date.parse(s.date) <= now.getTime()).map(s => [s.id, s])).values()];
 }
 export function foodOnDay(entries: readonly NutritionEntry[], date: string, now = new Date()) {
-  return [...new Map(entries.filter(e => entryDay(e.date) === date && (e.date.length === 10 || Date.parse(e.date) <= now.getTime())).map(e => [e.id, e])).values()];
+  return [...new Map(entries.filter(e => recordedDay(e.date) === date && (e.date.length === 10 || Date.parse(e.date) <= now.getTime())).map(e => [e.id, e])).values()];
 }
 export function foodTotals(entries: readonly NutritionEntry[]) {
   return entries.reduce((a, e) => ({ calories: a.calories + e.calories, proteinG: a.proteinG + e.proteinG, fiberG: a.fiberG + e.fiberG }), { calories: 0, proteinG: 0, fiberG: 0 });
@@ -44,6 +48,23 @@ export function foodFingerprint(meals: readonly NutritionEntry[]) {
 export function reviewedFood(check: DayCheckIn, meals: readonly NutritionEntry[]) {
   return !!check.nutritionReviewed && check.nutritionFingerprint === foodFingerprint(meals);
 }
+export function buildHistoricalDay(
+  date: string,
+  health: readonly HealthDaily[],
+  sessions: readonly WorkoutSession[],
+  meals: readonly NutritionEntry[],
+  checks: readonly DayCheckIn[],
+) {
+  const healthRows = health.filter(row => row.date === date).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return {
+    date,
+    check: checks.find(check => check.date === date) ?? null,
+    health: healthRows[0] ?? null,
+    sessions: [...new Map(sessions.filter(session => recordedDay(session.date) === date).map(session => [session.id, session])).values()],
+    meals: [...new Map(meals.filter(meal => recordedDay(meal.date) === date).map(meal => [meal.id, meal])).values()],
+    recovery: null,
+  };
+}
 export function segmentIndexForMinute(segments: readonly { startMinute: number }[], minute: number) {
   if (!segments.length) return -1;
   const boundedMinute = Math.max(0, Math.min(1439, minute));
@@ -52,16 +73,16 @@ export function segmentIndexForMinute(segments: readonly { startMinute: number }
 export type BriefAction = 'checkin' | 'training' | 'fuel' | 'sleep' | 'reflection';
 export interface DailyBrief { phase: 'Morning' | 'Daytime' | 'After training' | 'Evening'; title: string; body: string; action: BriefAction; actionLabel: string; evidence: string[] }
 export interface BriefInput {
-  now: Date; today: HealthV2Today | null; modelStale: boolean; healthStale: boolean; workoutsStale: boolean;
+  now: Date; today: HealthV2Today | null; modelStale: boolean; healthStale: boolean; workoutsStale: boolean; journeyStale?: boolean;
   sessions: readonly WorkoutSession[]; meals: readonly NutritionEntry[]; check: DayCheckIn; preferences: JourneyPreferences; planTitle: string | null;
 }
 /** Evidence-ranked presentation, not a training prescription or a new health score. */
 export function buildDailyBrief(input: BriefInput): DailyBrief {
   const { now, preferences, planTitle } = input;
-  const date = dayKey(now), check = input.check.date === date ? input.check : emptyDay(date);
+  const date = dayKey(now), check = !input.journeyStale && input.check.date === date ? input.check : emptyDay(date);
   const model = !input.modelStale && input.today?.date === date ? input.today : null;
-  const sessions = !input.workoutsStale ? sessionsOnDay(input.sessions, now) : [];
-  const meals = !input.healthStale ? foodOnDay(input.meals, date, now) : [];
+  const sessions = input.workoutsStale ? [] : sessionsOnDay(input.sessions, now);
+  const meals = input.healthStale ? [] : foodOnDay(input.meals, date, now);
   const phase: DailyBrief['phase'] = now.getHours() >= 18 ? 'Evening' : sessions.length ? 'After training' : now.getHours() < 12 ? 'Morning' : 'Daytime';
   const evidence: string[] = [];
   if (sessions.length) evidence.push(`${sessions.length} session${sessions.length > 1 ? 's' : ''} logged today`);
@@ -70,20 +91,33 @@ export function buildDailyBrief(input: BriefInput): DailyBrief {
   if (finite(sleep)) evidence.push(`${duration(sleep)} recorded sleep`);
   if (check.energy !== null) evidence.push(`Energy ${check.energy}/5 · your check-in`);
   const base = { phase, evidence };
-  if (input.modelStale || input.healthStale || input.workoutsStale) {
-    return { ...base, title: 'Your day is still coming into view.', body: 'Some records could not be refreshed. Review what is available; missing updates are not a reason to change your plan.', action: 'checkin', actionLabel: 'Add how you feel' };
+  const recoveryUnavailable = input.modelStale ? ' Recovery data is unavailable right now.' : '';
+  const nutritionUnavailable = input.healthStale ? ' Nutrition data is unavailable right now.' : '';
+  const workoutsUnavailable = input.workoutsStale ? ' Training records could not be refreshed, so no training-status conclusion is shown.' : '';
+  const journeyUnavailable = input.journeyStale ? ' Personal check-ins could not be loaded; wearable, workout, and nutrition records remain read-only.' : '';
+  const unavailable = `${recoveryUnavailable}${nutritionUnavailable}${workoutsUnavailable}${journeyUnavailable}`;
+  const hasSorenessOrLowEnergy = (check.soreness ?? 0) >= 4 || (check.energy !== null && check.energy <= 2);
+  const stressContext = (check.stress ?? 0) >= 4 ? ' You reported a high-stress day. Keep that context beside your wearable signals; nothing has been automatically changed.' : '';
+  if (sessions.length && hasSorenessOrLowEnergy) {
+    return { ...base, title: 'Training is recorded. Your check-in still matters.', body: `Your session is logged, and you reported ${check.soreness !== null && check.soreness >= 4 ? 'substantial soreness' : 'low energy'}. Keep that context with your day; no second workout is pending.${stressContext}${unavailable}`, action: phase === 'Evening' ? 'reflection' : 'checkin', actionLabel: phase === 'Evening' ? 'Review tonight' : 'Update check-in' };
   }
-  if ((check.soreness ?? 0) >= 4 || (check.energy !== null && check.energy <= 2)) {
-    return { ...base, title: 'Your check-in deserves attention.', body: `${model?.recovery.state === 'high' ? 'The recovery estimate looks strong, but ' : ''}you reported ${check.soreness !== null && check.soreness >= 4 ? 'substantial soreness' : 'low energy'}. Keep how you feel alongside the wearable signals when reviewing your plan.`, action: phase === 'Evening' ? 'reflection' : 'training', actionLabel: phase === 'Evening' ? 'Reflect on today' : 'Review today’s plan' };
+  if (check.trainingIntent === 'rest' && hasSorenessOrLowEnergy) {
+    return { ...base, title: 'Rest is still your plan. Your check-in matters.', body: `You chose rest and reported ${check.soreness !== null && check.soreness >= 4 ? 'substantial soreness' : 'low energy'}. GainLog has not changed that intention.${stressContext}${unavailable}`, action: phase === 'Evening' ? 'reflection' : 'checkin', actionLabel: phase === 'Evening' ? 'Review tonight' : 'Update check-in' };
+  }
+  if (sessions.length && input.modelStale) {
+    return { ...base, title: 'Your workout is recorded.', body: `Training remains confirmed. Recovery data is unavailable right now.${nutritionUnavailable}${journeyUnavailable}`, action: phase === 'Evening' ? 'reflection' : input.healthStale ? 'sleep' : 'fuel', actionLabel: phase === 'Evening' ? 'Review tonight' : input.healthStale ? 'Plan tonight' : 'Review nutrition' };
+  }
+  if (hasSorenessOrLowEnergy) {
+    return { ...base, title: 'Your check-in deserves attention.', body: `${model?.recovery.state === 'high' ? 'The recovery estimate looks strong, but ' : ''}you reported ${check.soreness !== null && check.soreness >= 4 ? 'substantial soreness' : 'low energy'}. Keep how you feel alongside the wearable signals when reviewing your plan.${stressContext}${unavailable}`, action: phase === 'Evening' ? 'reflection' : 'training', actionLabel: phase === 'Evening' ? 'Reflect on today' : 'Review today’s plan' };
   }
   if (phase === 'Evening') {
     const plan = sleepPlan(preferences);
-    return { ...base, title: check.reflection ? 'Today is recorded. Tomorrow can wait.' : 'Bring your day to a close.', body: `${sessions.length ? 'Your training is logged. ' : check.trainingIntent === 'rest' ? 'You chose a rest day. ' : ''}${plan ? `Your chosen sleep window starts at ${plan.bedtime}; wind down at ${plan.windDown}.` : 'Choose your sleep window and leave a short reflection. No need to fill every ring.'}`, action: plan ? 'reflection' : 'sleep', actionLabel: plan ? 'Reflect on today' : 'Plan tonight' };
+    return { ...base, title: check.reflection ? 'Today is recorded. Tomorrow can wait.' : 'Bring your day to a close.', body: `${sessions.length ? 'Your training is logged. ' : check.trainingIntent === 'rest' ? 'You chose a rest day. ' : ''}${plan ? `Your chosen sleep window starts at ${plan.bedtime}; wind down at ${plan.windDown}.` : 'Choose your sleep window and leave a short reflection. No need to fill every ring.'}${stressContext}${unavailable}`, action: plan ? 'reflection' : 'sleep', actionLabel: plan ? 'Reflect on today' : 'Plan tonight' };
   }
-  if (sessions.length) return { ...base, title: 'Your workout is done. Own the rest of your day.', body: reviewedFood(check, meals) ? 'Your training and food-log review are recorded. Your next step is simply to check tonight’s plan.' : 'Your session is logged. Review your food entries next—an incomplete log does not mean you have not eaten.', action: reviewedFood(check, meals) ? 'sleep' : 'fuel', actionLabel: reviewedFood(check, meals) ? 'Plan tonight' : 'Review nutrition' };
-  if (check.trainingIntent === 'rest') return { ...base, title: 'Rest is part of your plan.', body: 'You chose rest today. GainLog will not turn the absence of a workout into a missed target for this day.', action: 'sleep', actionLabel: 'Plan tonight' };
-  if (check.energy === null && check.soreness === null && check.stress === null) return { ...base, title: 'Start with how you feel.', body: `${model && model.recovery.state !== 'unavailable' ? 'Your overnight signals are ready. ' : 'Your day does not have to wait for a recovery score. '}${planTitle ? `${planTitle} is on your existing schedule. ` : ''}A quick check-in adds the context a wearable cannot supply.`, action: 'checkin', actionLabel: 'Check in · optional' };
-  return { ...base, title: planTitle ? `${planTitle}, on your terms.` : 'Make space for your priorities.', body: planTitle ? 'Review your existing workout plan with today’s signals and your check-in together. Nothing has been automatically changed.' : 'No scheduled template today. Choose training or rest, and keep your longer-term focus in view.', action: 'training', actionLabel: 'Review today’s plan' };
+  if (sessions.length) return { ...base, title: 'Your workout is done. Own the rest of your day.', body: `${input.healthStale ? 'Your session is logged; nutrition data is unavailable right now.' : reviewedFood(check, meals) ? 'Your training and food-log review are recorded. Your next step is simply to check tonight’s plan.' : 'Your session is logged. Review your food entries next—an incomplete log does not mean you have not eaten.'}${stressContext}${recoveryUnavailable}${journeyUnavailable}`, action: input.healthStale || reviewedFood(check, meals) ? 'sleep' : 'fuel', actionLabel: input.healthStale || reviewedFood(check, meals) ? 'Plan tonight' : 'Review nutrition' };
+  if (check.trainingIntent === 'rest') return { ...base, title: 'Rest is part of your plan.', body: `You chose rest today. GainLog will not turn the absence of a workout into a missed target for this day.${stressContext}${unavailable}`, action: 'sleep', actionLabel: 'Plan tonight' };
+  if (check.energy === null && check.soreness === null && check.stress === null) return { ...base, title: input.workoutsStale ? 'Use the context that is available.' : 'Start with how you feel.', body: `${model && model.recovery.state !== 'unavailable' ? 'Your overnight signals are ready. ' : 'Your day does not have to wait for a recovery score. '}${planTitle && !input.workoutsStale ? `${planTitle} is on your existing schedule. ` : ''}A quick check-in adds the context a wearable cannot supply.${unavailable}`, action: 'checkin', actionLabel: 'Check in · optional' };
+  return { ...base, title: planTitle && !input.workoutsStale ? `${planTitle}, on your terms.` : 'Make space for your priorities.', body: `${planTitle && !input.workoutsStale ? 'Review your existing workout plan with today’s signals and your check-in together.' : input.workoutsStale ? 'Known recovery, nutrition, and check-in facts remain available without claiming today’s training status.' : 'No scheduled template today. Choose training or rest, and keep your longer-term focus in view.'}${stressContext}${unavailable} Nothing has been automatically changed.`, action: input.workoutsStale ? 'checkin' : 'training', actionLabel: input.workoutsStale ? 'Update check-in' : 'Review today’s plan' };
 }
 export function targetProgress(value: number | null, goal?: Goal) {
   const low = goal?.minimumValue ?? goal?.targetValue ?? null, high = goal?.maximumValue ?? goal?.targetValue ?? null;
@@ -94,6 +128,23 @@ export function sourceClock(utc: string, offset: number | null) {
   if (!finite(offset) || !Number.isFinite(Date.parse(utc))) return null;
   const d = new Date(Date.parse(utc) + offset * 1000);
   return d.getUTCHours() * 60 + d.getUTCMinutes();
+}
+export function buildSleepClockBasis(
+  night: Pick<SleepNight, 'startUtc' | 'endUtc' | 'startOffsetSeconds' | 'endOffsetSeconds'>,
+  stages: readonly { startUtc: string; endUtc: string }[],
+) {
+  const timestamps = [night.startUtc, night.endUtc, ...stages.flatMap(stage => [stage.startUtc, stage.endUtc])];
+  const valid = timestamps.every(value => Number.isFinite(Date.parse(value)));
+  const stableOffset = finite(night.startOffsetSeconds) && night.startOffsetSeconds === night.endOffsetSeconds;
+  const offset = stableOffset ? Number(night.startOffsetSeconds) : 0;
+  return {
+    label: valid && stableOffset ? 'source local time' : 'UTC fallback',
+    format: (utc: string) => {
+      if (!valid || !Number.isFinite(Date.parse(utc))) return '—';
+      const value = new Date(Date.parse(utc) + offset * 1000);
+      return `${String(value.getUTCHours()).padStart(2, '0')}:${String(value.getUTCMinutes()).padStart(2, '0')}`;
+    },
+  };
 }
 export function sleepTimingSpread(nights: readonly SleepNight[]) {
   if (nights.length < 4 || new Set(nights.map(n => `${n.provenance}:${n.sourceId ?? 'unknown'}`)).size !== 1) return null;
@@ -114,14 +165,18 @@ export function buildFoundations(health: readonly HealthDaily[], sessions: reado
   const series = (field: keyof HealthDaily) => dates.map(date => { const v = byDay.get(date)?.[field]; return finite(v) ? v : null; });
   const mean = (values: (number | null)[]) => { const present = values.filter(finite); return present.length ? present.reduce((a, b) => a + b, 0) / present.length : null; };
   const sleep = series('sleepMinutes'), steps = series('steps');
-  const training = dates.map(date => new Set(sessions.filter(s => entryDay(s.date) === date).map(s => s.id)).size);
-  const food = dates.map(date => new Set(meals.filter(m => entryDay(m.date) === date).map(m => m.id)).size);
+  const uniqueSessions = [...new Map(sessions.map(session => [session.id, session])).values()];
+  const hasStrength = (session: WorkoutSession) => (finite(session.strengthSummary?.durationMinutes) && session.strengthSummary.durationMinutes > 0) || session.exercises.some(exercise => (exercise.kind ?? 'strength') === 'strength' && exercise.sets.length > 0);
+  const cardioMinutes = (session: WorkoutSession) => finite(session.cardioSummary?.durationMinutes) && session.cardioSummary.durationMinutes > 0 ? session.cardioSummary.durationMinutes : session.exercises.filter(exercise => exercise.kind === 'cardio').reduce((total, exercise) => total + (finite(exercise.cardioDurationMinutes) && exercise.cardioDurationMinutes > 0 ? exercise.cardioDurationMinutes : 0), 0);
+  const training = dates.map(date => uniqueSessions.filter(session => recordedDay(session.date) === date && hasStrength(session)).length);
+  const cardio = dates.map(date => uniqueSessions.filter(session => recordedDay(session.date) === date).reduce((total, session) => total + cardioMinutes(session), 0));
+  const food = dates.map(date => new Set(meals.filter(m => recordedDay(m.date) === date).map(m => m.id)).size);
   const stress = dates.map(date => checks.find(c => c.date === date)?.stress ?? null);
   const count = (values: (number | null)[]) => values.filter(finite).length;
   return [
     { id: 'sleep', title: 'Sleep & restoration', value: duration(mean(sleep)), detail: 'Average recorded sleep · seven completed days', days: sleep, observed: count(sleep), href: '/trends?metric=recovery' },
-    { id: 'strength', title: 'Strength & capability', value: `${training.reduce((a, b) => a + b, 0)} sessions`, detail: 'Logged training · absence of a log is not proof of inactivity', days: training, observed: training.filter(v => v > 0).length, href: '/(tabs)/train' },
-    { id: 'movement', title: 'Cardio & everyday movement', value: mean(steps) === null ? '—' : `${Math.round(mean(steps)!).toLocaleString()} steps`, detail: 'Average recorded steps · exercise details stay in Train', days: steps, observed: count(steps), href: '/trends?metric=recovery' },
+    { id: 'strength', title: 'Strength sessions', value: `${training.reduce((a, b) => a + b, 0)} sessions`, detail: 'Sessions containing recorded strength work · absence of a log is not proof of inactivity', days: training, observed: training.filter(v => v > 0).length, href: '/(tabs)/train' },
+    { id: 'movement', title: 'Cardio & everyday movement', value: `${cardio.reduce((a, b) => a + b, 0)} min cardio · ${mean(steps) === null ? 'steps unavailable' : `${Math.round(mean(steps)!).toLocaleString()} avg steps`}`, detail: 'Logged cardio and wearable movement stay separate; they are not added into one score', days: cardio, observed: cardio.filter(v => v > 0).length, href: '/trends?metric=recovery' },
     { id: 'nutrition', title: 'Nutrition & body composition', value: `${food.filter(v => v > 0).length}/7 days logged`, detail: 'Logging coverage, not a diet-quality score', days: food, observed: food.filter(v => v > 0).length, href: '/(tabs)/fuel' },
     { id: 'stress', title: 'Stress awareness', value: `${count(stress)}/7 check-ins`, detail: 'Your reported stress · separate from wearable activation', days: stress, observed: count(stress), href: '/(tabs)/today' },
   ];

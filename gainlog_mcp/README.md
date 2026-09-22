@@ -1,6 +1,6 @@
 GainLog read-only MCP
 
-This self-contained Python subproject reads GainLog through a PostgreSQL read-only role, exports a credential-free allowlisted SQLite projection, and serves it through eight read-only MCP tools. It does not import the GainLog backend, call its HTTP routes, invoke AI, synchronize providers, perform OAuth, or write to the application database.
+This self-contained Python subproject reads GainLog through a PostgreSQL read-only role, exports a credential-free allowlisted SQLite projection, and serves it through ten read-only MCP tools. It does not import the GainLog backend, call its HTTP routes, invoke AI, synchronize providers, perform OAuth, or write to the application database.
 
 Tools
 
@@ -12,6 +12,12 @@ Tools
 - query_daily_health: exact day or bounded canonical/Google-snapshot sleep, activity, HRV, and resting-heart-rate history.
 - query_goals: exact goal or status-filtered goals.
 - query_saved_reviews: existing daily, weekly, or trend outputs only.
+- get_journey: bounded structured Journey check-ins plus the current sleep-plan preference and weekly focus.
+- get_day_context: one coherent date across canonical health, workout summaries, nutrition totals, Journey, preferences, freshness, provenance, and domain availability.
+
+Journey energy, soreness, and stress are self-reported 1–5 ratings. Physiological activation is a separate wearable-derived concept. `nutritionReviewed` means the user reviewed the log, not that all intake was captured. `trainingIntent` is an intention, not evidence of activity. Weekly focus is a preference, not a formal goal. Null remains missing/unreported; an observed numeric zero remains zero.
+
+Journey notes and reflections are withheld by default. Set `GAINLOG_MCP_INCLUDE_JOURNEY_TEXT=1` only with explicit owner approval to include them in the projection. Every tool reports `journey_text_exposure`, and coverage reports the same boundary. The implementation-only nutrition fingerprint is never projected.
 
 All list ranges are limited to 366 inclusive calendar dates, pages to 50 records, and offsets to 10,000. The final accessible page explicitly reports truncation and tells callers to narrow the date range or filter when additional records exist beyond that ceiling; it never presents a clipped history as complete. Unknown fields, invalid types, oversized protocol frames, malformed discovery probes, arbitrary paths/URLs/SQL-shaped controls, and unknown tools fail closed without reflecting input. Missing values remain JSON null; observed zeros remain zero.
 
@@ -28,7 +34,7 @@ Exporter
     uv run gainlog-mcp-export --preflight --source 'postgresql+psycopg://gainlog_mcp:...@/gainlog?host=/var/run/postgresql'
     uv run gainlog-mcp-export --source 'postgresql+psycopg://gainlog_mcp:...@/gainlog?host=/var/run/postgresql' --destination /absolute/path/to/projection.db
 
-Preflight emits only table counts and compatibility metadata. Normal export emits no health payload. PostgreSQL is opened in a read-only transaction and must also use the restricted `gainlog_mcp` role. The destination is built from fixed table/column allowlists, integrity-checked, fsynced, chmod 0640, and atomically replaced. SQLite source paths remain supported only for rollback tests.
+Preflight emits only table counts and compatibility metadata. Projection schema version 2 adds Journey records/preferences, a source-data fingerprint, and explicit Journey-text exposure metadata. Normal export emits no health payload. PostgreSQL is opened in a read-only transaction and must also use the restricted `gainlog_mcp` role. The destination is built from fixed table/column allowlists, integrity-checked, fsynced, chmod 0640, and atomically replaced. SQLite source paths remain supported only for rollback tests.
 
 Split transfer
 

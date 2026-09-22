@@ -79,6 +79,12 @@ def source_db(tmp_path: Path) -> Path:
           active_calories REAL, total_calories REAL, exercise_minutes INTEGER,
           walking_running_miles REAL, source_updated_at TEXT
         );
+        CREATE TABLE journey_day (
+          date TEXT PRIMARY KEY, revision INTEGER, payload_json TEXT, updated_at TEXT
+        );
+        CREATE TABLE journey_preferences (
+          id TEXT PRIMARY KEY, revision INTEGER, payload_json TEXT, updated_at TEXT
+        );
         """
     )
     db.execute(
@@ -146,6 +152,22 @@ def source_db(tmp_path: Path) -> Path:
         "INSERT INTO google_health_daily_snapshot VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         ("2026-09-02", 420, None, None, None, None, 54.0, 43.0, 1000,
          200.0, 1900.0, 20, 1.5, "2026-09-02T11:00:00Z"),
+    )
+    db.execute(
+        "INSERT INTO journey_day VALUES (?,?,?,?)",
+        ("2026-09-02", 3,
+         '{"energy":1,"soreness":null,"stress":4,"trainingIntent":"rest",'
+         '"note":"Synthetic private note.","stressMinute":900,'
+         '"reflection":"Synthetic private reflection.","nutritionReviewed":true,'
+         '"nutritionReviewedAt":"2026-09-02T21:00:00Z",'
+         '"nutritionFingerprint":"implementation-only-fingerprint"}',
+         "2026-09-02T22:00:00Z"),
+    )
+    db.execute(
+        "INSERT INTO journey_preferences VALUES (?,?,?,?)",
+        ("default", 2,
+         '{"wakeTime":"06:00","sleepMinutes":480,"windDownMinutes":30,"focus":"sleep"}',
+         "2026-09-02T22:01:00Z"),
     )
     db.commit()
     db.close()

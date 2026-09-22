@@ -29,7 +29,7 @@ export function DailyExperience() {
   const date = dayKey(journey.now);
   const current = feed.today?.date === date ? feed.today : null;
   const template = PLANET_FITNESS_TEMPLATES.find(t => t.id === getSuggestedTemplateId(journey.now.getDay()));
-  const brief = buildDailyBrief({ now: journey.now, today: current, modelStale: !!feed.error, healthStale: !!health.error || !health.dashboardSummary, workoutsStale: !!workouts.error || workouts.loading, sessions: workouts.sessions, meals: health.nutritionEntries, check: journey.error ? emptyDay(date) : journey.check, preferences: journey.preferences, planTitle: template?.title ?? null });
+  const brief = buildDailyBrief({ now: journey.now, today: current, modelStale: !!feed.error, healthStale: !!health.nutritionError, workoutsStale: !!workouts.error || workouts.loading, journeyStale: !!journey.error, sessions: workouts.sessions, meals: health.nutritionEntries, check: journey.error ? emptyDay(date) : journey.check, preferences: journey.preferences, planTitle: template?.title ?? null });
   const sessions = sessionsOnDay(workouts.sessions, journey.now), meals = foodOnDay(health.nutritionEntries, date, journey.now), totals = foodTotals(meals);
   const plan = sleepPlan(journey.preferences);
   const act = (action: BriefAction) => {
