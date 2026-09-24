@@ -31,7 +31,7 @@ def test_export_is_allowlisted_atomic_and_does_not_modify_source(source_db: Path
     after = (digest(source_db), source_db.stat().st_size, source_db.stat().st_mtime_ns)
 
     assert before == after
-    assert summary["schema_version"] == 1
+    assert summary["schema_version"] == 2
     assert summary["table_counts"]["workout_sessions"] == 1
     assert destination.stat().st_mode & 0o777 == 0o640
     assert CANARY.encode() not in destination.read_bytes()
@@ -50,7 +50,11 @@ def test_export_is_allowlisted_atomic_and_does_not_modify_source(source_db: Path
         "body_composition", "daily_health", "google_daily_snapshots",
         "health_connect_ownership", "goals", "nutrition_entries",
         "daily_reviews", "weekly_reviews", "trend_summaries", "source_connections",
+        "journey_days", "journey_preferences",
     }
+    journey = db.execute("SELECT energy,soreness,stress,note,reflection FROM journey_days").fetchone()
+    assert journey == (1, None, 4, None, None)
+    assert dict(db.execute("SELECT key,value FROM metadata"))["journey_text"] == "withheld"
     status = db.execute(
         "SELECT provider, status, connected, last_sync_count FROM source_connections"
     ).fetchone()
@@ -135,9 +139,40 @@ def test_preflight_reports_only_structure_and_counts(source_db: Path):
 
     result = preflight(source_db)
     assert result["compatible"] is True
-    assert result["table_count"] == 13
+    assert result["table_count"] == 15
     assert result["row_counts"]["apple_health_daily"] == 1
     rendered = str(result)
     assert CANARY not in rendered
     assert "encrypted_refresh_token" not in rendered
     assert "code_verifier" not in rendered
+
+
+def test_journey_text_requires_explicit_opt_in(source_db: Path, tmp_path: Path):
+    from gainlog_mcp.exporter import export_projection
+
+    destination = tmp_path / "with-text.db"
+    export_projection(source_db, destination, include_journey_text=True)
+    db = sqlite3.connect(destination)
+    assert db.execute("SELECT note,reflection FROM journey_days").fetchone() == (
+        "Synthetic private note.", "Synthetic private reflection."
+    )
+    assert dict(db.execute("SELECT key,value FROM metadata"))["journey_text"] == "included"
+
+
+def test_journey_revision_changes_projection_fingerprint(source_db: Path, tmp_path: Path):
+    from gainlog_mcp.exporter import export_projection
+
+    first = tmp_path / "first.db"
+    second = tmp_path / "second.db"
+    export_projection(source_db, first)
+    db = sqlite3.connect(source_db)
+    db.execute("UPDATE journey_day SET revision=revision+1, updated_at='2026-09-02T23:00:00Z'")
+    db.commit()
+    db.close()
+    export_projection(source_db, second)
+
+    def fingerprint(path: Path) -> str:
+        store = sqlite3.connect(path)
+        return dict(store.execute("SELECT key,value FROM metadata"))["source_fingerprint"]
+
+    assert fingerprint(first) != fingerprint(second)

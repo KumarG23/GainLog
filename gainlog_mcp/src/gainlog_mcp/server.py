@@ -16,9 +16,10 @@ from mcp.shared.message import SessionMessage
 
 from .models import (
     BodyCompositionRequest, BodyCompositionResult, CoverageResult, DailyHealthRequest,
-    DailyHealthResult, GetWorkoutRequest, GoalsRequest, GoalsResult,
-    ListWorkoutsRequest, NutritionRequest, NutritionResult, ReviewsRequest,
-    ReviewsResult, WorkoutDetailResult, WorkoutListResult, EmptyRequest,
+    DailyHealthResult, DayContextRequest, DayContextResult, GetWorkoutRequest,
+    GoalsRequest, GoalsResult, JourneyRequest, JourneyResult, ListWorkoutsRequest,
+    NutritionRequest, NutritionResult, ReviewsRequest, ReviewsResult,
+    WorkoutDetailResult, WorkoutListResult, EmptyRequest,
 )
 from .queries import query
 
@@ -59,6 +60,14 @@ TOOLS = {
         ReviewsRequest, ReviewsResult,
         "Read only existing daily, weekly or trend review outputs by exact key or bounded generated/date range. Never calls a model, regenerates, refreshes or writes a cache.",
     ),
+    "get_journey": (
+        JourneyRequest, JourneyResult,
+        "Read a bounded range of structured Journey check-ins and current sleep/focus preferences. Energy, soreness and perceived stress are self-reported 1–5 ratings; training intention is not completed activity; weekly focus is not a formal goal. Null is missing, zero is observed where valid, and note/reflection text is withheld unless the owner explicitly opted in.",
+    ),
+    "get_day_context": (
+        DayContextRequest, DayContextResult,
+        "Retrieve one coherent read-only day across canonical health, workouts, nutrition totals and Journey context with freshness, provenance and per-domain coverage. Omit date for the latest available non-future day. Partial domains remain partial; no recovery value, causal claim or missing value is invented.",
+    ),
 }
 
 ERRORS = {"invalid_request", "not_found", "store_unavailable", "store_corrupt"}
@@ -67,11 +76,12 @@ ERRORS = {"invalid_request", "not_found", "store_unavailable", "store_corrupt"}
 def create_server(path: Path) -> Server:
     server = Server(
         "GainLog Read-only Health",
-        version="0.1.0",
+        version="0.2.0",
         instructions=(
             "Owner-authorized read-only personal health projection. No writes, sync, OAuth, "
             "regeneration, raw provider payloads, credentials, arbitrary SQL, paths, URLs, or "
-            "network calls. Check coverage, freshness, nulls and source semantics. Do not diagnose."
+            "network calls. Check coverage, freshness, nulls and source semantics. Journey ratings are "
+            "self-report and physiological activation is separate. Do not diagnose or infer causation."
         ),
     )
 

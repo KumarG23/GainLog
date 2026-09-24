@@ -14,7 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { Href, useFocusEffect, useRouter } from 'expo-router';
+import { Href, Redirect, useFocusEffect, useRouter } from 'expo-router';
 import { Colors, FontSize, Radius, Spacing } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
 import { useHealth } from '../../context/HealthContext';
@@ -25,6 +25,7 @@ import { Exercise, ExerciseKind, WorkoutEffort, WorkoutSession } from '../../typ
 import { CoachInsightCard } from '../../components/CoachInsightCard';
 import { localDateKey, localIsoTimestamp } from '../../utils/date';
 import { requestWorkoutInsight } from '../../utils/workoutInsight';
+import { isHealthspanEnabled } from '../../utils/healthspan';
 import {
   findPreviousExercise,
   formatPreviousExerciseSummary,
@@ -517,7 +518,11 @@ function SuccessView({
 // Main screen
 // ---------------------------------------------------------------------------
 
-export default function LogScreen() {
+export default function IndexRoute() {
+  return isHealthspanEnabled() ? <Redirect href="/(tabs)/today" /> : <WorkoutLogScreen />;
+}
+
+export function WorkoutLogScreen() {
   const {
     sessions,
     loading: workoutsLoading,

@@ -1838,7 +1838,7 @@ def _build_trend_summary_prompt(payload: TrendSummaryIn) -> str:
     metric_label = _TREND_METRIC_LABELS[payload.metric]
     points = [point.model_dump() for point in payload.points]
     trusted_goal = "none" if payload.goal is None else str(payload.goal)
-    return f"""You are Sol, the concise trend interpreter inside Neal's private GainLog app.
+    return f"""You are the concise trend interpreter inside Neal's private GainLog app.
 
 Interpret one selected chart in one or two sentences of plain prose, maximum 500 characters. First state the meaningful direction or stability and its evidence. Then give the most useful context or one practical action only if the data supports it.
 
@@ -1872,7 +1872,8 @@ def generate_trend_summary(payload: TrendSummaryIn, db: Session = Depends(get_db
         separators=(",", ":"),
     )
     data_hash = hashlib.sha256(canonical_data.encode("utf-8")).hexdigest()
-    cache_key = f"{payload.category}:{payload.metric}:{payload.range_name}:{data_hash}"
+    trend_model = "gpt-6-sol"
+    cache_key = f"{payload.category}:{payload.metric}:{payload.range_name}:{trend_model}:{data_hash}"
     existing = db.get(TrendSummaryDB, cache_key)
     if existing and existing.data_hash == data_hash:
         return TrendSummaryOut(
@@ -1892,7 +1893,7 @@ def generate_trend_summary(payload: TrendSummaryIn, db: Session = Depends(get_db
         )
         summary = _normalize_trend_summary(provider.generate(_build_trend_summary_prompt(payload)))
     except Exception as exc:
-        raise HTTPException(status_code=503, detail="Sol trend summary unavailable") from exc
+        raise HTTPException(status_code=503, detail="Trend summary unavailable") from exc
 
     generated_at = datetime.now(timezone.utc).isoformat()
     statement = dialect_insert(db, TrendSummaryDB).values(
@@ -1914,7 +1915,7 @@ def generate_trend_summary(payload: TrendSummaryIn, db: Session = Depends(get_db
     db.commit()
     row = db.get(TrendSummaryDB, cache_key)
     if row is None:
-        raise HTTPException(status_code=503, detail="Sol trend summary cache unavailable")
+        raise HTTPException(status_code=503, detail="Trend summary cache unavailable")
     return TrendSummaryOut(
         summary=row.summary,
         model=row.model,
@@ -3296,8 +3297,8 @@ def get_insight(session_id: str, db: Session = Depends(get_db)):
     return InsightResponse(insight=legacy_insight, coach_insight=coach_insight)
 
 
-# Retain the Journey router already running in production. Register its models
-# before lifespan's additive schema setup executes.
+# Additive, explicit check-ins and planning preferences. Registered before lifespan
+# runs so the existing cross-dialect schema setup creates only the new tables.
 try:
     from .journey import create_journey_router
 except ImportError:

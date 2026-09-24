@@ -1,21 +1,15 @@
 {
-  "cli": {
-    "version": ">= 18.7.0",
-    "appVersionSource": "remote"
-  },
+  "cli": { "version": ">= 18.7.0", "appVersionSource": "remote" },
   "build": {
-    "development": {
-      "developmentClient": true,
-      "distribution": "internal"
-    },
-    "preview": {
-      "distribution": "internal"
-    },
-    "production": {
+    "development": { "developmentClient": true, "distribution": "internal" },
+    "preview": { "distribution": "internal" },
+    "healthspan-preview": {
+      "extends": "preview",
+      "env": { "EXPO_PUBLIC_GAINLOG_V2_SHELL": "1" },
+      "android": { "buildType": "apk" },
       "autoIncrement": true
-    }
+    },
+    "production": { "autoIncrement": true }
   },
-  "submit": {
-    "production": {}
-  }
+  "submit": { "production": {} }
 }

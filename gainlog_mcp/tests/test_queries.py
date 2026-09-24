@@ -15,6 +15,8 @@ EXPECTED_TOOLS = [
     "query_daily_health",
     "query_goals",
     "query_saved_reviews",
+    "get_journey",
+    "get_day_context",
 ]
 
 
@@ -26,6 +28,10 @@ def test_every_query_is_useful_and_preserves_zero_null(projection: Path):
     assert coverage["domains"]["daily_health"]["records"] == 1
     assert coverage["source_connections"][0]["connected"] is True
     assert coverage["omissions"]["credentials"] == "not_exported"
+    assert coverage["journey"]["days"] == 1
+    assert coverage["journey"]["rated_days"] == {"energy": 1, "soreness": 0, "stress": 1}
+    assert coverage["journey"]["preferences_present"] is True
+    assert coverage["journey"]["text_exposure"] == "withheld"
 
     workouts = query(projection, "list_workouts", {})
     assert workouts["items"][0]["id"] == "workout-1"
@@ -57,6 +63,27 @@ def test_every_query_is_useful_and_preserves_zero_null(projection: Path):
     for kind in ("daily", "weekly", "trend"):
         reviews = query(projection, "query_saved_reviews", {"kind": kind})
         assert reviews["items"]
+
+    journey = query(projection, "get_journey", {"start_date": "2026-09-01", "end_date": "2026-09-02"})
+    assert journey["items"][0]["energy"] == 1
+    assert journey["items"][0]["soreness"] is None
+    assert journey["items"][0]["stress"] == 4
+    assert journey["items"][0]["note"] is None
+    assert journey["current_preferences"]["weekly_focus"] == "sleep"
+
+    day = query(projection, "get_day_context", {"date": "2026-09-02"})
+    assert day["journey"]["training_intent"] == "rest"
+    assert day["journey"]["nutrition_reviewed"] is True
+    assert day["daily_health"]["steps"] == 0
+    assert day["nutrition"]["entry_count"] == 1
+    assert day["nutrition"]["calories"] == 300
+    assert day["current_preferences"]["weekly_focus"] == "sleep"
+    assert len(day["workouts"]) == 0
+    assert day["semantics"]["training_intent"] == "user_intention_not_completed_activity"
+
+    no_food = query(projection, "get_day_context", {"date": "2026-09-01"})
+    assert no_food["nutrition"] is None
+    assert no_food["coverage"]["nutrition"] is False
 
 
 def test_pagination_ranges_and_precise_missing_records(projection: Path):
@@ -90,6 +117,20 @@ def test_inclusive_date_range_accepts_366_dates_and_rejects_367(projection: Path
         "list_workouts",
         {"start_date": "2024-01-01", "end_date": "2025-01-01"},
     ) == {"error": "invalid_request"}
+
+
+def test_default_journey_and_coverage_do_not_leak_owner_local_future_days(
+    projection: Path, monkeypatch,
+):
+    import gainlog_mcp.queries as queries
+
+    monkeypatch.setattr(queries, "owner_today", lambda: "2026-09-01")
+
+    journey = queries.query(projection, "get_journey", {})
+    coverage = queries.query(projection, "get_data_coverage", {})
+    assert journey["items"] == []
+    assert coverage["journey"]["days"] == 0
+    assert coverage["journey"]["latest_date"] is None
 
 
 def test_pagination_ceiling_exposes_final_page_and_truthful_truncation():
@@ -129,6 +170,8 @@ def test_pagination_ceiling_exposes_final_page_and_truthful_truncation():
         **terminal,
         "exported_at": "2026-09-08T16:00:00Z",
         "source_db_modified_at": "2026-09-08T15:59:00Z",
+        "source_fingerprint": "synthetic-fingerprint",
+        "journey_text_exposure": "withheld",
         "stale": False,
     })
 
@@ -146,6 +189,8 @@ def test_pagination_ceiling_exposes_final_page_and_truthful_truncation():
         ("query_goals", {"status": "active'; DROP TABLE goal;--"}),
         ("query_saved_reviews", {"kind": "regenerate"}),
         ("query_saved_reviews", {"path": "/etc/gainlog.env"}),
+        ("get_journey", {"start_date": "2026-09-01"}),
+        ("get_day_context", {"date": "2999-01-01"}),
     ],
 )
 def test_forbidden_or_unbounded_queries_fail_closed_without_echo(

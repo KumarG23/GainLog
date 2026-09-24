@@ -91,6 +91,27 @@ def test_trend_summary_reuses_cache_until_the_underlying_data_changes(client, mo
         assert len({row.data_hash for row in rows}) == 2
 
 
+def test_trend_summary_cache_uses_the_pinned_model_even_when_env_changes(client, monkeypatch):
+    calls = []
+
+    class FakeProvider:
+        def generate(self, _: str) -> str:
+            calls.append(True)
+            return f"Model-specific summary {len(calls)}. Keep watching the multi-day direction."
+
+    monkeypatch.setattr(main, "get_coach_provider", lambda **_: FakeProvider())
+    monkeypatch.setenv("GAINLOG_TREND_SUMMARY_MODEL", "gpt-5.6-luna")
+    first = client.post("/coach/trend-summary", json=_payload())
+    monkeypatch.setenv("GAINLOG_TREND_SUMMARY_MODEL", "gpt-5.6-sol")
+    second = client.post("/coach/trend-summary", json=_payload())
+
+    assert first.status_code == second.status_code == 200
+    assert first.json()["model"] == second.json()["model"] == "gpt-6-sol"
+    assert first.json()["cached"] is False
+    assert second.json()["cached"] is True
+    assert len(calls) == 1
+
+
 def test_trend_summary_rejects_unknown_metrics_and_insufficient_points(client):
     unknown = _payload()
     unknown["metric"] = "readinessScore"

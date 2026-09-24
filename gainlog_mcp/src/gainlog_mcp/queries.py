@@ -12,9 +12,9 @@ from pydantic import ValidationError
 
 from .exporter import APPLICATION_ID, SCHEMA_VERSION
 from .models import (
-    BodyCompositionRequest, DailyHealthRequest, EmptyRequest, GetWorkoutRequest,
-    GoalsRequest, ListWorkoutsRequest, MAX_PAGE_OFFSET, NutritionRequest, ReviewsRequest,
-    parse_date,
+    BodyCompositionRequest, DailyHealthRequest, DayContextRequest, EmptyRequest, GetWorkoutRequest,
+    GoalsRequest, JourneyRequest, ListWorkoutsRequest, MAX_PAGE_OFFSET, NutritionRequest, ReviewsRequest,
+    owner_today, parse_date,
 )
 
 
@@ -30,6 +30,19 @@ REQUESTS = {
     "query_daily_health": DailyHealthRequest,
     "query_goals": GoalsRequest,
     "query_saved_reviews": ReviewsRequest,
+    "get_journey": JourneyRequest,
+    "get_day_context": DayContextRequest,
+}
+
+JOURNEY_SEMANTICS = {
+    "ratings": "energy_soreness_stress_are_self_reported_1_to_5",
+    "physiological_activation": "separate_wearable_derived_concept",
+    "nutrition_reviewed": "user_reviewed_log_not_proof_all_intake_was_captured",
+    "training_intent": "user_intention_not_completed_activity",
+    "weekly_focus": "preference_not_formal_goal",
+    "current_preferences": "current_singleton_not_historical_state",
+    "missing": "null_means_missing_or_unreported_zero_remains_observed_zero",
+    "text": "note_and_reflection_may_be_withheld_by_owner_privacy_configuration",
 }
 
 
@@ -78,6 +91,8 @@ def _metadata(db: sqlite3.Connection) -> dict[str, object]:
     return {
         "exported_at": exported_at,
         "source_db_modified_at": values["source_db_modified_at"],
+        "source_fingerprint": values["source_fingerprint"],
+        "journey_text_exposure": values["journey_text"],
         "stale": stale,
     }
 
@@ -161,10 +176,31 @@ def _coverage(db: sqlite3.Connection) -> dict[str, object]:
         item["connected"] = bool(item["connected"])
         connections.append(item)
     owned = int(db.execute("SELECT COUNT(*) FROM health_connect_ownership").fetchone()[0])
+    today = owner_today()
+    journey_row = db.execute(
+        "SELECT COUNT(*),MIN(date),MAX(date),SUM(energy IS NOT NULL),"
+        "SUM(soreness IS NOT NULL),SUM(stress IS NOT NULL),MAX(updated_at) "
+        "FROM journey_days WHERE date<=?", (today,),
+    ).fetchone()
+    preferences_present = bool(db.execute("SELECT COUNT(*) FROM journey_preferences").fetchone()[0])
+    text_exposure = dict(db.execute("SELECT key,value FROM metadata"))["journey_text"]
     return {
         **_metadata(db),
         "schema_version": SCHEMA_VERSION,
         "domains": domains,
+        "journey": {
+            "days": int(journey_row[0]),
+            "earliest_date": journey_row[1],
+            "latest_date": journey_row[2],
+            "rated_days": {
+                "energy": int(journey_row[3] or 0),
+                "soreness": int(journey_row[4] or 0),
+                "stress": int(journey_row[5] or 0),
+            },
+            "preferences_present": preferences_present,
+            "last_updated_at": journey_row[6],
+            "text_exposure": text_exposure,
+        },
         "source_connections": connections,
         "health_connect_owned_days": owned,
         "source_semantics": (
@@ -329,6 +365,103 @@ def _reviews(db: sqlite3.Connection, request: ReviewsRequest) -> dict[str, objec
     return {**_metadata(db), **page, "items": items}
 
 
+def _journey_preferences(db: sqlite3.Connection) -> dict | None:
+    row = db.execute(
+        "SELECT revision,updated_at,wake_time,sleep_minutes,wind_down_minutes,"
+        "focus weekly_focus FROM journey_preferences WHERE id='default'"
+    ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def _journey_row(row: sqlite3.Row | None) -> dict | None:
+    if row is None:
+        return None
+    item = dict(row)
+    item["nutrition_reviewed"] = bool(item["nutrition_reviewed"])
+    return item
+
+
+def _journey(db: sqlite3.Connection, request: JourneyRequest) -> dict[str, object]:
+    params: list[object]
+    if request.start_date is not None:
+        where, date_params = _date_clause("date", request.start_date, request.end_date)
+        params = list(date_params)
+    else:
+        where, params = " WHERE date <= ?", []
+        params.append(owner_today())
+    items, page = _page(
+        db,
+        select_sql=f"SELECT * FROM journey_days{where} ORDER BY date DESC",
+        count_sql=f"SELECT COUNT(*) FROM journey_days{where}",
+        params=params,
+        limit=request.limit,
+        offset=request.offset,
+    )
+    for item in items:
+        item["nutrition_reviewed"] = bool(item["nutrition_reviewed"])
+    return {
+        **_metadata(db), **page, "items": items,
+        "current_preferences": _journey_preferences(db), "semantics": JOURNEY_SEMANTICS,
+    }
+
+
+def _latest_context_date(db: sqlite3.Connection) -> str:
+    today = owner_today()
+    row = db.execute(
+        "SELECT MAX(value) FROM ("
+        "SELECT MAX(date) value FROM journey_days WHERE date<=? UNION ALL "
+        "SELECT MAX(date) FROM daily_health WHERE date<=? UNION ALL "
+        "SELECT MAX(substr(date,1,10)) FROM workout_sessions WHERE date<=?||'T23:59:59' UNION ALL "
+        "SELECT MAX(substr(date,1,10)) FROM nutrition_entries WHERE date<=?||'T23:59:59'"
+        ")", (today, today, today, today),
+    ).fetchone()
+    return row[0] or today
+
+
+def _day_context(db: sqlite3.Connection, request: DayContextRequest) -> dict[str, object]:
+    selected = request.date or _latest_context_date(db)
+    health_row = db.execute(
+        "SELECT 'canonical' dataset,date,sleep_minutes,deep_sleep_minutes,core_sleep_minutes,"
+        "rem_sleep_minutes,awake_minutes,resting_heart_rate_bpm,hrv_ms,steps,active_calories,"
+        "total_calories,exercise_minutes,stand_hours,walking_running_miles,source,updated_at "
+        "FROM daily_health WHERE date=?", (selected,),
+    ).fetchone()
+    journey = _journey_row(db.execute("SELECT * FROM journey_days WHERE date=?", (selected,)).fetchone())
+    start, end = selected, (parse_date(selected) + timedelta(days=1)).isoformat()
+    workouts = [dict(row) for row in db.execute(
+        "SELECT w.*,(SELECT COUNT(*) FROM exercises e WHERE e.session_id=w.id) exercise_count,"
+        "(SELECT COUNT(*) FROM workout_sets s JOIN exercises e ON e.id=s.exercise_id "
+        "WHERE e.session_id=w.id) set_count FROM workout_sessions w "
+        "WHERE w.date>=? AND w.date<? ORDER BY w.date,w.id LIMIT 50", (start, end),
+    )]
+    for workout in workouts:
+        workout["pain"] = bool(workout["pain"])
+        workout["coach_insight_json"] = workout.pop("insight_json")
+    nutrition_row = db.execute(
+        "SELECT COUNT(*),SUM(calories),SUM(protein_g),SUM(carbs_g),SUM(fat_g),SUM(fiber_g) "
+        "FROM nutrition_entries WHERE date>=? AND date<?", (start, end),
+    ).fetchone()
+    nutrition = None if nutrition_row[0] == 0 else dict(zip(
+        ("entry_count", "calories", "protein_g", "carbs_g", "fat_g", "fiber_g"),
+        nutrition_row,
+    ))
+    current_preferences = _journey_preferences(db)
+    coverage = {
+        "daily_health": health_row is not None,
+        "workouts": bool(workouts),
+        "nutrition": nutrition is not None,
+        "journey": journey is not None,
+        "preferences": current_preferences is not None,
+    }
+    return {
+        **_metadata(db), "date": selected,
+        "daily_health": dict(health_row) if health_row is not None else None,
+        "workouts": workouts, "nutrition": nutrition, "journey": journey,
+        "current_preferences": current_preferences, "semantics": JOURNEY_SEMANTICS,
+        "coverage": coverage,
+    }
+
+
 def query(path: Path, name: str, arguments: object) -> dict[str, object]:
     try:
         request_type = REQUESTS.get(name)
@@ -352,6 +485,10 @@ def query(path: Path, name: str, arguments: object) -> dict[str, object]:
                 return _goals(db, request)
             if name == "query_saved_reviews":
                 return _reviews(db, request)
+            if name == "get_journey":
+                return _journey(db, request)
+            if name == "get_day_context":
+                return _day_context(db, request)
         return {"error": "invalid_request"}
     except ValidationError:
         return {"error": "invalid_request"}

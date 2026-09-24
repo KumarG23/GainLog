@@ -1,3 +1,4 @@
+import { JourneyProvider } from '../context/JourneyContext';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
@@ -15,6 +16,7 @@ export default function RootLayout() {
   return (
     <WorkoutsProvider>
       <HealthProvider>
+        <JourneyProvider>
         <MealNotificationCoordinator />
         <HealthConnectSyncCoordinator />
         <StatusBar style="light" />
@@ -28,6 +30,13 @@ export default function RootLayout() {
           }}
         >
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen
+            name="workout"
+            options={{
+              title: 'Log Workout',
+              headerBackTitle: 'Train',
+            }}
+          />
           <Stack.Screen
             name="session/[id]"
             options={{
@@ -50,6 +59,7 @@ export default function RootLayout() {
             }}
           />
         </Stack>
+      </JourneyProvider>
       </HealthProvider>
     </WorkoutsProvider>
   );

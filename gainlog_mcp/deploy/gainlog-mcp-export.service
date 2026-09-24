@@ -7,8 +7,9 @@ ConditionPathIsReadWrite=/var/lib/gainlog-mcp-source
 Type=oneshot
 User=gainlog-mcp-source
 Group=gainlog-mcp-source
+Environment=GAINLOG_MCP_INCLUDE_JOURNEY_TEXT=0
 EnvironmentFile=/etc/gainlog-mcp.env
-ExecStart=/usr/bin/env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 /opt/gainlog-mcp-source/.venv/bin/gainlog-mcp-export --source ${GAINLOG_MCP_DATABASE_URL} --destination /var/lib/gainlog-mcp-source/projection.db
+ExecStart=/usr/bin/env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 GAINLOG_MCP_INCLUDE_JOURNEY_TEXT=${GAINLOG_MCP_INCLUDE_JOURNEY_TEXT} /opt/gainlog-mcp-source/.venv/bin/gainlog-mcp-export --source ${GAINLOG_MCP_DATABASE_URL} --destination /var/lib/gainlog-mcp-source/projection.db
 Environment=PYTHONDONTWRITEBYTECODE=1
 UMask=0027
 NoNewPrivileges=yes

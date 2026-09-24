@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -14,7 +15,7 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Connection, Engine
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 APPLICATION_ID = 0x474C4D43  # GLMC
 
 COPY_TABLES: dict[str, tuple[str, tuple[str, ...]]] = {
@@ -59,8 +60,12 @@ COPY_TABLES: dict[str, tuple[str, tuple[str, ...]]] = {
         "walking_running_miles", "source_updated_at",
     )),
 }
+JOURNEY_SOURCE_COLUMNS = {
+    "journey_day": ("date", "revision", "payload_json", "updated_at"),
+    "journey_preferences": ("id", "revision", "payload_json", "updated_at"),
+}
 
-EXPECTED_SOURCE_TABLES = set(COPY_TABLES) | {"google_health_connection"}
+EXPECTED_SOURCE_TABLES = set(COPY_TABLES) | set(JOURNEY_SOURCE_COLUMNS) | {"google_health_connection"}
 
 DDL = """
 PRAGMA foreign_keys=ON;
@@ -130,6 +135,18 @@ CREATE TABLE source_connections (
   last_success_at TEXT, last_attempt_at TEXT, last_sync_count INTEGER NOT NULL,
   last_sync_start TEXT, last_sync_end TEXT
 ) WITHOUT ROWID;
+CREATE TABLE journey_days (
+  date TEXT PRIMARY KEY, revision INTEGER NOT NULL, updated_at TEXT,
+  energy INTEGER, soreness INTEGER, stress INTEGER, training_intent TEXT,
+  note TEXT, stress_minute INTEGER, reflection TEXT,
+  nutrition_reviewed INTEGER NOT NULL CHECK (nutrition_reviewed IN (0,1)),
+  nutrition_reviewed_at TEXT
+) WITHOUT ROWID;
+CREATE TABLE journey_preferences (
+  id TEXT PRIMARY KEY, revision INTEGER NOT NULL,
+  updated_at TEXT, wake_time TEXT, sleep_minutes INTEGER,
+  wind_down_minutes INTEGER NOT NULL, focus TEXT
+);
 CREATE INDEX ix_workouts_date ON workout_sessions(date DESC);
 CREATE INDEX ix_exercises_session ON exercises(session_id);
 CREATE INDEX ix_sets_exercise ON workout_sets(exercise_id);
@@ -139,6 +156,7 @@ CREATE INDEX ix_goals_start ON goals(start_date DESC);
 CREATE INDEX ix_daily_generated ON daily_reviews(generated_at DESC);
 CREATE INDEX ix_weekly_generated ON weekly_reviews(generated_at DESC);
 CREATE INDEX ix_trend_generated ON trend_summaries(generated_at DESC);
+CREATE INDEX ix_journey_updated ON journey_days(updated_at DESC);
 """
 
 
@@ -240,6 +258,9 @@ def _validate_schema(source: _Source) -> dict[str, set[str]]:
     for source_table, (_, columns) in COPY_TABLES.items():
         if not set(columns).issubset(schema[source_table]):
             raise ExportError("source schema is incompatible")
+    for source_table, columns in JOURNEY_SOURCE_COLUMNS.items():
+        if not set(columns).issubset(schema[source_table]):
+            raise ExportError("source schema is incompatible")
     connection_columns = {
         "status", "encrypted_refresh_token", "last_success_at", "last_attempt_at",
         "last_sync_count", "last_sync_start", "last_sync_end",
@@ -266,7 +287,12 @@ def preflight(source: str | Path) -> dict[str, object]:
         row_counts = {}
         for table in sorted(EXPECTED_SOURCE_TABLES):
             quoted = table.replace('"', '""')
-            count_column = COPY_TABLES[table][1][0] if table in COPY_TABLES else "id"
+            if table in COPY_TABLES:
+                count_column = COPY_TABLES[table][1][0]
+            elif table == "journey_day":
+                count_column = "date"
+            else:
+                count_column = "id"
             quoted_column = count_column.replace('"', '""')
             row_counts[table] = int(
                 _fetchall(db, f'SELECT COUNT("{quoted_column}") FROM "{quoted}"')[0][0]
@@ -285,16 +311,102 @@ def _iso_mtime(info: os.stat_result) -> str:
     return datetime.fromtimestamp(info.st_mtime, timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _copy_rows(source: _Source, destination: sqlite3.Connection) -> dict[str, int]:
+def _json_object(raw: object, table: str) -> dict[str, object]:
+    try:
+        value = json.loads(str(raw))
+    except (TypeError, ValueError) as exc:
+        raise ExportError(f"{table} contains invalid payload JSON") from exc
+    if not isinstance(value, dict):
+        raise ExportError(f"{table} contains a non-object payload")
+    return value
+
+
+def _rating(value: object, field: str) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 5:
+        raise ExportError(f"journey_day contains invalid {field}")
+    return value
+
+
+def _journey_rows(source: _Source, include_text: bool) -> tuple[list[tuple[object, ...]], list[tuple[object, ...]]]:
+    day_rows: list[tuple[object, ...]] = []
+    for day, revision, payload_json, updated_at in _fetchall(
+        source, 'SELECT "date","revision","payload_json","updated_at" FROM "journey_day" ORDER BY "date"'
+    ):
+        payload = _json_object(payload_json, "journey_day")
+        intent = payload.get("trainingIntent")
+        if intent not in (None, "plan", "rest"):
+            raise ExportError("journey_day contains invalid trainingIntent")
+        minute = payload.get("stressMinute")
+        if minute is not None and (
+            isinstance(minute, bool) or not isinstance(minute, int) or not 0 <= minute <= 1439
+        ):
+            raise ExportError("journey_day contains invalid stressMinute")
+        reviewed = payload.get("nutritionReviewed", False)
+        if not isinstance(reviewed, bool):
+            raise ExportError("journey_day contains invalid nutritionReviewed")
+        note = payload.get("note") if include_text else None
+        reflection = payload.get("reflection") if include_text else None
+        if note is not None and not isinstance(note, str):
+            raise ExportError("journey_day contains invalid note")
+        if reflection is not None and not isinstance(reflection, str):
+            raise ExportError("journey_day contains invalid reflection")
+        day_rows.append((
+            day, revision, updated_at,
+            _rating(payload.get("energy"), "energy"),
+            _rating(payload.get("soreness"), "soreness"),
+            _rating(payload.get("stress"), "stress"),
+            intent, note, minute, reflection, int(reviewed), payload.get("nutritionReviewedAt"),
+        ))
+
+    preference_rows: list[tuple[object, ...]] = []
+    for identifier, revision, payload_json, updated_at in _fetchall(
+        source, 'SELECT "id","revision","payload_json","updated_at" FROM "journey_preferences" ORDER BY "id"'
+    ):
+        payload = _json_object(payload_json, "journey_preferences")
+        focus = payload.get("focus")
+        if focus not in (None, "sleep", "movement", "strength", "nutrition", "stress"):
+            raise ExportError("journey_preferences contains invalid focus")
+        preference_rows.append((
+            identifier, revision, updated_at, payload.get("wakeTime"),
+            payload.get("sleepMinutes"), payload.get("windDownMinutes", 30), focus,
+        ))
+    return day_rows, preference_rows
+
+
+def _copy_rows(
+    source: _Source,
+    destination: sqlite3.Connection,
+    *,
+    include_journey_text: bool,
+) -> tuple[dict[str, int], str]:
     counts: dict[str, int] = {}
+    fingerprint = hashlib.sha256()
     for source_table, (destination_table, columns) in COPY_TABLES.items():
         names = ",".join(f'"{column}"' for column in columns)
         placeholders = ",".join("?" for _ in columns)
-        rows = _fetchall(source, f'SELECT {names} FROM "{source_table}"')
+        rows = _fetchall(source, f'SELECT {names} FROM "{source_table}" ORDER BY "{columns[0]}"')
         destination.executemany(
             f'INSERT INTO "{destination_table}" ({names}) VALUES ({placeholders})', rows
         )
         counts[destination_table] = len(rows)
+        fingerprint.update(destination_table.encode())
+        fingerprint.update(repr(rows).encode())
+
+    journey_days, journey_preferences = _journey_rows(source, include_journey_text)
+    destination.executemany(
+        "INSERT INTO journey_days VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", journey_days
+    )
+    destination.executemany(
+        "INSERT INTO journey_preferences VALUES (?,?,?,?,?,?,?)", journey_preferences
+    )
+    counts["journey_days"] = len(journey_days)
+    counts["journey_preferences"] = len(journey_preferences)
+    fingerprint.update(b"journey_days")
+    fingerprint.update(repr(journey_days).encode())
+    fingerprint.update(b"journey_preferences")
+    fingerprint.update(repr(journey_preferences).encode())
 
     connection_rows = _fetchall(source,
         """
@@ -314,7 +426,9 @@ def _copy_rows(source: _Source, destination: sqlite3.Connection) -> dict[str, in
             ("google-health", *connection),
         )
     counts["source_connections"] = 1 if connection is not None else 0
-    return counts
+    fingerprint.update(b"source_connections")
+    fingerprint.update(repr(connection).encode())
+    return counts, fingerprint.hexdigest()
 
 
 def export_projection(
@@ -322,12 +436,15 @@ def export_projection(
     destination: Path,
     *,
     exported_at: str | None = None,
+    include_journey_text: bool | None = None,
 ) -> dict[str, object]:
     destination = Path(destination)
     if destination.is_symlink():
         raise ExportError("destination must not be a symlink")
     destination.parent.mkdir(parents=True, exist_ok=True, mode=0o750)
     exported_at = exported_at or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    if include_journey_text is None:
+        include_journey_text = os.environ.get("GAINLOG_MCP_INCLUDE_JOURNEY_TEXT") == "1"
 
     source_db = _open_source(source)
     temporary: str | None = None
@@ -338,13 +455,17 @@ def export_projection(
         projection = sqlite3.connect(temporary)
         try:
             projection.executescript(DDL)
-            counts = _copy_rows(source_db, projection)
+            counts, source_fingerprint = _copy_rows(
+                source_db, projection, include_journey_text=include_journey_text
+            )
             projection.executemany(
                 "INSERT INTO metadata(key,value) VALUES (?,?)",
                 [
                     ("schema_version", str(SCHEMA_VERSION)),
                     ("exported_at", exported_at),
                     ("source_db_modified_at", source_db.modified_at),
+                    ("source_fingerprint", source_fingerprint),
+                    ("journey_text", "included" if include_journey_text else "withheld"),
                 ],
             )
             projection.execute(f"PRAGMA application_id={APPLICATION_ID}")

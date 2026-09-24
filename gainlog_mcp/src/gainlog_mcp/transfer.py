@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import os
 from pathlib import Path
 import selectors
+import re
 import sqlite3
 import stat
 import subprocess
@@ -35,6 +36,15 @@ _EXTRA_COLUMNS = {
     "source_connections": (
         "provider", "status", "connected", "last_success_at", "last_attempt_at",
         "last_sync_count", "last_sync_start", "last_sync_end",
+    ),
+    "journey_days": (
+        "date", "revision", "updated_at", "energy", "soreness", "stress",
+        "training_intent", "note", "stress_minute", "reflection",
+        "nutrition_reviewed", "nutrition_reviewed_at",
+    ),
+    "journey_preferences": (
+        "id", "revision", "updated_at", "wake_time", "sleep_minutes",
+        "wind_down_minutes", "focus",
     ),
 }
 EXPECTED_COLUMNS = {
@@ -83,11 +93,16 @@ def _validate_database(db: sqlite3.Connection, *, now: datetime) -> datetime:
 
     metadata_rows = db.execute("SELECT key,value FROM metadata").fetchall()
     metadata = dict(metadata_rows)
-    if len(metadata_rows) != 3 or set(metadata) != {
-        "schema_version", "exported_at", "source_db_modified_at"
+    if len(metadata_rows) != 5 or set(metadata) != {
+        "schema_version", "exported_at", "source_db_modified_at", "source_fingerprint",
+        "journey_text",
     }:
         raise ProjectionError("projection metadata is invalid")
     if metadata["schema_version"] != str(SCHEMA_VERSION):
+        raise ProjectionError("projection metadata is invalid")
+    if not re.fullmatch(r"[0-9a-f]{64}", metadata["source_fingerprint"]):
+        raise ProjectionError("projection metadata is invalid")
+    if metadata["journey_text"] not in {"included", "withheld"}:
         raise ProjectionError("projection metadata is invalid")
     exported_at = _timestamp(metadata["exported_at"])
     _timestamp(metadata["source_db_modified_at"])
