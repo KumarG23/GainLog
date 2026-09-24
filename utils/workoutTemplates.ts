@@ -169,9 +169,9 @@ export const PLANET_FITNESS_TEMPLATES: readonly WorkoutTemplate[] = [
         substitutions: ['Seated Leg Press', 'Smith Machine Squat'],
       },
       {
-        name: 'Leg Press Calf Raise', sets: 3, targetReps: '12–20', rest: '60–90 sec',
-        cue: 'keep the knees softly bent; move through the ankles without bouncing',
-        substitutions: ['Seated Calf Raise Machine', 'Smith Machine Standing Calf Raise'],
+        name: 'Standing Calf Raise', sets: 3, targetReps: '12–20', rest: '60–90 sec',
+        cue: 'use the standing calf raise machine; control the lowering and avoid bouncing',
+        substitutions: ['Calf Raise Machine', 'Calf Press on Leg Press'],
       },
       {
         name: 'Leg Extension', sets: 3, targetReps: '10–15', rest: '60–90 sec',

@@ -79,17 +79,24 @@ test('Planet Fitness plan provides five ordered weekday templates', () => {
   assert.equal(PLANET_FITNESS_TEMPLATES[3].weekday, 'Thursday');
   assert.deepEqual(
     PLANET_FITNESS_TEMPLATES[3].exercises.map(exercise => exercise.name),
-    ['45-Degree Leg Press', 'Leg Press Calf Raise', 'Leg Extension', 'Seated Leg Curl'],
+    ['45-Degree Leg Press', 'Standing Calf Raise', 'Leg Extension', 'Seated Leg Curl'],
   );
   const calfRaise = PLANET_FITNESS_TEMPLATES[3].exercises[1];
   assert.equal(calfRaise.targetReps, '12–20');
   assert.deepEqual(calfRaise.substitutions, [
-    'Seated Calf Raise Machine', 'Smith Machine Standing Calf Raise',
+    'Calf Raise Machine', 'Calf Press on Leg Press',
   ]);
   const draft = buildWorkoutTemplateDraft('legs', (() => { let id = 0; return () => String(++id); })());
-  assert.equal(draft.exercises[1].name, 'Leg Press Calf Raise');
-  assert.match(draft.exercises[1].prescription, /Establish a clean baseline · 3 × 12–20/);
+  assert.equal(draft.exercises[1].name, 'Standing Calf Raise');
+  assert.match(draft.exercises[1].prescription, /3 × 12–20/);
+  assert.match(draft.exercises[1].cue, /standing calf raise machine/);
   assert.ok(draft.exercises[1].sets.every(set => set.weight === '' && set.reps === ''));
+  const priorLegs = workout('calf-history', '2026-08-20T07:20:47-04:00', 'Standing Calf Raise', [
+    { weight: 110, reps: 20 }, { weight: 130, reps: 15 }, { weight: 130, reps: 12 },
+  ], { templateId: 'legs' });
+  const withHistory = buildWorkoutTemplateDraft('legs', () => 'id', [priorLegs], new Date(2026, 8, 24));
+  assert.equal(withHistory.exercises[1].recommendedWeight, '130');
+  assert.ok(withHistory.exercises[1].sets.every(set => set.weight === '' && set.reps === ''));
   assert.equal(PLANET_FITNESS_TEMPLATES[4].weekday, 'Friday');
 });
 
