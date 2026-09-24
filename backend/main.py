@@ -3294,3 +3294,12 @@ def get_insight(session_id: str, db: Session = Depends(get_db)):
     db.add(row)
     db.commit()
     return InsightResponse(insight=legacy_insight, coach_insight=coach_insight)
+
+
+# Retain the Journey router already running in production. Register its models
+# before lifespan's additive schema setup executes.
+try:
+    from .journey import create_journey_router
+except ImportError:
+    from journey import create_journey_router
+app.include_router(create_journey_router(get_db))

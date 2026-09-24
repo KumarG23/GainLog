@@ -21,6 +21,10 @@ def test_plan_versions_and_validation():
         'substitutions': ['Calf Raise Machine', 'Calf Press on Leg Press'],
     }
     with TestClient(app) as client:
+        # Production's pre-existing Journey route must survive source reconciliation.
+        today = date.today().isoformat()
+        journey = client.get('/journey', params={'startDate': today, 'endDate': today})
+        assert journey.status_code == 200, journey.text
         initial = client.get('/workout-plan', params={'weekStart': week})
         assert initial.status_code == 200
         assert initial.json() == {'weekStart': week, 'revision': 0, 'overrides': {}}
