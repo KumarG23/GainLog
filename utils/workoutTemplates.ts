@@ -161,7 +161,7 @@ export const PLANET_FITNESS_TEMPLATES: readonly WorkoutTemplate[] = [
     id: 'legs',
     weekday: 'Thursday',
     title: 'Legs',
-    focus: 'Quads · hamstrings · glutes',
+    focus: 'Quads · hamstrings · calves',
     estimatedMinutes: 45,
     exercises: [
       {
@@ -169,8 +169,9 @@ export const PLANET_FITNESS_TEMPLATES: readonly WorkoutTemplate[] = [
         substitutions: ['Seated Leg Press', 'Smith Machine Squat'],
       },
       {
-        name: 'Glute Kickback Machine', sets: 3, targetReps: '10–15', rest: '60–90 sec',
-        substitutions: ['Cable Glute Kickback', 'Smith Machine Reverse Lunge'],
+        name: 'Leg Press Calf Raise', sets: 3, targetReps: '12–20', rest: '60–90 sec',
+        cue: 'keep the knees softly bent; move through the ankles without bouncing',
+        substitutions: ['Seated Calf Raise Machine', 'Smith Machine Standing Calf Raise'],
       },
       {
         name: 'Leg Extension', sets: 3, targetReps: '10–15', rest: '60–90 sec',

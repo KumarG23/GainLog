@@ -79,8 +79,17 @@ test('Planet Fitness plan provides five ordered weekday templates', () => {
   assert.equal(PLANET_FITNESS_TEMPLATES[3].weekday, 'Thursday');
   assert.deepEqual(
     PLANET_FITNESS_TEMPLATES[3].exercises.map(exercise => exercise.name),
-    ['45-Degree Leg Press', 'Glute Kickback Machine', 'Leg Extension', 'Seated Leg Curl'],
+    ['45-Degree Leg Press', 'Leg Press Calf Raise', 'Leg Extension', 'Seated Leg Curl'],
   );
+  const calfRaise = PLANET_FITNESS_TEMPLATES[3].exercises[1];
+  assert.equal(calfRaise.targetReps, '12–20');
+  assert.deepEqual(calfRaise.substitutions, [
+    'Seated Calf Raise Machine', 'Smith Machine Standing Calf Raise',
+  ]);
+  const draft = buildWorkoutTemplateDraft('legs', (() => { let id = 0; return () => String(++id); })());
+  assert.equal(draft.exercises[1].name, 'Leg Press Calf Raise');
+  assert.match(draft.exercises[1].prescription, /Establish a clean baseline · 3 × 12–20/);
+  assert.ok(draft.exercises[1].sets.every(set => set.weight === '' && set.reps === ''));
   assert.equal(PLANET_FITNESS_TEMPLATES[4].weekday, 'Friday');
 });
 
