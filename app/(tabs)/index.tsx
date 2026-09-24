@@ -14,7 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { Href, useRouter } from 'expo-router';
+import { Href, useFocusEffect, useRouter } from 'expo-router';
 import { Colors, FontSize, Radius, Spacing } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
 import { useHealth } from '../../context/HealthContext';
@@ -38,7 +38,7 @@ import {
   SetPersonalRecord,
 } from '../../utils/workoutRecords';
 import {
-  PLANET_FITNESS_TEMPLATES,
+  applyWorkoutPlanOverrides,
   buildWorkoutTemplateDraft,
   canLoadWorkoutTemplate,
   getSuggestedTemplateId,
@@ -522,10 +522,12 @@ export default function LogScreen() {
     sessions,
     loading: workoutsLoading,
     error: workoutsError,
+    planOverrides,
     addSession,
     updateFeedback,
     refresh,
   } = useWorkouts();
+  useFocusEffect(useCallback(() => { void refresh(); }, [refresh]));
   const { nutritionEntries, loading: healthLoading } = useHealth();
   const router = useRouter();
 
@@ -568,18 +570,19 @@ export default function LogScreen() {
   const dismissCelebration = useCallback(() => setActiveCelebration(null), []);
 
   const suggestedTemplateId = getSuggestedTemplateId(now.getDay());
+  const activeTemplates = useMemo(() => applyWorkoutPlanOverrides(planOverrides), [planOverrides]);
   const planHistoryCutoff = getWorkoutPlanWeekStart(now);
   const canLoadTemplate = canLoadWorkoutTemplate(workoutsLoading, workoutsError);
   const planScrollRef = useRef<ScrollView>(null);
   const positionedSuggestedTemplate = useRef<WorkoutTemplateId | null>(null);
   const handlePlanContentSizeChange = useCallback(() => {
     if (!suggestedTemplateId || positionedSuggestedTemplate.current === suggestedTemplateId) return;
-    const index = PLANET_FITNESS_TEMPLATES.findIndex(template => template.id === suggestedTemplateId);
+    const index = activeTemplates.findIndex(template => template.id === suggestedTemplateId);
     if (index > 0) {
       planScrollRef.current?.scrollTo({ x: index * (168 + Spacing.sm), animated: false });
     }
     positionedSuggestedTemplate.current = suggestedTemplateId;
-  }, [suggestedTemplateId]);
+  }, [suggestedTemplateId, activeTemplates]);
 
   // -- Exercise mutations ---------------------------------------------------
 
@@ -738,7 +741,7 @@ export default function LogScreen() {
     if (!canLoadTemplate) return;
 
     const applyTemplate = () => {
-      const draft = buildWorkoutTemplateDraft(templateId, generateId, sessions, new Date());
+      const draft = buildWorkoutTemplateDraft(templateId, generateId, sessions, new Date(), activeTemplates);
       setExercises(draft.exercises);
       setSelectedTemplateId(draft.template.id);
       setStrengthDuration('');
@@ -764,7 +767,7 @@ export default function LogScreen() {
         { text: 'Replace', style: 'destructive', onPress: applyTemplate },
       ],
     );
-  }, [canLoadTemplate, exercises.length, sessions]);
+  }, [canLoadTemplate, exercises.length, sessions, activeTemplates]);
 
   // -- Save -----------------------------------------------------------------
 
@@ -1090,7 +1093,7 @@ export default function LogScreen() {
               contentContainerStyle={styles.planCards}
               onContentSizeChange={handlePlanContentSizeChange}
             >
-              {PLANET_FITNESS_TEMPLATES.map(template => {
+              {activeTemplates.map(template => {
                 const selected = selectedTemplateId === template.id;
                 const suggested = suggestedTemplateId === template.id;
                 return (

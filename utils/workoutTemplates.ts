@@ -20,6 +20,8 @@ export interface WorkoutTemplate {
   exercises: readonly WorkoutTemplateExercise[];
 }
 
+export type WorkoutPlanOverrides = Partial<Record<WorkoutTemplateId, readonly WorkoutTemplateExercise[]>>;
+
 export interface WorkoutTemplateDraftSet {
   id: string;
   weight: string;
@@ -218,6 +220,13 @@ export const PLANET_FITNESS_TEMPLATES: readonly WorkoutTemplate[] = [
   },
 ];
 
+export function applyWorkoutPlanOverrides(overrides: WorkoutPlanOverrides): readonly WorkoutTemplate[] {
+  return PLANET_FITNESS_TEMPLATES.map(template => ({
+    ...template,
+    exercises: overrides[template.id] ?? template.exercises,
+  }));
+}
+
 export function getSuggestedTemplateId(dayOfWeek: number): WorkoutTemplateId | null {
   const weekdayIds: Partial<Record<number, WorkoutTemplateId>> = {
     1: 'push',
@@ -282,8 +291,9 @@ export function buildWorkoutTemplateDraft(
   createId: () => string,
   sessions: readonly WorkoutSession[] = [],
   planDate: Date = new Date(),
+  templates: readonly WorkoutTemplate[] = PLANET_FITNESS_TEMPLATES,
 ): BuiltWorkoutTemplateDraft {
-  const template = PLANET_FITNESS_TEMPLATES.find(item => item.id === templateId);
+  const template = templates.find(item => item.id === templateId);
   if (!template) {
     throw new Error(`Unknown workout template: ${templateId}`);
   }

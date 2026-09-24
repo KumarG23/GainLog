@@ -8,6 +8,7 @@ const logScreen = readFileSync(new URL('../app/(tabs)/index.tsx', import.meta.ur
 
 const {
   PLANET_FITNESS_TEMPLATES,
+  applyWorkoutPlanOverrides,
   buildWorkoutTemplateDraft,
   getSuggestedTemplateId,
   substituteWorkoutTemplateExercise,
@@ -98,6 +99,22 @@ test('Planet Fitness plan provides five ordered weekday templates', () => {
   assert.equal(withHistory.exercises[1].recommendedWeight, '130');
   assert.ok(withHistory.exercises[1].sets.every(set => set.weight === '' && set.reps === ''));
   assert.equal(PLANET_FITNESS_TEMPLATES[4].weekday, 'Friday');
+});
+
+test('server-owned plan changes draft prescriptions without filling actual sets', () => {
+  const baseLegs = PLANET_FITNESS_TEMPLATES.find(template => template.id === 'legs');
+  const replacement = { ...baseLegs.exercises[1], targetReps: '10–15' };
+  const templates = applyWorkoutPlanOverrides({
+    legs: [baseLegs.exercises[0], replacement, ...baseLegs.exercises.slice(2)],
+  });
+  assert.equal(templates.find(template => template.id === 'legs').exercises[1].targetReps, '10–15');
+  assert.equal(baseLegs.exercises[1].targetReps, '12–20');
+  const draft = buildWorkoutTemplateDraft('legs', () => 'id', [], new Date(2026, 8, 24), templates);
+  assert.equal(draft.exercises[1].name, 'Standing Calf Raise');
+  assert.equal(draft.exercises[1].targetReps, '10–15');
+  assert.ok(draft.exercises[1].sets.every(set => set.weight === '' && set.reps === ''));
+  assert.match(logScreen, /applyWorkoutPlanOverrides\(planOverrides\)/);
+  assert.match(logScreen, /buildWorkoutTemplateDraft\(templateId, generateId, sessions, new Date\(\), activeTemplates\)/);
 });
 
 test('next week prioritizes learnable chest presses with same-role crowded-gym options', () => {

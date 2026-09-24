@@ -9,13 +9,15 @@ from contextlib import asynccontextmanager
 from datetime import date as date_cls, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, List, Literal, Optional, cast
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field as PydanticField, ValidationError, field_validator
 from pydantic.alias_generators import to_camel
-from sqlalchemy import func, text
+from sqlalchemy import func, text, update
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Field, Relationship, Session, SQLModel, select
 import requests
 
@@ -120,6 +122,13 @@ class WorkoutSessionDB(SQLModel, table=True):
         back_populates="session",
         sa_relationship_kwargs={"order_by": "ExerciseDB.position"},
     )
+
+
+class WorkoutPlanVersionDB(SQLModel, table=True):
+    __tablename__ = "workout_plan_version"
+    week_start: str = Field(primary_key=True)
+    revision: int
+    overrides_json: str
 
 
 class BodyWeightEntryDB(SQLModel, table=True):
@@ -372,6 +381,54 @@ class WorkoutSessionIn(CamelModel):
 class WorkoutFeedbackIn(CamelModel):
     effort: Optional[Literal["easy", "right", "hard"]] = None
     pain: Optional[bool] = None
+
+
+class PlannedExercise(CamelModel):
+    name: str = PydanticField(min_length=1, max_length=100)
+    sets: int = PydanticField(ge=1, le=10)
+    target_reps: str = PydanticField(pattern=r"^[0-9]{1,2}[–-][0-9]{1,2}$")
+    rest: str = PydanticField(min_length=1, max_length=30)
+    cue: Optional[str] = PydanticField(default=None, max_length=200)
+    substitutions: tuple[str, str]
+
+    @field_validator("name", "rest", "cue")
+    @classmethod
+    def no_blank_fields(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not value.strip():
+            raise ValueError("plan fields must not be blank")
+        return value
+
+    @field_validator("substitutions")
+    @classmethod
+    def valid_substitutions(cls, values: tuple[str, str]) -> tuple[str, str]:
+        if any(not value.strip() or len(value) > 100 for value in values) or values[0] == values[1]:
+            raise ValueError("two distinct nonblank substitutions required")
+        return values
+
+
+class WorkoutPlanIn(CamelModel):
+    expected_revision: int = Field(ge=0)
+    overrides: dict[Literal["push", "pull", "recovery", "legs", "upper"], List[PlannedExercise]]
+
+    @field_validator("overrides")
+    @classmethod
+    def valid_days(cls, days: dict[str, List[PlannedExercise]]) -> dict[str, List[PlannedExercise]]:
+        for day, exercises in days.items():
+            if (day == "recovery" and exercises) or (day != "recovery" and not 1 <= len(exercises) <= 10):
+                raise ValueError("recovery stays cardio-only; lifting days need 1–10 exercises")
+            names = [exercise.name.strip().casefold() for exercise in exercises]
+            if len(names) != len(set(names)) or any(
+                exercise.name.strip().casefold() in {name.strip().casefold() for name in exercise.substitutions}
+                for exercise in exercises
+            ):
+                raise ValueError("planned exercise and substitution names must be distinct")
+        return days
+
+
+class WorkoutPlanOut(CamelModel):
+    week_start: str
+    revision: int
+    overrides: dict[str, List[PlannedExercise]]
 
 
 class BodyWeightEntryOut(CamelModel):
@@ -3001,6 +3058,72 @@ def get_dashboard_summary(date: Optional[str] = None, db: Session = Depends(get_
         total_workout_volume=sum(_session_volume(workout) for workout in workouts),
         latest_workout=_to_out(latest_workout) if latest_workout else None,
     )
+
+
+def _plan_week(value: Optional[str]) -> str:
+    if value is None:
+        today = datetime.now(ZoneInfo("America/New_York")).date()
+        return (today - timedelta(days=today.weekday())).isoformat()
+    try:
+        parsed = date_cls.fromisoformat(value)
+    except ValueError as exc:
+        raise HTTPException(422, "weekStart must be an ISO Monday") from exc
+    if parsed.isoformat() != value or parsed.weekday() != 0:
+        raise HTTPException(422, "weekStart must be an ISO Monday")
+    return value
+
+
+def _effective_plan(db: Session, week: str) -> WorkoutPlanOut:
+    row = db.exec(select(WorkoutPlanVersionDB)
+                  .where(WorkoutPlanVersionDB.week_start <= week)
+                  .order_by(WorkoutPlanVersionDB.week_start.desc())).first()
+    return WorkoutPlanOut(
+        week_start=week,
+        revision=row.revision if row else 0,
+        overrides=json.loads(row.overrides_json) if row else {},
+    )
+
+
+@app.get("/workout-plan", response_model=WorkoutPlanOut, response_model_by_alias=True)
+def get_workout_plan(weekStart: Optional[str] = None, db: Session = Depends(get_db)):
+    return _effective_plan(db, _plan_week(weekStart))
+
+
+@app.put("/workout-plan", response_model=WorkoutPlanOut, response_model_by_alias=True)
+def put_workout_plan(payload: WorkoutPlanIn, weekStart: Optional[str] = None,
+                     db: Session = Depends(get_db)):
+    week = _plan_week(weekStart)
+    current = _plan_week(None)
+    if week < current or week > (date_cls.fromisoformat(current) + timedelta(weeks=8)).isoformat():
+        raise HTTPException(422, "plan edits must target the current or next eight weeks")
+    effective = _effective_plan(db, week)
+    if payload.expected_revision != effective.revision:
+        raise HTTPException(409, "plan revision changed; reload before editing")
+    next_revision = effective.revision + 1
+    overrides_json = json.dumps(
+        {key: [exercise.model_dump(by_alias=True) for exercise in exercises]
+         for key, exercises in payload.overrides.items()},
+        ensure_ascii=False,
+    )
+    existing = db.get(WorkoutPlanVersionDB, week)
+    try:
+        if existing:
+            result = db.exec(update(WorkoutPlanVersionDB)
+                             .where(WorkoutPlanVersionDB.week_start == week)
+                             .where(WorkoutPlanVersionDB.revision == payload.expected_revision)
+                             .values(revision=next_revision, overrides_json=overrides_json))
+            if result.rowcount != 1:
+                db.rollback()
+                raise HTTPException(409, "plan revision changed; reload before editing")
+        else:
+            db.add(WorkoutPlanVersionDB(week_start=week, revision=next_revision,
+                                        overrides_json=overrides_json))
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(409, "plan revision changed; reload before editing") from exc
+    return WorkoutPlanOut(week_start=week, revision=next_revision,
+                          overrides=payload.overrides)
 
 
 @app.get("/workouts/", response_model=List[WorkoutSessionOut], response_model_by_alias=True)

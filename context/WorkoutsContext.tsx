@@ -7,11 +7,13 @@ import React, {
 } from 'react';
 import { WorkoutEffort, WorkoutSession } from '../types/workout';
 import { API_URL } from '../constants/api';
+import { getWorkoutPlanWeekStart, type WorkoutPlanOverrides } from '../utils/workoutTemplates';
 
 interface WorkoutsContextValue {
   sessions: WorkoutSession[];
   loading: boolean;
   error: string | null;
+  planOverrides: WorkoutPlanOverrides;
   addSession: (data: Omit<WorkoutSession, 'id'>) => Promise<WorkoutSession>;
   deleteSession: (id: string) => Promise<void>;
   updateFeedback: (
@@ -42,13 +44,28 @@ export function WorkoutsProvider({ children }: { children: React.ReactNode }) {
   const [sessions, setSessions] = useState<WorkoutSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [planOverrides, setPlanOverrides] = useState<WorkoutPlanOverrides>({});
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await apiFetch<WorkoutSession[]>('/workouts/');
+      const monday = getWorkoutPlanWeekStart(new Date());
+      const weekStart = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
+      const requests: [Promise<WorkoutSession[]>, Promise<{ weekStart: string; overrides: WorkoutPlanOverrides }>] = [
+        apiFetch<WorkoutSession[]>('/workouts/'),
+        process.env.EXPO_PUBLIC_GAINLOG_REMOTE_PLAN === '1'
+          ? apiFetch<{ weekStart: string; overrides: WorkoutPlanOverrides }>(
+              `/workout-plan?weekStart=${weekStart}`,
+            )
+          : Promise.resolve({ weekStart, overrides: {} }),
+      ];
+      const [data, plan] = await Promise.all(requests);
+      if (plan.weekStart !== weekStart || !plan.overrides || typeof plan.overrides !== 'object') {
+        throw new Error('Workout plan unavailable');
+      }
       setSessions(data);
+      setPlanOverrides(plan.overrides);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Failed to load workouts. Check your connection.',
@@ -102,6 +119,7 @@ export function WorkoutsProvider({ children }: { children: React.ReactNode }) {
         sessions,
         loading,
         error,
+        planOverrides,
         addSession,
         deleteSession,
         updateFeedback,

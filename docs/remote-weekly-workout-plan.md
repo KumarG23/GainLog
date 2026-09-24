@@ -1,0 +1,14 @@
+# Remote weekly workout plan — rollout contract
+
+GainLog keeps completed workouts as immutable history. The app's built-in five-day template is a fallback skeleton; an API-owned override replaces the scheduled exercises for a day. The client still computes conservative, exact-template/exact-exercise recommendations from completed pre-Monday history and leaves all actual set fields blank. Wednesday remains cardio-only.
+
+- `GET /workout-plan?weekStart=YYYY-MM-DD` (Monday, Eastern week) returns `{weekStart, revision, overrides}`. It reads the newest version effective on or before that week; no row means revision `0` and no overrides.
+- `PUT /workout-plan?weekStart=YYYY-MM-DD` accepts `{expectedRevision, overrides}` for the current or next eight weeks. The complete override map is replaced atomically, not merged. Preserve other days from GET when editing one. A stale revision returns `409`; reload and reconcile, never blindly retry. The response is the saved revision and validated plan. An explicit edit to the current week is permitted; future weeks inherit the newest version unless overridden.
+- Each overridden lifting day contains the complete ordered list of strength exercises, each with `name`, `sets`, `targetReps`, `rest`, optional `cue`, and exactly two `substitutions`. Names are exact history identities; do not alias machine variants. Recovery cannot contain strength exercises. The optional elliptical finisher and Wednesday easy cardio remain built into the app.
+- The app loads workout history and plan together on entry to Log and fails closed when an enabled remote plan request fails. Re-select a draft after an explicit plan edit; an in-progress draft is never silently overwritten. The feature is gated by `EXPO_PUBLIC_GAINLOG_REMOTE_PLAN=1` until the API is deployed and verified. No APK is needed for later plan-data edits; one compatible Android release is still needed to enable remote plans on the phone.
+
+## Deployment gates
+
+Production on VM 111 has backend source drift (a Journey route not in this checkout), and the installed Android hotfix is newer than checked-in 1.1.16 metadata. Do not copy `backend/main.py` wholesale or publish an APK from stale version metadata. Reconcile both first. Back up and restore-test PostgreSQL before the additive table deployment; apply only the reviewed backend delta, then verify `/health`, `/workout-plan`, existing Journey, `/workouts/`, and service health. Only then enable the client flag, build a correctly versioned signed APK, install in place after saving any unfinished workout, and verify a server-side plan edit appears on the physical phone without another app install.
+
+The current Legs identity is `Standing Calf Raise` (historic Thursday Legs log), not `Leg Press Calf Raise`. Its prior load is a reference, not a mandate after notable soreness. Client-side progression remains conservative and cannot infer clean form or RIR from a sore-muscle report alone.
