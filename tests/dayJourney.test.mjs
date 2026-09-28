@@ -23,6 +23,7 @@ test('future sessions do not complete today', () => { assert.equal(sessionsOnDay
 test('duplicates do not inflate sessions or food', () => { assert.equal(sessionsOnDay([session, session], now).length, 1); assert.equal(foodOnDay([meal, meal], date, now).length, 1); });
 test('past and future food records do not manufacture today’s intake', () => { assert.equal(foodOnDay([meal, { ...meal, id: 'future', date: date + 'T22:00:00-04:00' }, { ...meal, id: 'yesterday', date: '2026-09-20T08:00:00-04:00' }], date, now).length, 1); });
 test('food totals preserve measured zero', () => { assert.equal(foodTotals([{ ...meal, calories: 0 }]).calories, 0); });
+test('food totals include carbs and fat across entries', () => { assert.deepEqual(foodTotals([meal, { ...meal, id: 'second', carbsG: 12, fatG: 0 }]), { calories: 800, proteinG: 50, fiberG: 10, carbsG: 52, fatG: 15 }); });
 test('rest intention is not treated as failure', () => { const r = buildDailyBrief({ ...base, check: { ...emptyDay(date), trainingIntent: 'rest' } }); assert.match(r.title, /Rest is part/); assert.equal(r.action, 'sleep'); });
 test('yesterday’s intention does not carry to today', () => { const r = buildDailyBrief({ ...base, check: { ...emptyDay('2026-09-20'), trainingIntent: 'rest' } }); assert.equal(r.action, 'checkin'); });
 test('evening shifts to planning and reflection, even after training', () => { const evening = new Date(date + 'T20:00:00-04:00'); assert.equal(buildDailyBrief({ ...base, now: evening, sessions: [session] }).action, 'sleep'); const r = buildDailyBrief({ ...base, now: evening, preferences: { ...EMPTY_PREFERENCES, wakeTime: '06:00', sleepMinutes: 480 } }); assert.equal(r.phase, 'Evening'); assert.equal(r.action, 'reflection'); assert.match(r.body, /22:00/); });
@@ -50,6 +51,12 @@ test('historical day leaves unavailable domains missing instead of recomputing t
 test('Quick Log shares the dedicated workout route; cold-start repair is retained', () => { const ui = fs.readFileSync(new URL('../components/v2/ui.tsx', import.meta.url), 'utf8'); assert.match(ui, /isHealthspanEnabled\(\) \? '\/workout' : '\/\(tabs\)'/); const layout = fs.readFileSync(new URL('../app/(tabs)/_layout.tsx', import.meta.url), 'utf8'); assert.doesNotMatch(layout, /router\.replace/); });
 test('new journey never invokes AI generation or provider synchronization', () => { const source = fs.readFileSync(new URL('../components/journey/DailyExperience.tsx', import.meta.url), 'utf8'); assert.doesNotMatch(source, /generateDailyReview|generateWeeklyReview|syncGoogle|writeNutrition/); });
 test('Fuel availability follows only the nutrition domain error', () => { const source = fs.readFileSync(new URL('../components/journey/DailyExperience.tsx', import.meta.url), 'utf8'); assert.match(source, /health\.nutritionError \? 'Nutrition could not be refreshed\.'/); assert.doesNotMatch(source, /health\.error \? 'Nutrition could not be refreshed\.'/); });
+test('Today and Fuel show carbs and fat as secondary logged totals without turning missing food into zero', () => {
+  const today = fs.readFileSync(new URL('../components/journey/DailyExperience.tsx', import.meta.url), 'utf8');
+  const fuel = fs.readFileSync(new URL('../components/journey/FuelOverview.tsx', import.meta.url), 'utf8');
+  assert.match(today, /!health\.nutritionError && meals\.length > 0 && <Text style=\{j\.note\}>\{numberLabel\(totals\.carbsG\)\} g carbs · \{numberLabel\(totals\.fatG\)\} g fat/);
+  assert.match(fuel, /meals\.length && !health\.nutritionError \? `\$\{numberLabel\(totals\.carbsG\)\} g carbs · \$\{numberLabel\(totals\.fatG\)\} g fat` : 'carbs — · fat —'/);
+});
 
 
 test('an editor pins the revision it opened instead of silently adopting refreshed data', () => {

@@ -26,7 +26,7 @@ export function foodOnDay(entries: readonly NutritionEntry[], date: string, now 
   return [...new Map(entries.filter(e => recordedDay(e.date) === date && (e.date.length === 10 || Date.parse(e.date) <= now.getTime())).map(e => [e.id, e])).values()];
 }
 export function foodTotals(entries: readonly NutritionEntry[]) {
-  return entries.reduce((a, e) => ({ calories: a.calories + e.calories, proteinG: a.proteinG + e.proteinG, fiberG: a.fiberG + e.fiberG }), { calories: 0, proteinG: 0, fiberG: 0 });
+  return entries.reduce((a, e) => ({ calories: a.calories + e.calories, proteinG: a.proteinG + e.proteinG, fiberG: a.fiberG + e.fiberG, carbsG: a.carbsG + e.carbsG, fatG: a.fatG + e.fatG }), { calories: 0, proteinG: 0, fiberG: 0, carbsG: 0, fatG: 0 });
 }
 export function clockLabel(minutes: number) {
   const n = ((Math.round(minutes) % 1440) + 1440) % 1440;
