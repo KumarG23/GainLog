@@ -14,6 +14,22 @@ const {
   substituteWorkoutTemplateExercise,
 } = workoutTemplates;
 
+test('only an actual draft prescription is serialized at workout save', () => {
+  const parse = workoutTemplates.savedRepPrescription;
+  assert.deepEqual(parse('8–12', 3), { targetRepsMin: 8, targetRepsMax: 12, prescribedSets: 3 });
+  assert.deepEqual(parse('10-15', 2), { targetRepsMin: 10, targetRepsMax: 15, prescribedSets: 2 });
+  for (const input of [undefined, 'about 12', '12–8', '0–12', '8–41']) {
+    assert.equal(parse(input, 3), undefined);
+  }
+  assert.equal(parse('8–12', 0), undefined);
+  assert.match(logScreen, /savedRepPrescription\(e\.targetReps, e\.prescribedSets \?\? e\.sets\.length\)/);
+  let serial = 0;
+  const draft = buildWorkoutTemplateDraft('push', () => String(++serial));
+  assert.deepEqual(parse(draft.exercises[0].targetReps, draft.exercises[0].prescribedSets),
+    { targetRepsMin: 8, targetRepsMax: 12, prescribedSets: 3 });
+  assert.equal(parse(draft.exercises.at(-1).targetReps, draft.exercises.at(-1).prescribedSets), undefined);
+});
+
 test('workout templates stay locked until history loads successfully', () => {
   const canLoad = workoutTemplates.canLoadWorkoutTemplate;
 

@@ -96,6 +96,9 @@ def test_cardio_exercise_round_trip():
             "name": "Elliptical",
             "kind": "cardio",
             "sets": [],
+            "targetRepsMin": None,
+            "targetRepsMax": None,
+            "prescribedSets": None,
             "cardioDurationMinutes": 30,
             "distanceMiles": 2.4,
             "resistanceLevel": 8.0,
@@ -122,11 +125,14 @@ def test_treadmill_incline_round_trip_and_legacy_migration():
     # Simulate the previous schema, then exercise startup migration twice.
     with engine.begin() as conn:
         conn.execute(text('ALTER TABLE exercise DROP COLUMN incline_percent'))
+        for column in ('target_reps_min', 'target_reps_max', 'prescribed_sets'):
+            conn.execute(text(f'ALTER TABLE exercise DROP COLUMN {column}'))
     for _ in range(2):
         with TestClient(app) as client:
             legacy = client.get(f"/workouts/{original['id']}").json()
             assert legacy['exercises'][0]['resistanceLevel'] == 4
             assert legacy['exercises'][0]['inclinePercent'] is None
+            assert legacy['exercises'][0]['targetRepsMax'] is None
             for incline in (0, 2.5):
                 response = client.post('/workouts/', json={
                     'date': '2026-09-09T12:00:00Z', 'durationMinutes': 32,
@@ -428,3 +434,59 @@ def test_malformed_structured_insight_uses_safe_card_and_preserves_legacy_text(m
         assert response.json()["insight"] == "Legacy coach prose that is not JSON."
         assert response.json()["coachInsight"]["headline"] == "Workout complete"
         assert response.json()["coachInsight"]["verdict"] == "The coach response could not be structured. Your workout is still saved."
+
+
+def test_prescription_round_trip_and_assembled_insight_evidence(monkeypatch):
+    reset_db()
+    captured = []
+
+    class Provider:
+        def generate(self, prompt):
+            captured.append(prompt)
+            return '{"headline":"Logged","verdict":"Good work.","wins":[],"caveat":null,"nextAction":{"title":"Next","detail":"Follow the plan."}}'
+
+    monkeypatch.setattr("backend.main.get_coach_provider", lambda: Provider())
+    with TestClient(app) as client:
+        def log(sets, *, target=True, effort="right", pain=False, notes="Steady reps"):
+            ex = {"name": "Machine Press", "sets": [{"weight": w, "reps": r} for w, r in sets]}
+            if target:
+                ex.update(targetRepsMin=8, targetRepsMax=12, prescribedSets=3)
+            response = client.post("/workouts/", json={
+                "date": "2026-09-08T07:00:00Z", "durationMinutes": 30,
+                "effort": effort, "pain": pain, "notes": notes, "exercises": [ex],
+            })
+            assert response.status_code == 201, response.text
+            saved = client.get(f"/workouts/{response.json()['id']}").json()
+            assert saved["exercises"][0]["targetRepsMax"] == (12 if target else None)
+            assert saved["exercises"][0]["prescribedSets"] == (3 if target else None)
+            assert client.post(f"/workouts/{saved['id']}/insight").status_code == 200
+            return captured[-1]
+
+        earned = log([(80, 12)] * 3)
+        assert "prescribed 3 working sets of 8–12 reps; earned next-load step: yes" in earned
+        for prompt in (
+            log([(80, 12)] * 3, target=False),
+            log([(80, 12)] * 2),
+            log([(80, 12), (85, 12), (80, 12)]),
+            log([(80, 12), (80, 11), (80, 12)]),
+            log([(80, 12)] * 3, effort="hard"),
+            log([(80, 12)] * 3, pain=True),
+            log([(80, 12)] * 3, notes="Form broke on last rep"),
+            log([(80, 12)] * 3, notes="Not controlled on last set"),
+            log([(80, 12)] * 3, notes="No pain, but struggling with form"),
+        ):
+            assert "earned next-load step: yes" not in prompt.split("PRESCRIPTION EVIDENCE")[1].split("</workout_data>")[0]
+        assert "no saved prescribed target" in captured[1]
+
+
+def test_incomplete_or_invalid_prescription_is_rejected():
+    reset_db()
+    with TestClient(app) as client:
+        for fields in ({"targetRepsMax": 12},
+                       {"targetRepsMin": 12, "targetRepsMax": 8, "prescribedSets": 3},
+                       {"targetRepsMin": 8, "targetRepsMax": 12, "prescribedSets": 0}):
+            response = client.post("/workouts/", json={
+                "date": "2026-09-08T07:00:00Z", "durationMinutes": 30,
+                "exercises": [{"name": "Press", "sets": [], **fields}],
+            })
+            assert response.status_code == 422

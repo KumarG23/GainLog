@@ -22,6 +22,19 @@ export interface WorkoutTemplate {
 
 export type WorkoutPlanOverrides = Partial<Record<WorkoutTemplateId, readonly WorkoutTemplateExercise[]>>;
 
+// Only a concrete range displayed on the loaded draft may travel with a log.
+// Never reconstruct an older session's target from today's mutable plan.
+export function savedRepPrescription(targetReps: string | undefined, sets: number): {
+  targetRepsMin: number; targetRepsMax: number; prescribedSets: number;
+} | undefined {
+  const match = targetReps?.trim().match(/^(\d{1,2})\s*[-–]\s*(\d{1,2})$/);
+  if (!match || !Number.isInteger(sets) || sets < 1 || sets > 20) return undefined;
+  const minimum = Number(match[1]);
+  const maximum = Number(match[2]);
+  if (minimum < 1 || maximum > 40 || minimum > maximum) return undefined;
+  return { targetRepsMin: minimum, targetRepsMax: maximum, prescribedSets: sets };
+}
+
 export interface WorkoutTemplateDraftSet {
   id: string;
   weight: string;
@@ -40,6 +53,7 @@ export interface WorkoutTemplateDraftExercise {
   prescription?: string;
   recommendedWeight?: string;
   targetReps?: string;
+  prescribedSets?: number;
   rest?: string;
   cue?: string;
   substitutionOptions?: readonly string[];
@@ -278,6 +292,7 @@ function buildStrengthDraftExercise(
     prescription: formatExercisePrescription(exercise, recommendation),
     recommendedWeight: recommendation?.weight,
     targetReps: exercise.targetReps,
+    prescribedSets: exercise.sets,
     rest: exercise.rest,
     cue: exercise.cue,
     substitutionOptions: exercise.substitutions

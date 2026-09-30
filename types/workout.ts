@@ -11,6 +11,9 @@ export interface Exercise {
   name: string;
   kind?: ExerciseKind;
   sets: WorkoutSet[];
+  targetRepsMin?: number;
+  targetRepsMax?: number;
+  prescribedSets?: number;
   cardioDurationMinutes?: number;
   distanceMiles?: number;
   resistanceLevel?: number;

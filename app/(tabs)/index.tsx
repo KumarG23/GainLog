@@ -44,6 +44,7 @@ import {
   canLoadWorkoutTemplate,
   getSuggestedTemplateId,
   getWorkoutPlanWeekStart,
+  savedRepPrescription,
   substituteWorkoutTemplateExercise,
   WorkoutTemplateId,
 } from '../../utils/workoutTemplates';
@@ -70,6 +71,7 @@ interface DraftExercise {
   prescription?: string;
   recommendedWeight?: string;
   targetReps?: string;
+  prescribedSets?: number;
   rest?: string;
   cue?: string;
   substitutionOptions?: readonly string[];
@@ -899,6 +901,9 @@ export function WorkoutLogScreen() {
           id: e.id,
           name: e.name.trim(),
           kind: e.kind,
+          ...(e.kind === 'strength'
+            ? (savedRepPrescription(e.targetReps, e.prescribedSets ?? e.sets.length) ?? {})
+            : {}),
           sets: e.kind === 'strength'
             ? e.sets
                 .filter(s => s.reps.trim())

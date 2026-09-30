@@ -24,6 +24,9 @@ _LEGACY_SQLITE_COLUMNS = (
     "ALTER TABLE exercise ADD COLUMN distance_miles REAL",
     "ALTER TABLE exercise ADD COLUMN resistance_level REAL",
     "ALTER TABLE exercise ADD COLUMN incline_percent REAL",
+    "ALTER TABLE exercise ADD COLUMN target_reps_min INTEGER",
+    "ALTER TABLE exercise ADD COLUMN target_reps_max INTEGER",
+    "ALTER TABLE exercise ADD COLUMN prescribed_sets INTEGER",
     "ALTER TABLE exercise ADD COLUMN position INTEGER DEFAULT 0",
     "ALTER TABLE workout_set ADD COLUMN position INTEGER DEFAULT 0",
     "ALTER TABLE workout_session ADD COLUMN strength_duration_minutes INTEGER",
@@ -107,6 +110,9 @@ def apply_schema_migrations(engine: Engine) -> list[int]:
     with engine.begin() as connection:
         if dialect == "postgresql":
             connection.execute(text("SELECT pg_advisory_xact_lock(1196183367)"))
+            if "exercise" in inspect(connection).get_table_names():
+                for column in ("target_reps_min", "target_reps_max", "prescribed_sets"):
+                    connection.execute(text(f"ALTER TABLE exercise ADD COLUMN IF NOT EXISTS {column} INTEGER"))
         versions = set(connection.execute(select(_VERSION_TABLE.c.version)).scalars())
         SQLModel.metadata.create_all(connection)
         # Keep this invariant explicit because SQLModel does not describe the
