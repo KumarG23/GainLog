@@ -383,6 +383,8 @@ function priorExercises(
   planDate: Date,
 ): PriorExercise[] {
   const historyName = normalizeExerciseName(templateExercise.name);
+  // This is a weekly prescription, not a live per-session coach: Monday's
+  // pre-week performance stays stable; later safety feedback can veto an increase.
   const weekStart = getWorkoutPlanWeekStart(planDate).getTime();
   const seenSessionIds = new Set<string>();
 
@@ -431,11 +433,12 @@ function inferWeightIncrement(history: readonly PriorExercise[]): number | null 
   return increments.length > 0 ? Math.min(...increments) : null;
 }
 
-function feedbackSupportsIncrease(session: WorkoutSession): boolean {
-  if (session.pain || (session.effort !== 'easy' && session.effort !== 'right')) return false;
-  const notes = session.notes?.trim();
-  if (!notes) return false;
-  const withoutNegatedSymptoms = notes
+function noteHasSafetyConcern(notes: string | undefined): boolean {
+  // Notes are a negative safety override, never a positive-word prerequisite.
+  // Remove explicit denials of symptoms before looking for actual concerns.
+  const withoutNegatedSymptoms = (notes ?? '')
+    .replace(/\b(?:no|without)\s+(?:form|technique)\s+(?:issues?|problems?|breakdown)\b/gi, '')
+    .replace(/\bnot\s+bad\s+form\b/gi, '')
     .replace(
       /\b(?:no|without)\s+(?:(?:shoulder|joint)s?\s+)?(?:pain|issues?|problems?|discomfort|hurt|ache|aching|sore(?:ness)?|tired(?:ness)?|fatigue|pinch(?:ing)?|stiff(?:ness)?|instability|shakiness|grinding|struggling)(?:\s+(?:or|and)\s+(?:no\s+)?(?:(?:shoulder|joint)s?\s+)?(?:pain|issues?|problems?|discomfort|hurt|ache|aching|sore(?:ness)?|tired(?:ness)?|fatigue|pinch(?:ing)?|stiff(?:ness)?|instability|shakiness|grinding|struggling))?\b/gi,
       '',
@@ -444,24 +447,14 @@ function feedbackSupportsIncrease(session: WorkoutSession): boolean {
       /\b(?:did not|didn't|was not|wasn't)\s+(?:hurt|bother(?:ed|ing)?|feel (?:off|sore|tired|fatigued|stiff|a pinch)|sore|tired|fatigued|pinching|stiff|unstable|shaky|grinding|struggling)\b/gi,
       '',
     );
-  const progressionNotes = withoutNegatedSymptoms
-    .trim()
-    .replace(/^[\s,;:.!?-]+/, '');
-  const hasConcern = /\b(?:pain(?:ful)?|discomfort|hurt(?:s|ing)?|injur(?:y|ed)|ache|aching|sore(?:ness)?|tired(?:ness)?|fatigue(?:d)?|pinch(?:ing)?|stiff(?:ness)?|twinge|sharp|form broke|form breakdown|sloppy|too heavy|weak today|unstable|instability|shak(?:y|iness|ing)|grind(?:ing|s)?|struggl(?:e[ds]?|ing)|issues?|problems?|felt off|bother(?:s|ed|ing)?(?: me)?|act(?:ed|ing)? up)\b/i
-    .test(progressionNotes);
-  const hasContrastiveCaveat = /\b(?:but|however|although|though|except|yet)\b/i
-    .test(progressionNotes);
-  const noteBody = progressionNotes.replace(/[.!?]+$/, '');
-  const hasAdditionalStatement = /[.!?;:\n\r]/.test(noteBody);
-  const hasNegatedPositiveSignal = /\b(?:not|wasn't|weren't|isn't|aren't|didn't feel|did not feel|don't feel|do not feel)\s+(?:very\s+)?(?:strong|clean|controlled|stable|smooth|solid|snappy)\b/i
-    .test(progressionNotes);
-  const hasPositiveProgressionSignal = /\b(?:strong|clean|controlled|stable|smooth|solid|snappy)\b|\b(?:reps?|repetitions?)\s+(?:left|in reserve)\b|\bcould\s+(?:have\s+)?(?:do|done|perform(?:ed)?)\s+more\b/i
-    .test(progressionNotes);
-  return hasPositiveProgressionSignal
-    && !hasConcern
-    && !hasContrastiveCaveat
-    && !hasAdditionalStatement
-    && !hasNegatedPositiveSignal;
+  return /\b(?:pain(?:ful)?|discomfort|hurt(?:s|ing)?|injur(?:y|ed)|ache|aching|sore(?:ness)?|tired(?:ness)?|fatigue(?:d)?|pinch(?:ing)?|stiff(?:ness)?|twinge|sharp|form broke|form breakdown|bad form|form (?:was |felt )?bad|lost (?:my |the )?(?:form|control)|technique (?:broke|slipped)|sloppy|too heavy|weak today|unstable|instability|shak(?:y|iness|ing)|grind(?:ing|s)?|struggl(?:e[ds]?|ing)|issues?|problems?|felt off|bother(?:s|ed|ing)?(?: me)?|act(?:ed|ing)? up)\b|\b(?:not|wasn't|weren't|isn't|aren't|didn't feel|did not feel|don't feel|do not feel|couldn't|could not)\s+(?:very\s+)?(?:strong|clean|controlled|stable|smooth|solid|snappy|control(?:led)?)(?:\s+the\s+reps)?\b/i
+    .test(withoutNegatedSymptoms);
+}
+
+function feedbackSupportsIncrease(session: WorkoutSession): boolean {
+  return session.pain === false &&
+    (session.effort === 'easy' || session.effort === 'right') &&
+    !noteHasSafetyConcern(session.notes);
 }
 
 function buildWeightRecommendation(
@@ -483,7 +476,14 @@ function buildWeightRecommendation(
   let recommended = latestSet.weight;
   let action = 'Hold';
 
-  if (latestSet.reps < minimum) {
+  const workingSets = previous.sets.slice(-templateExercise.sets);
+  const validWorkingSets = workingSets.filter(set => validSets({ ...previous, sets: [set] }).length > 0);
+  const belowMinimum = validWorkingSets.filter(set => set.reps < minimum).length;
+  const substantiallyLow = validWorkingSets.some(set => set.reps <= minimum - 2);
+  // A mixed-load session may include ramps or drop sets. It cannot justify
+  // reducing the latest load based on reps done at a different load.
+  const comparableLoad = workingSets.every(set => set.weight === latestSet.weight);
+  if (comparableLoad && (substantiallyLow || belowMinimum >= 2 || (history[0].session.effort === 'hard' && belowMinimum > 0))) {
     if (increment == null) {
       return {
         weight: '↓ 1 step',
@@ -493,24 +493,17 @@ function buildWeightRecommendation(
     recommended = Math.max(increment, latestSet.weight - increment);
     action = 'Reduce to';
   } else {
-    const completedAtTop = (
-      entry: PriorExercise | undefined,
-      requiredWeight: number,
-    ): boolean => {
-      if (!entry) return false;
-      const completedSets = validSets(entry.exercise).slice(-templateExercise.sets);
-      return (
-        completedSets.length === templateExercise.sets &&
-        completedSets.every(
-          set => set.weight === requiredWeight && set.reps >= maximum,
-        )
-      );
-    };
-    const earnedIncrease =
-      completedAtTop(history[0], latestSet.weight) &&
-      completedAtTop(history[1], latestSet.weight) &&
-      feedbackSupportsIncrease(history[0].session) &&
-      feedbackSupportsIncrease(history[1].session);
+    const weekStart = getWorkoutPlanWeekStart(planDate).getTime();
+    const sameWeekSafetyConcern = sessions.some(session => {
+      const time = Date.parse(session.date);
+      return time >= weekStart && time <= planDate.getTime() && session.templateId === templateId &&
+        session.exercises.some(exercise => (exercise.kind ?? 'strength') === 'strength' &&
+          normalizeExerciseName(exercise.name) === normalizeExerciseName(templateExercise.name)) &&
+        (session.pain === true || session.effort === 'hard' || noteHasSafetyConcern(session.notes));
+    });
+    const earnedIncrease = workingSets.length === templateExercise.sets &&
+      workingSets.every(set => set.weight === latestSet.weight && set.reps >= maximum && set.reps <= 40) &&
+      feedbackSupportsIncrease(history[0].session) && !sameWeekSafetyConcern;
     if (earnedIncrease) {
       if (increment == null) {
         return {

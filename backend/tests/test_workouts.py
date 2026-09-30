@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-TEST_DB = Path("/tmp/gainlog-test.db")
+TEST_DB = Path(os.environ.get("TMPDIR", "/tmp")) / "gainlog-test.db"
 os.environ["GAINLOG_DATABASE_URL"] = f"sqlite:///{TEST_DB}"
 
 from fastapi.testclient import TestClient
@@ -312,6 +312,9 @@ def test_workout_insight_returns_and_persists_structured_coaching(monkeypatch):
         assert response.json()["coachInsight"]["nextAction"]["title"] == "Next move"
         assert "WORKOUT PLAN: recovery" in calls["prompt"]
         assert "Never criticize absent strength during planned recovery cardio" in calls["prompt"]
+        assert "acknowledge that progress explicitly" in calls["prompt"]
+        assert "Neutral notes do not veto objective progress" in calls["prompt"]
+        assert "do not invent it" in calls["prompt"]
         assert "Return only valid JSON" in calls["prompt"]
 
         persisted = client.get(f"/workouts/{workout_id}").json()

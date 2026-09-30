@@ -66,6 +66,7 @@ const workout = (id, date, exerciseName, sets, feedback = {}) => ({
   date,
   durationMinutes: 40,
   templateId: 'push',
+  pain: false,
   ...feedback,
   exercises: [{ id: `${id}-exercise`, name: exerciseName, kind: 'strength', sets }],
 });
@@ -390,7 +391,7 @@ test('optimizer describes an earned free-weight increase as one available load s
   assert.match(draft.exercises[0].prescription, /next available load step above 80 lb/i);
 });
 
-test('optimizer increases only after two completed sessions reach the top of range', () => {
+test('optimizer increases after one complete top-of-range session', () => {
   const completeHistory = [
     workout('baseline', '2026-07-20T06:00:00-04:00', 'Smith Machine Bench Press', [
       { id: 'b1', weight: 75, reps: 10 },
@@ -425,7 +426,7 @@ test('optimizer increases only after two completed sessions reach the top of ran
       { id: 'm4', weight: 80, reps: 12 },
       { id: 'm5', weight: 80, reps: 12 },
       { id: 'm6', weight: 80, reps: 12 },
-    ]),
+    ], { effort: 'right', notes: 'Felt good.' }),
   ];
 
   const promoted = buildWorkoutTemplateDraft(
@@ -457,10 +458,10 @@ test('optimizer increases only after two completed sessions reach the top of ran
   assert.match(promoted.exercises[0].prescription, /Increase to 85 lb/);
   assert.equal(held.exercises[0].recommendedWeight, '80');
   assert.match(held.exercises[0].prescription, /Hold 80 lb/);
-  assert.equal(awaitingConfirmation.exercises[0].recommendedWeight, '80');
-  assert.match(awaitingConfirmation.exercises[0].prescription, /Hold 80 lb/);
-  assert.equal(mixedWeights.exercises[0].recommendedWeight, '80');
-  assert.match(mixedWeights.exercises[0].prescription, /Hold 80 lb/);
+  assert.equal(awaitingConfirmation.exercises[0].recommendedWeight, '↑ 1 step');
+  assert.match(awaitingConfirmation.exercises[0].prescription, /next available load step above 80 lb/);
+  assert.equal(mixedWeights.exercises[0].recommendedWeight, '85');
+  assert.match(mixedWeights.exercises[0].prescription, /Increase to 85 lb/);
 });
 
 test('optimizer counts duplicate same-name entries as one prior session', () => {
@@ -480,7 +481,7 @@ test('optimizer counts duplicate same-name entries as one prior session', () => 
     id: 'duplicate-exercise-2',
     name: 'Smith Machine Bench Press',
     kind: 'strength',
-    sets: completeSets('b'),
+    sets: [{ id: 'b1', weight: 80, reps: 12 }, { id: 'b2', weight: 80, reps: 12 }, { id: 'b3', weight: 80, reps: 11 }],
   });
   const history = [
     workout('baseline', '2026-07-27T06:00:00-04:00', 'Smith Machine Bench Press', [
@@ -520,11 +521,11 @@ test('optimizer counts duplicate same-name entries as one prior session', () => 
     duplicateIdHistory,
     new Date('2026-08-10T06:00:00-04:00'),
   ).exercises[0];
-  assert.equal(duplicateIdChestPress.recommendedWeight, '80');
-  assert.match(duplicateIdChestPress.prescription, /Hold 80 lb/);
+  assert.equal(duplicateIdChestPress.recommendedWeight, '85');
+  assert.match(duplicateIdChestPress.prescription, /Increase to 85 lb/);
 });
 
-test('optimizer increases only with complete workout feedback and safe notes', () => {
+test('optimizer increases with complete performance and safe feedback, not older feedback', () => {
   const topSets = suffix => [
     { id: `${suffix}1`, weight: 80, reps: 12 },
     { id: `${suffix}2`, weight: 80, reps: 12 },
@@ -552,7 +553,7 @@ test('optimizer increases only with complete workout feedback and safe notes', (
     }),
   ];
   const missingEffort = cleanFeedback.map(session => ({ ...session, effort: undefined }));
-  const concerningNotes = cleanFeedback.map((session, index) => index === 1
+  const concerningNotes = cleanFeedback.map((session, index) => index === 2
     ? { ...session, notes: 'Form broke down and the weight felt too heavy.' }
     : session);
 
@@ -610,7 +611,7 @@ test('optimizer recognizes natural concern notes without rejecting clearly safe 
   }
 });
 
-test('optimizer fails closed for ambiguous and concerning mandatory notes', () => {
+test('optimizer vetoes clear safety concerns but accepts neutral notes', () => {
   const topSets = suffix => [
     { id: `${suffix}1`, weight: 80, reps: 12 },
     { id: `${suffix}2`, weight: 80, reps: 12 },
@@ -637,7 +638,6 @@ test('optimizer fails closed for ambiguous and concerning mandatory notes', () =
     new Date('2026-08-10T06:00:00-04:00'),
   ).exercises[0];
   const notesThatMustHold = [
-    'Workout complete',
     'My shoulder was sore after the final set.',
     'Shoulder was tired during the last reps.',
     'I felt a pinch in my elbow.',
@@ -667,6 +667,77 @@ test('optimizer fails closed for ambiguous and concerning mandatory notes', () =
     })),
     notesThatMustHold.map(notes => ({ notes, weight: '80' })),
   );
+  for (const notes of ['Workout complete', 'Felt good.', 'Good workout.', 'Trying to keep progressing.', 'Nothing special.', '']) {
+    assert.equal(build(notes).recommendedWeight, '85', notes);
+  }
+});
+
+test('double progression uses the template range, one complete session, and safety vetoes', () => {
+  const draft = (exerciseName, reps, feedback = {}, weights = reps.map(() => 90)) => {
+    const sets = reps.map((count, i) => ({ id: `set-${i}`, weight: weights[i], reps: count }));
+    return buildWorkoutTemplateDraft('pull', () => crypto.randomUUID(), [
+      workout('older', '2026-07-27T06:00:00-04:00', exerciseName, [
+        { id: 'old-1', weight: 85, reps: 10 }, { id: 'old-2', weight: 85, reps: 10 }, { id: 'old-3', weight: 85, reps: 10 },
+      ], { templateId: 'pull' }),
+      workout('latest', '2026-08-03T06:00:00-04:00', exerciseName, sets,
+        { templateId: 'pull', effort: 'right', notes: 'Felt good.', ...feedback }),
+    ], new Date('2026-08-10T06:00:00-04:00')).exercises.find(ex => ex.name === exerciseName);
+  };
+  const row = 'Chest-Supported Row Machine'; // 10–15
+  for (const notes of ['Felt good.', 'Good workout.', 'Trying to keep progressing.', 'Nothing special.', '']) {
+    assert.match(draft(row, [17, 20, 16], { notes }).prescription, /Increase to 95 lb/, notes);
+  }
+  assert.match(draft(row, [15, 15, 15], { effort: 'easy' }).prescription, /Increase to 95 lb/);
+  assert.match(draft('Reverse Pec Deck', [20, 21, 20]).prescription, /Increase to 95 lb/); // 12–20
+  assert.match(draft('Seated Cable Row', [12, 13, 12]).prescription, /Increase to 95 lb/); // 8–12
+  for (const feedback of [{ pain: true }, { pain: undefined }, { effort: 'hard' }, { effort: undefined },
+    { notes: 'Shoulder hurt.' }, { notes: 'Form broke down.' }, { notes: 'Weight felt too heavy.' },
+    { notes: "Couldn't control the reps." }, { notes: 'No pain, but my elbow hurt.' },
+    { notes: 'Bad form on last set.' }, { notes: 'Lost control of the reps.' },
+    { notes: 'Technique slipped near the end.' }]) {
+    assert.match(draft(row, [17, 20, 16], feedback).prescription, /Hold 90 lb/, JSON.stringify(feedback));
+  }
+  assert.match(draft(row, [15, 15, 15], {}, [90, 85, 90]).prescription, /Hold 90 lb/);
+  assert.match(draft(row, [6, 12, 12], {}, [50, 80, 80]).prescription, /Hold 80 lb/);
+  assert.match(draft(row, [15, 15]).prescription, /Hold 90 lb/);
+  assert.match(draft(row, [15, 14, 15]).prescription, /Hold 90 lb/);
+  assert.match(draft(row, [9, 12, 11]).prescription, /Hold 90 lb/); // one slightly low set
+  assert.match(draft(row, [9, 9, 11]).prescription, /Reduce to 85 lb/);
+  assert.match(draft(row, [8, 12, 11]).prescription, /Reduce to 85 lb/);
+  assert.match(draft(row, [9, 12, 11], { effort: 'hard' }).prescription, /Reduce to 85 lb/);
+  assert.match(draft(row, [15, 41, 15]).prescription, /Hold 90 lb/);
+  assert.match(draft(row, [15, 15, 15], { notes: 'No form issues. Not bad form.' }).prescription, /Increase to 95 lb/);
+});
+
+test('the weekly prescription freezes performance but same-week pain vetoes an increase', () => {
+  const row = 'Chest-Supported Row Machine';
+  const top = [15, 17, 16].map((reps, i) => ({ id: `t${i}`, weight: 90, reps }));
+  const base = [
+    workout('older', '2026-08-02T06:00:00-04:00', row,
+      [10, 11, 12].map((reps, i) => ({ id: `o${i}`, weight: 85, reps })), { templateId: 'pull' }),
+    workout('qualifying', '2026-08-09T08:00:00-04:00', row, top,
+      { templateId: 'pull', effort: 'right', pain: false, notes: 'Felt good.' }),
+  ];
+  const planDate = new Date('2026-08-11T08:00:00-04:00');
+  const recommendation = extra => buildWorkoutTemplateDraft('pull', () => crypto.randomUUID(),
+    [...base, ...extra], planDate).exercises.find(ex => ex.name === row).prescription;
+  assert.match(recommendation([]), /Increase to 95 lb/);
+  const offsetBoundary = [base[0], { ...base[1], date: '2026-08-10T00:30:00+09:00' }];
+  assert.match(buildWorkoutTemplateDraft('pull', () => crypto.randomUUID(), offsetBoundary, planDate)
+    .exercises.find(ex => ex.name === row).prescription, /Increase to 95 lb/);
+  assert.match(buildWorkoutTemplateDraft('pull', () => crypto.randomUUID(),
+    [base[0], { ...base[1], date: '2026-08-10T00:30:00-04:00' }], planDate)
+    .exercises.find(ex => ex.name === row).prescription, /Hold 85 lb/);
+  assert.match(recommendation([workout('safe-same-week', '2026-08-10T07:00:00-04:00', row, top,
+    { templateId: 'pull', effort: 'right', pain: false })]), /Increase to 95 lb/);
+  for (const feedback of [{ pain: true }, { effort: 'hard' }, { notes: 'Bad form on last set.' }]) {
+    assert.match(recommendation([workout('concern', '2026-08-10T07:00:00-04:00', row, top,
+      { templateId: 'pull', ...feedback })]), /Hold 90 lb/);
+  }
+  assert.match(recommendation([workout('other-template', '2026-08-10T07:00:00-04:00', row, top,
+    { templateId: 'upper', pain: true })]), /Increase to 95 lb/);
+  assert.match(recommendation([workout('future', '2026-08-11T09:00:00-04:00', row, top,
+    { templateId: 'pull', pain: true })]), /Increase to 95 lb/);
 });
 
 test('unknown template ids fail clearly', () => {

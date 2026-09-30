@@ -1319,6 +1319,7 @@ Rules:
 - Compare only genuinely comparable sessions of the same modality. Do not infer improved cardiovascular efficiency unless activity, speed/incline or resistance, and effort are sufficiently comparable; otherwise state the limitation.
 - Call something a personal record only when the record type and available history support it.
 - Use reported effort and pain from prior sessions when choosing the next action. Pain should make the advice conservative, not diagnostic.
+- When comparable strength sets at the same load show more reps, acknowledge that progress explicitly. If a prescribed rep range is actually supplied in the data and every working set reaches its top with easy/about-right effort, no pain, and no clear form concern, recognize a small next-load step as earned rather than repeating generic hold/RPE-7 advice. Neutral notes do not veto objective progress; clear negative form/safety notes do. If the prescribed range or machine increment is absent, do not invent it: discuss the recorded reps and say "next available load step" only when the evidence supports it.
 - Keep each text field concise and the total visible coaching copy under about 90 words.
 
 Return only valid JSON matching this exact shape, with no markdown fence or extra prose:
