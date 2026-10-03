@@ -615,6 +615,7 @@ test('optimizer recognizes natural concern notes without rejecting clearly safe 
     'I noticed instability and shakiness.',
     'The last reps were grinding and I was struggling.',
     'Poor sleep last night.',
+    'Short sleep last night.',
   ]) {
     assert.equal(build(notes).recommendedWeight, '80', notes);
     assert.match(build(notes).prescription, /Hold 80 lb/, notes);
