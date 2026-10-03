@@ -407,7 +407,7 @@ test('optimizer describes an earned free-weight increase as one available load s
   assert.match(draft.exercises[0].prescription, /next available load step above 80 lb/i);
 });
 
-test('optimizer increases after one complete top-of-range session', () => {
+test('optimizer requires two complete top-of-range sessions at the same load', () => {
   const completeHistory = [
     workout('baseline', '2026-07-20T06:00:00-04:00', 'Smith Machine Bench Press', [
       { id: 'b1', weight: 75, reps: 10 },
@@ -474,10 +474,10 @@ test('optimizer increases after one complete top-of-range session', () => {
   assert.match(promoted.exercises[0].prescription, /Increase to 85 lb/);
   assert.equal(held.exercises[0].recommendedWeight, '80');
   assert.match(held.exercises[0].prescription, /Hold 80 lb/);
-  assert.equal(awaitingConfirmation.exercises[0].recommendedWeight, '↑ 1 step');
-  assert.match(awaitingConfirmation.exercises[0].prescription, /next available load step above 80 lb/);
-  assert.equal(mixedWeights.exercises[0].recommendedWeight, '85');
-  assert.match(mixedWeights.exercises[0].prescription, /Increase to 85 lb/);
+  assert.equal(awaitingConfirmation.exercises[0].recommendedWeight, '80');
+  assert.match(awaitingConfirmation.exercises[0].prescription, /Hold 80 lb/);
+  assert.equal(mixedWeights.exercises[0].recommendedWeight, '80');
+  assert.match(mixedWeights.exercises[0].prescription, /Hold 80 lb/);
 });
 
 test('optimizer counts duplicate same-name entries as one prior session', () => {
@@ -537,8 +537,8 @@ test('optimizer counts duplicate same-name entries as one prior session', () => 
     duplicateIdHistory,
     new Date('2026-08-10T06:00:00-04:00'),
   ).exercises[0];
-  assert.equal(duplicateIdChestPress.recommendedWeight, '85');
-  assert.match(duplicateIdChestPress.prescription, /Increase to 85 lb/);
+  assert.equal(duplicateIdChestPress.recommendedWeight, '80');
+  assert.match(duplicateIdChestPress.prescription, /Hold 80 lb/);
 });
 
 test('optimizer increases with complete performance and safe feedback, not older feedback', () => {
@@ -614,6 +614,7 @@ test('optimizer recognizes natural concern notes without rejecting clearly safe 
     'The movement felt off today.',
     'I noticed instability and shakiness.',
     'The last reps were grinding and I was struggling.',
+    'Poor sleep last night.',
   ]) {
     assert.equal(build(notes).recommendedWeight, '80', notes);
     assert.match(build(notes).prescription, /Hold 80 lb/, notes);
@@ -688,7 +689,7 @@ test('optimizer vetoes clear safety concerns but accepts neutral notes', () => {
   }
 });
 
-test('double progression uses the template range, one complete session, and safety vetoes', () => {
+test('double progression requires two qualifying sessions and keeps safety vetoes', () => {
   const draft = (exerciseName, reps, feedback = {}, weights = reps.map(() => 90)) => {
     const sets = reps.map((count, i) => ({ id: `set-${i}`, weight: weights[i], reps: count }));
     return buildWorkoutTemplateDraft('pull', () => crypto.randomUUID(), [
@@ -701,11 +702,11 @@ test('double progression uses the template range, one complete session, and safe
   };
   const row = 'Chest-Supported Row Machine'; // 10–15
   for (const notes of ['Felt good.', 'Good workout.', 'Trying to keep progressing.', 'Nothing special.', '']) {
-    assert.match(draft(row, [17, 20, 16], { notes }).prescription, /Increase to 95 lb/, notes);
+    assert.match(draft(row, [17, 20, 16], { notes }).prescription, /Hold 90 lb/, notes);
   }
-  assert.match(draft(row, [15, 15, 15], { effort: 'easy' }).prescription, /Increase to 95 lb/);
-  assert.match(draft('Reverse Pec Deck', [20, 21, 20]).prescription, /Increase to 95 lb/); // 12–20
-  assert.match(draft('Seated Cable Row', [12, 13, 12]).prescription, /Increase to 95 lb/); // 8–12
+  assert.match(draft(row, [15, 15, 15], { effort: 'easy' }).prescription, /Hold 90 lb/);
+  assert.match(draft('Reverse Pec Deck', [20, 21, 20]).prescription, /Hold 90 lb/); // 12–20
+  assert.match(draft('Seated Cable Row', [12, 13, 12]).prescription, /Hold 90 lb/); // 8–12
   for (const feedback of [{ pain: true }, { pain: undefined }, { effort: 'hard' }, { effort: undefined },
     { notes: 'Shoulder hurt.' }, { notes: 'Form broke down.' }, { notes: 'Weight felt too heavy.' },
     { notes: "Couldn't control the reps." }, { notes: 'No pain, but my elbow hurt.' },
@@ -722,15 +723,17 @@ test('double progression uses the template range, one complete session, and safe
   assert.match(draft(row, [8, 12, 11]).prescription, /Reduce to 85 lb/);
   assert.match(draft(row, [9, 12, 11], { effort: 'hard' }).prescription, /Reduce to 85 lb/);
   assert.match(draft(row, [15, 41, 15]).prescription, /Hold 90 lb/);
-  assert.match(draft(row, [15, 15, 15], { notes: 'No form issues. Not bad form.' }).prescription, /Increase to 95 lb/);
+  assert.match(draft(row, [15, 15, 15], { notes: 'No form issues. Not bad form.' }).prescription, /Hold 90 lb/);
 });
 
 test('the weekly prescription freezes performance but same-week pain vetoes an increase', () => {
   const row = 'Chest-Supported Row Machine';
   const top = [15, 17, 16].map((reps, i) => ({ id: `t${i}`, weight: 90, reps }));
   const base = [
-    workout('older', '2026-08-02T06:00:00-04:00', row,
-      [10, 11, 12].map((reps, i) => ({ id: `o${i}`, weight: 85, reps })), { templateId: 'pull' }),
+    workout('baseline', '2026-07-26T06:00:00-04:00', row,
+      [10, 11, 12].map((reps, i) => ({ id: `b${i}`, weight: 85, reps })), { templateId: 'pull' }),
+    workout('older', '2026-08-02T06:00:00-04:00', row, top,
+      { templateId: 'pull', effort: 'right', pain: false, notes: 'Felt good.' }),
     workout('qualifying', '2026-08-09T08:00:00-04:00', row, top,
       { templateId: 'pull', effort: 'right', pain: false, notes: 'Felt good.' }),
   ];
@@ -738,12 +741,12 @@ test('the weekly prescription freezes performance but same-week pain vetoes an i
   const recommendation = extra => buildWorkoutTemplateDraft('pull', () => crypto.randomUUID(),
     [...base, ...extra], planDate).exercises.find(ex => ex.name === row).prescription;
   assert.match(recommendation([]), /Increase to 95 lb/);
-  const offsetBoundary = [base[0], { ...base[1], date: '2026-08-10T00:30:00+09:00' }];
+  const offsetBoundary = [base[0], base[1], { ...base[2], date: '2026-08-10T00:30:00+09:00' }];
   assert.match(buildWorkoutTemplateDraft('pull', () => crypto.randomUUID(), offsetBoundary, planDate)
     .exercises.find(ex => ex.name === row).prescription, /Increase to 95 lb/);
   assert.match(buildWorkoutTemplateDraft('pull', () => crypto.randomUUID(),
-    [base[0], { ...base[1], date: '2026-08-10T00:30:00-04:00' }], planDate)
-    .exercises.find(ex => ex.name === row).prescription, /Hold 85 lb/);
+    [base[0], base[1], { ...base[2], date: '2026-08-10T00:30:00-04:00' }], planDate)
+    .exercises.find(ex => ex.name === row).prescription, /Hold 90 lb/);
   assert.match(recommendation([workout('safe-same-week', '2026-08-10T07:00:00-04:00', row, top,
     { templateId: 'pull', effort: 'right', pain: false })]), /Increase to 95 lb/);
   for (const feedback of [{ pain: true }, { effort: 'hard' }, { notes: 'Bad form on last set.' }]) {
