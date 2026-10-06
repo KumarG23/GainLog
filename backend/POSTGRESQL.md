@@ -30,7 +30,7 @@ The MCP exporter reads PostgreSQL inside a repeatable-read, read-only transactio
 - upgrades legacy SQLite copies before migration;
 - materializes historical workout, set, and nutrition ordering that SQLite previously supplied implicitly through row order;
 - creates the PostgreSQL schema under an advisory transaction lock;
-- records schema version `1` idempotently.
+- records schema versions `1` and `2` idempotently; version 2 widens the V2 import-run database-size columns to `BIGINT` on PostgreSQL (SQLite integers already hold 64-bit values).
 
 Do not point the PostgreSQL application at an unprepared database or hand-edit tables during a release.
 

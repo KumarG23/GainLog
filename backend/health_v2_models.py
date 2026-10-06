@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sqlalchemy import Index, Text
+from sqlalchemy import BigInteger, Index, Text
 from sqlmodel import Field, SQLModel
 
 
@@ -61,8 +61,8 @@ class HealthImportRunDB(SQLModel, table=True):
     max_page_records: int = 0
     peak_memory_kb: Optional[int] = None
     duration_seconds: Optional[float] = None
-    db_bytes_before: Optional[int] = None
-    db_bytes_after: Optional[int] = None
+    db_bytes_before: Optional[int] = Field(default=None, sa_type=BigInteger)
+    db_bytes_after: Optional[int] = Field(default=None, sa_type=BigInteger)
     counts_json: str = Field(default="{}", sa_type=Text)
     pages_json: str = Field(default="{}", sa_type=Text)
     error_summary: Optional[str] = None

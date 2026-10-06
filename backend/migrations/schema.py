@@ -7,7 +7,7 @@ from sqlalchemy import Column, DateTime, Integer, MetaData, Table, inspect, sele
 from sqlalchemy.engine import Engine
 from sqlmodel import SQLModel
 
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 
 _VERSION_METADATA = MetaData()
 _VERSION_TABLE = Table(
@@ -99,7 +99,7 @@ def _upgrade_legacy_sqlite(engine: Engine) -> None:
 
 
 def apply_schema_migrations(engine: Engine) -> list[int]:
-    """Apply the current additive baseline once and return applied versions."""
+    """Apply versioned schema changes atomically and return applied versions."""
     dialect = engine.dialect.name
     if dialect == "sqlite":
         _upgrade_legacy_sqlite(engine)
@@ -107,6 +107,7 @@ def apply_schema_migrations(engine: Engine) -> list[int]:
         raise RuntimeError(f"unsupported database dialect: {dialect}")
 
     _VERSION_METADATA.create_all(engine)
+    applied: list[int] = []
     with engine.begin() as connection:
         if dialect == "postgresql":
             connection.execute(text("SELECT pg_advisory_xact_lock(1196183367)"))
@@ -121,12 +122,23 @@ def apply_schema_migrations(engine: Engine) -> list[int]:
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_body_weight_source_record "
             "ON body_weight_entry (source, source_record_id)"
         ))
-        if CURRENT_SCHEMA_VERSION in versions:
-            return []
-        connection.execute(
-            _VERSION_TABLE.insert().values(
-                version=CURRENT_SCHEMA_VERSION,
-                applied_at=datetime.now(timezone.utc),
-            )
-        )
-    return [CURRENT_SCHEMA_VERSION]
+        if 1 not in versions:
+            connection.execute(_VERSION_TABLE.insert().values(
+                version=1, applied_at=datetime.now(timezone.utc),
+            ))
+            applied.append(1)
+        if 2 not in versions:
+            # PostgreSQL INTEGER overflows when the database exceeds 2 GiB.
+            # SQLite INTEGER already holds signed 64-bit values; new tables
+            # use BIGINT via the model above.
+            if dialect == "postgresql":
+                connection.execute(text(
+                    "ALTER TABLE health_v2_import_run "
+                    "ALTER COLUMN db_bytes_before TYPE BIGINT, "
+                    "ALTER COLUMN db_bytes_after TYPE BIGINT"
+                ))
+            connection.execute(_VERSION_TABLE.insert().values(
+                version=2, applied_at=datetime.now(timezone.utc),
+            ))
+            applied.append(2)
+    return applied
