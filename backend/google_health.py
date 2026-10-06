@@ -723,11 +723,15 @@ def sync_google_health(
                     end_date=end,
                     http=http,
                 )
-            except Exception:
+            except Exception as exc:
                 # Shadow preservation must never replace or roll back the
-                # authoritative daily pipeline. The V2 import-run row carries
-                # its sanitized failure diagnostics for inspection.
-                logger.warning("Google Health V2 shadow import failed")
+                # authoritative daily pipeline. Log only exception types;
+                # provider responses and credentials must not reach journald.
+                logger.warning(
+                    "Google Health V2 shadow import failed (%s; cause=%s)",
+                    type(exc).__name__,
+                    type(exc.__cause__).__name__ if exc.__cause__ else "none",
+                )
                 result["v2_shadow"] = {"status": "failed"}
         return result
     except Exception as exc:
