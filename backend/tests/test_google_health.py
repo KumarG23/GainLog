@@ -105,6 +105,40 @@ def test_google_health_sleep_uses_summary_awake_when_stage_rounding_differs():
     assert parsed["awake_minutes"] == 55
 
 
+def test_google_health_selects_successful_main_sleep_over_later_timeout(monkeypatch):
+    from backend import google_health
+
+    def sleep_point(status, updated, minutes):
+        return {
+            "sleep": {
+                "interval": {"endTime": "2026-09-30T09:27:00Z"},
+                "metadata": {"mainSleep": True, "processed": True, "stagesStatus": status},
+                "updateTime": updated,
+                "summary": {"minutesAsleep": str(minutes), "stagesSummary": []},
+            },
+        }
+
+    successful = sleep_point("SUCCEEDED", "2026-09-30T13:37:43Z", 430)
+    timed_out = sleep_point("TIMEOUT", "2026-09-30T13:38:05Z", 428)
+    points = []
+    monkeypatch.setattr(google_health, "_iter_reconciled_points", lambda *args, **kwargs: iter(points) if kwargs["kind"] == "sleep" else iter(()))
+
+    for points in ([successful, timed_out], [timed_out, successful]):
+        days = {"2026-09-30": {}, "2026-10-01": {}}
+        google_health._collect_reconciled_data(None, {}, start="2026-09-30", end="2026-10-02", days=days)
+        assert days == {"2026-09-30": {"sleep_minutes": 430}, "2026-10-01": {}}
+
+    newer_success = sleep_point("SUCCEEDED", "2026-09-30T14:00:00Z", 435)
+    points = [successful, newer_success]
+    days = {"2026-09-30": {}}
+    google_health._collect_reconciled_data(None, {}, start="2026-09-30", end="2026-10-01", days=days)
+    assert days["2026-09-30"]["sleep_minutes"] == 435
+
+    points = [sleep_point("SUCCEEDED", "2026-09-30T14:00:00Z", 430), newer_success]
+    with pytest.raises(google_health.GoogleHealthDataError, match="equally ranked"):
+        google_health._collect_reconciled_data(None, {}, start="2026-09-30", end="2026-10-01", days={"2026-09-30": {}})
+
+
 def test_google_health_sync_range_is_bounded_and_uses_closed_open_dates():
     from backend.google_health import google_health_sync_range
 

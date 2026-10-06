@@ -439,7 +439,7 @@ def _collect_reconciled_data(
     end: str,
     days: dict[str, dict[str, int | float]],
 ) -> None:
-    sleep_candidates: dict[str, dict[str, int | str | None]] = {}
+    sleep_candidates: dict[str, tuple[dict[str, int | str | None], tuple[int, str]]] = {}
     for point in _iter_reconciled_points(
         http,
         headers,
@@ -454,14 +454,28 @@ def _collect_reconciled_data(
         day = parsed["date"]
         if not isinstance(day, str) or day not in days:
             continue
+        sleep = point.get("sleep", {})
+        metadata = sleep.get("metadata", {})
+        # Google can retain two overlapping processed main sleeps for a day.
+        # Prefer a successfully staged record over a TIMEOUT, even if the
+        # latter was updated later; within the same quality, use Google's
+        # update timestamp. Never let page order silently choose a result.
+        priority = (
+            int(metadata.get("stagesStatus") == "SUCCEEDED"),
+            sleep.get("updateTime") if isinstance(sleep.get("updateTime"), str) else "",
+        )
         existing = sleep_candidates.get(day)
-        if existing is not None and existing != parsed:
-            raise GoogleHealthDataError(
-                f"conflicting processed main sleeps for {day}"
-            )
-        sleep_candidates[day] = parsed
+        if existing is not None:
+            previous, previous_priority = existing
+            if priority == previous_priority and previous != parsed:
+                raise GoogleHealthDataError(
+                    f"conflicting equally ranked processed main sleeps for {day}"
+                )
+            if priority < previous_priority:
+                continue
+        sleep_candidates[day] = (parsed, priority)
 
-    for day, parsed in sleep_candidates.items():
+    for day, (parsed, _) in sleep_candidates.items():
         for field, value in parsed.items():
             if field != "date" and isinstance(value, (int, float)):
                 days[day][field] = value
