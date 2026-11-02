@@ -20,6 +20,7 @@ import { useWorkouts } from '../../context/WorkoutsContext';
 import { useHealth } from '../../context/HealthContext';
 import { generateId } from '../../utils/id';
 import { cardioSwapChoices, isTreadmill, swapCardioModality } from '../../utils/cardioModality';
+import { clearWorkoutDraft, loadWorkoutDraft, persistWorkoutDraft } from '../../utils/workoutDraft';
 import { API_URL } from '../../constants/api';
 import { Exercise, ExerciseKind, WorkoutEffort, WorkoutSession } from '../../types/workout';
 import { CoachInsightCard } from '../../components/CoachInsightCard';
@@ -575,6 +576,66 @@ export function WorkoutLogScreen() {
   const celebratedRecordKeys = useRef(new Set<string>());
   const dismissCelebration = useCallback(() => setActiveCelebration(null), []);
 
+  // -- Draft persistence: survive app restarts mid-workout --------------------
+  const [draftHydrated, setDraftHydrated] = useState(false);
+  const exercisesRef = useRef<DraftExercise[]>([]);
+  exercisesRef.current = exercises;
+
+  useEffect(() => {
+    let cancelled = false;
+    loadWorkoutDraft<DraftExercise>().then(draft => {
+      if (cancelled) return;
+      if (draft && exercisesRef.current.length === 0) {
+        setExercises(draft.exercises);
+        setStrengthDuration(draft.strengthDuration);
+        setStrengthHeartRate(draft.strengthHeartRate);
+        setStrengthCalories(draft.strengthCalories);
+        setCardioHeartRate(draft.cardioHeartRate);
+        setCardioCalories(draft.cardioCalories);
+        setNotes(draft.notes);
+        setEffort(draft.effort as WorkoutEffort | null);
+        setPain(draft.pain);
+        setSelectedTemplateId(draft.selectedTemplateId as WorkoutTemplateId | null);
+      }
+      setDraftHydrated(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!draftHydrated || saved) return undefined;
+    const timer = setTimeout(() => {
+      persistWorkoutDraft({
+        exercises,
+        strengthDuration,
+        strengthHeartRate,
+        strengthCalories,
+        cardioHeartRate,
+        cardioCalories,
+        notes,
+        effort,
+        pain,
+        selectedTemplateId,
+      });
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [
+    draftHydrated,
+    saved,
+    exercises,
+    strengthDuration,
+    strengthHeartRate,
+    strengthCalories,
+    cardioHeartRate,
+    cardioCalories,
+    notes,
+    effort,
+    pain,
+    selectedTemplateId,
+  ]);
+
   const suggestedTemplateId = getSuggestedTemplateId(now.getDay());
   const activeTemplates = useMemo(() => applyWorkoutPlanOverrides(planOverrides), [planOverrides]);
   const planHistoryCutoff = getWorkoutPlanWeekStart(now);
@@ -928,6 +989,7 @@ export function WorkoutLogScreen() {
       });
       setSavedSession(session);
       setSaved(true);
+      clearWorkoutDraft();
       setInsightError(null);
       setInsightLoading(true);
       insightRequestSessionId.current = session.id;
@@ -988,6 +1050,7 @@ export function WorkoutLogScreen() {
     setRecordsBySetId(new Map());
     setActiveCelebration(null);
     celebratedRecordKeys.current.clear();
+    clearWorkoutDraft();
   }, []);
 
   const savedRecords = useMemo(
