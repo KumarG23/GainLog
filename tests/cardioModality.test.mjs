@@ -5,8 +5,9 @@ import { cardioSwapChoices, isTreadmill, swapCardioModality } from '../utils/car
 import { buildWorkoutTemplateDraft } from '../utils/workoutTemplates.ts';
 
 test('cardio swaps work in both directions without matching other activities or strength', () => {
-  assert.deepEqual(cardioSwapChoices('Elliptical', 'cardio'), ['Treadmill']);
-  assert.deepEqual(cardioSwapChoices('Treadmill', 'cardio'), ['Elliptical']);
+  assert.deepEqual(cardioSwapChoices('Elliptical', 'cardio'), ['Treadmill', 'Stair Climber']);
+  assert.deepEqual(cardioSwapChoices('Treadmill', 'cardio'), ['Elliptical', 'Stair Climber']);
+  assert.deepEqual(cardioSwapChoices('Stair Climber', 'cardio'), ['Elliptical', 'Treadmill']);
   assert.deepEqual(cardioSwapChoices('Bike', 'cardio'), []);
   assert.deepEqual(cardioSwapChoices('Elliptical', 'strength'), []);
   assert.equal(isTreadmill(' treadmill '), true);
@@ -20,6 +21,8 @@ test('cardio correction preserves actual minutes/miles and prescription, clears 
   assert.deepEqual(elliptical, { ...original, resistanceLevel: '' });
   assert.equal(original.resistanceLevel, '4');
   assert.equal(swapCardioModality(original, 'Bike'), original);
+  const stairs = swapCardioModality(original, 'Stair Climber');
+  assert.deepEqual(stairs, { ...original, name: 'Stair Climber', resistanceLevel: '' });
 });
 
 test('recovery and optional finisher drafts can swap without changing plan identity or filling actuals', () => {

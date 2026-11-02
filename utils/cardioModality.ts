@@ -2,10 +2,14 @@ export function isTreadmill(name: string): boolean {
   return name.trim().toLowerCase() === 'treadmill';
 }
 
+export const SWAPPABLE_CARDIO = ['Elliptical', 'Treadmill', 'Stair Climber'] as const;
+
+// Stair Climber uses resistanceLevel (machine level); it is cardio, never converted to steps.
 export function cardioSwapChoices(name: string, kind: string): string[] {
   if (kind !== 'cardio') return [];
-  if (isTreadmill(name)) return ['Elliptical'];
-  return name.trim().toLowerCase() === 'elliptical' ? ['Treadmill'] : [];
+  const current = name.trim().toLowerCase();
+  if (!SWAPPABLE_CARDIO.some(machine => machine.toLowerCase() === current)) return [];
+  return SWAPPABLE_CARDIO.filter(machine => machine.toLowerCase() !== current);
 }
 
 interface CardioDraft {

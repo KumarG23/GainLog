@@ -260,10 +260,9 @@ function ExerciseCard({
 
   const chooseSubstitution = () => {
     if (Platform.OS === 'web' && exercise.kind === 'cardio') {
-      const name = substitutionChoices[0];
-      if (name && window.confirm(`Switch to ${name}? Minutes and miles are kept; resistance/incline is cleared.`)) {
-        onSubstitute(name);
-      }
+      const name = substitutionChoices.find(choice =>
+        window.confirm(`Switch to ${choice}? Minutes and miles are kept; resistance/incline is cleared. (Cancel to see the next option.)`));
+      if (name) onSubstitute(name);
       return;
     }
     Alert.alert(
