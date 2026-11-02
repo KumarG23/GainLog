@@ -2,7 +2,7 @@
   "expo": {
     "name": "GainLog",
     "slug": "gainlog",
-    "version": "1.1.26",
+    "version": "1.1.27",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "gainlog",
@@ -42,7 +42,7 @@
         "android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND",
         "android.permission.health.READ_HEALTH_DATA_HISTORY"
       ],
-      "versionCode": 43,
+      "versionCode": 44,
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
