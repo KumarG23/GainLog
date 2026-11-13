@@ -30,7 +30,7 @@ export function MealNotificationCoordinator() {
 
     const openNotification = (response: Notifications.NotificationResponse) => {
       const url = response.notification.request.content.data?.url;
-      if (url === '/nutrition') router.push(url as Href);
+      if (url === '/nutrition' || url === '/longevity') router.push(url as Href);
     };
 
     const subscription = Notifications.addNotificationResponseReceivedListener(

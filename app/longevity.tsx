@@ -4,6 +4,7 @@ import { API_URL } from '../constants/api';
 import { importBloodPressure, writeBloodPressure } from '../utils/longevityHealthConnect';
 import SupplementChecklist from '../components/SupplementChecklist';
 import WeeklyScorecard from '../components/WeeklyScorecard';
+import BpReminderControls from '../components/BpReminderControls';
 
 type Reading = { id: string; pairId: string | null; day: string; time: string; systolic: number; diastolic: number; pulse: number | null; arm: string | null; position: string | null; source: string };
 type BP = { readings: Reading[]; average7: { systolic: number | null; diastolic: number | null; sessions: number }; average30: { systolic: number | null; diastolic: number | null; sessions: number } };
@@ -45,6 +46,7 @@ export default function Longevity() {
     <Text style={muted}>Private records in GainLog. Missing nights and readings are not zero measurements.</Text>
     {busy && <ActivityIndicator />}{!!error && <Text accessibilityRole="alert" style={{ color: '#FF9E92' }}>{error}</Text>}{!!notice && <Text style={muted}>{notice}</Text>}
     <View style={panel}><Text style={label}>Blood pressure · two readings</Text><Text style={muted}>Sit quietly, measure twice about one minute apart. Target &lt;120/80. Check Tuesday and Saturday mornings.</Text>
+      <BpReminderControls />
       <Text style={muted}>7 days: {fmt(bp?.average7.systolic ?? null)}/{fmt(bp?.average7.diastolic ?? null)} ({bp?.average7.sessions ?? 0} sessions) · 30 days: {fmt(bp?.average30.systolic ?? null)}/{fmt(bp?.average30.diastolic ?? null)} ({bp?.average30.sessions ?? 0} sessions)</Text>
       <Text style={muted}>{first ? `First captured ${new Date(first.time).toLocaleTimeString()} · ${first.systolic}/${first.diastolic}` : 'First reading'}</Text>
       <View style={{ flexDirection: 'row', gap: 8 }}><Entry title="Systolic" value={sys} onChangeText={setSys} /><Entry title="Diastolic" value={dia} onChangeText={setDia} /><Entry title="Pulse" value={pulse} onChangeText={setPulse} /></View>
