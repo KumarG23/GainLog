@@ -22,8 +22,12 @@ from sqlmodel import Field, Relationship, Session, SQLModel, col, select
 import requests
 try:
     from .longevity import BPReadingDB, CPAPNightDB, install as install_longevity
+    from .supplements import SupplementDB, SupplementTakenDB, install as install_supplements
+    from .meal_quality import FullDayLogDB, FullDayInput, MealTag, tags_of, week_counts
 except ImportError:
     from longevity import BPReadingDB, CPAPNightDB, install as install_longevity
+    from supplements import SupplementDB, SupplementTakenDB, install as install_supplements
+    from meal_quality import FullDayLogDB, FullDayInput, MealTag, tags_of, week_counts
 try:
     from .cardio_analytics import analyze as analyze_cardio, cardio_windows, parse_time as parse_cardio_time
     from .health_v2_models import HealthSampleObservationDB
@@ -215,6 +219,7 @@ class NutritionEntryDB(SQLModel, table=True):
     fiber_g: float = 0
     notes: Optional[str] = None
     position: int = 0
+    tags_json: str = "[]"
 
 
 class NutritionSyncEventDB(SQLModel, table=True):
@@ -646,6 +651,7 @@ class GoalPatch(CamelModel):
 
 
 class NutritionEntryOut(CamelModel):
+    tags: list[MealTag] = []
     id: str
     date: str
     meal: str
@@ -659,6 +665,7 @@ class NutritionEntryOut(CamelModel):
 
 
 class NutritionEntryIn(CamelModel):
+    tags: list[MealTag] = PydanticField(default_factory=list, max_length=4)
     id: Optional[str] = None
     date: str
     meal: str
@@ -672,6 +679,7 @@ class NutritionEntryIn(CamelModel):
 
 
 class NutritionEntryPatch(CamelModel):
+    tags: Optional[list[MealTag]] = PydanticField(default=None, max_length=4)
     date: Optional[str] = None
     meal: Optional[str] = None
     name: Optional[str] = None
@@ -840,6 +848,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="GainLog API", lifespan=lifespan)
 app.include_router(install_longevity(get_db))
+app.include_router(install_supplements(get_db))
 
 DEFAULT_CORS_ORIGINS = (
     "https://gainlog-frontend.tailc88c35.ts.net,"
@@ -1075,6 +1084,7 @@ def _format_goal_for_coach(goal: GoalDB) -> str:
 
 def _nutrition_to_out(entry: NutritionEntryDB) -> NutritionEntryOut:
     return NutritionEntryOut(
+        tags=tags_of(entry),
         id=entry.id,
         date=entry.date,
         meal=entry.meal,
@@ -3049,6 +3059,7 @@ def create_nutrition(payload: NutritionEntryIn, db: Session = Depends(get_db)):
         fat_g=payload.fat_g,
         fiber_g=payload.fiber_g,
         notes=payload.notes,
+        tags_json=json.dumps(payload.tags),
         position=next_position,
     )
     db.add(row)
@@ -3120,6 +3131,30 @@ def get_nutrition_sync_feed(
     )
 
 
+@app.put("/nutrition/full-day/{day}")
+def confirm_full_day(day: date_cls, payload: FullDayInput, db: Session = Depends(get_db)):
+    if day > datetime.now(ZoneInfo("America/New_York")).date():
+        raise HTTPException(422, "cannot confirm a future day")
+    row = db.get(FullDayLogDB, day.isoformat()) or FullDayLogDB(day=day.isoformat(), confirmed=False)
+    row.confirmed = payload.confirmed
+    db.add(row)
+    db.commit()
+    return {"day": row.day, "confirmed": row.confirmed}
+
+
+@app.get("/nutrition/quality/week")
+def get_quality_week(week_start: date_cls = Query(alias="weekStart"), db: Session = Depends(get_db)):
+    if week_start.weekday() != 0:
+        raise HTTPException(422, "weekStart must be Monday")
+    return week_counts(db, week_start)
+
+
+@app.get("/nutrition/full-day/{day}")
+def get_full_day(day: date_cls, db: Session = Depends(get_db)):
+    row = db.get(FullDayLogDB, day.isoformat())
+    return {"day": day.isoformat(), "confirmed": row.confirmed if row else False}
+
+
 @app.get("/nutrition/{entry_id}", response_model=NutritionEntryOut, response_model_by_alias=True)
 def get_nutrition(entry_id: str, db: Session = Depends(get_db)):
     row = db.get(NutritionEntryDB, entry_id)
@@ -3137,10 +3172,15 @@ def update_nutrition(
     row = db.get(NutritionEntryDB, entry_id)
     if not row:
         raise HTTPException(status_code=404, detail="Nutrition entry not found")
-    for field, value in payload.model_dump(exclude_unset=True).items():
-        setattr(row, field, value)
+    changes = payload.model_dump(exclude_unset=True)
+    for field, value in changes.items():
+        if field == "tags":
+            row.tags_json = json.dumps(value or [])
+        else:
+            setattr(row, field, value)
     db.add(row)
-    _queue_nutrition_sync_event(db, "upsert", entry_id, row)
+    if changes.keys() - {"tags"}:
+        _queue_nutrition_sync_event(db, "upsert", entry_id, row)
     db.commit()
     db.refresh(row)
     return _nutrition_to_out(row)

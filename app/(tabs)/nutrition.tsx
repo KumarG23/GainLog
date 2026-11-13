@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize, Radius, Spacing } from '../../constants/theme';
 import { useHealth } from '../../context/HealthContext';
+import MealQualityPanel from '../../components/MealQualityPanel';
 import { localDateKey, localIsoTimestamp, previousLocalDateKey } from '../../utils/date';
 import {
   buildDailyMacroHistory,
@@ -482,6 +483,7 @@ export default function NutritionScreen() {
             )}
           </View>
 
+          <MealQualityPanel entries={todayEntries} />
           <View style={styles.section}>
             <View style={styles.sectionHeadingRow}>
               <View style={styles.sectionHeadingCopy}>

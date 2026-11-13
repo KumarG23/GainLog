@@ -58,6 +58,7 @@ interface HealthContextValue {
   updateGoal: (id: string, data: GoalUpdate) => Promise<Goal>;
   deleteGoal: (id: string) => Promise<void>;
   addNutritionEntry: (data: CreateNutritionEntry) => Promise<NutritionEntry>;
+  setNutritionTags: (id: string, tags: NonNullable<NutritionEntry['tags']>) => Promise<void>;
   deleteNutritionEntry: (id: string) => Promise<void>;
   syncNutritionToHealthConnect: () => Promise<number>;
 }
@@ -207,6 +208,14 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
     await refresh();
   }, [refresh]);
 
+  const setNutritionTags = useCallback(async (id: string, tags: NonNullable<NutritionEntry['tags']>) => {
+    await apiFetch<NutritionEntry>(`/nutrition/${encodeURIComponent(id)}`, {
+      method: 'PATCH', body: JSON.stringify({ tags }),
+    });
+    // Tags are not nutrient values: leave the Health Connect record unchanged.
+    await refresh();
+  }, [refresh]);
+
   const syncNutritionToHealthConnect = useCallback(async () => {
     try {
       const written = await repairAllNutritionToHealthConnect();
@@ -266,6 +275,7 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
         updateGoal,
         deleteGoal,
         addNutritionEntry,
+        setNutritionTags,
         deleteNutritionEntry,
         syncNutritionToHealthConnect,
       }}

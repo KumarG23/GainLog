@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { API_URL } from '../constants/api';
 import { importBloodPressure, writeBloodPressure } from '../utils/longevityHealthConnect';
+import SupplementChecklist from '../components/SupplementChecklist';
 
 type Reading = { id: string; pairId: string | null; day: string; time: string; systolic: number; diastolic: number; pulse: number | null; arm: string | null; position: string | null; source: string };
 type BP = { readings: Reading[]; average7: { systolic: number | null; diastolic: number | null; sessions: number }; average30: { systolic: number | null; diastolic: number | null; sessions: number } };
@@ -39,7 +40,7 @@ export default function Longevity() {
     void run(async () => { await api(`/cpap/${day}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ day, hours: h, ahi: a, leakLpm: l, maskOffCount: m }) }); setNotice('CPAP night saved.'); });
   }
   return <ScrollView style={{ flex: 1, backgroundColor: '#0B1118' }} contentContainerStyle={{ padding: 18, gap: 20, paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
-    <Text style={{ color: 'white', fontSize: 27, fontWeight: '700' }}>Blood pressure & CPAP</Text>
+    <Text style={{ color: 'white', fontSize: 27, fontWeight: '700' }}>Longevity log</Text>
     <Text style={muted}>Private records in GainLog. Missing nights and readings are not zero measurements.</Text>
     {busy && <ActivityIndicator />}{!!error && <Text accessibilityRole="alert" style={{ color: '#FF9E92' }}>{error}</Text>}{!!notice && <Text style={muted}>{notice}</Text>}
     <View style={panel}><Text style={label}>Blood pressure · two readings</Text><Text style={muted}>Sit quietly, measure twice about one minute apart. Target &lt;120/80. Check Tuesday and Saturday mornings.</Text>
@@ -58,5 +59,6 @@ export default function Longevity() {
       <Button title="Save CPAP night" onPress={saveCpap} disabled={busy} />
       {cpap?.nights.slice(0, 14).map(n => <Pressable key={n.day} accessibilityRole="button" onPress={() => { setDay(n.day); setHours(String(n.hours)); setAhi(String(n.ahi)); setLeak(n.leakLpm == null ? '' : String(n.leakLpm)); setMask(n.maskOffCount == null ? '' : String(n.maskOffCount)); }}><Text style={muted}>{n.day} · {n.hours} h · AHI {n.ahi} · leak {n.leakLpm ?? '—'} · mask on/off {n.maskOffCount ?? '—'} (tap to edit)</Text></Pressable>)}
     </View>
+    <SupplementChecklist />
   </ScrollView>;
 }

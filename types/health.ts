@@ -43,8 +43,11 @@ export interface Goal {
   notes?: string;
 }
 
+export type MealQualityTag = 'ultra-processed' | 'fatty-fish' | 'EVOO' | 'home-cooked';
+
 export interface NutritionEntry {
   id: string;
+  tags?: MealQualityTag[];
   date: string;
   meal: string;
   name: string;

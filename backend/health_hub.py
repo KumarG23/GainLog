@@ -59,10 +59,14 @@ def project(db: Session) -> dict[str, list[list]]:
         from .main import (AppleHealthDailyDB, BodyWeightEntryDB, ExerciseDB, NutritionEntryDB,
                            WeeklyReviewDB, WorkoutSessionDB, WorkoutSetDB)
         from .longevity import BPReadingDB, CPAPNightDB
+        from .meal_quality import FullDayLogDB, tags_of, meal_counts
+        from .supplements import SupplementDB, SupplementTakenDB
     except ImportError:
         from main import (AppleHealthDailyDB, BodyWeightEntryDB, ExerciseDB, NutritionEntryDB,
                           WeeklyReviewDB, WorkoutSessionDB, WorkoutSetDB)
         from longevity import BPReadingDB, CPAPNightDB
+        from meal_quality import FullDayLogDB, tags_of, meal_counts
+        from supplements import SupplementDB, SupplementTakenDB
 
     rows = {name: [] for name in KEY_COL}
     daily = defaultdict(lambda: [""] * len(HEADERS["Daily"]))
@@ -125,15 +129,37 @@ def project(db: Session) -> dict[str, list[list]]:
                 rows["Exercise Sets"].append([item.id, w.id, ex.id, ex.name, ex.kind,
                     ex.position, item.position, clean(item.reps) if item.measure == "reps" else "",
                     clean(item.weight), clean(item.seconds) if item.measure == "seconds" else "", item.measure])
+    meals_by_week = defaultdict(list)
     for meal in db.exec(select(NutritionEntryDB).order_by(NutritionEntryDB.date, NutritionEntryDB.position)).all():
         d = local_date(meal.date)
+        monday = (date.fromisoformat(d) - timedelta(days=date.fromisoformat(d).weekday())).isoformat()
+        meals_by_week[monday].append(meal)
         r = daily[d]
         r[0] = d
         for i, value in ((16, meal.calories), (17, meal.protein_g), (18, meal.carbs_g),
                          (19, meal.fat_g), (20, meal.fiber_g)):
             r[i] = (r[i] if r[i] != "" else 0) + value
         rows["Meals"].append([meal.id, d, meal.meal, meal.name, meal.calories, meal.protein_g,
-            meal.carbs_g, meal.fat_g, meal.fiber_g, clean(meal.notes), meal.position, ""])
+            meal.carbs_g, meal.fat_g, meal.fiber_g, clean(meal.notes), meal.position, ", ".join(tags_of(meal))])
+        if 'ultra-processed' in tags_of(meal) and meal.meal.lower() == 'dinner': r[21] = 'Y'
+        if 'fatty-fish' in tags_of(meal): r[22] = 'Y'
+    flags = {f.day: f.confirmed for f in db.exec(select(FullDayLogDB)).all()}
+    for d, confirmed in flags.items():
+        r = daily[d]
+        r[0], r[24] = d, 'Y' if confirmed else 'N'
+    supplements = db.exec(select(SupplementDB)).all()
+    taken = {(t.supplement_id, t.day): t.taken for t in db.exec(select(SupplementTakenDB)).all()}
+    if supplements:
+        first = min(s.starts_on for s in supplements)
+        last = min(max(daily, default=first), datetime.now(EASTERN).date().isoformat())
+        d = date.fromisoformat(first)
+        while d <= date.fromisoformat(last):
+            key = d.isoformat()
+            active = [s for s in supplements if s.starts_on <= key <= (s.ends_on or '9999-12-31')]
+            if active:
+                r = daily[key]
+                r[0], r[23] = key, round(100 * sum(taken.get((s.id, key), False) for s in active) / len(active), 1)
+            d += timedelta(days=1)
     for d, r in daily.items():
         # A partial day's meals do not establish full logging.
         rows["Daily"].append(r)
@@ -155,8 +181,13 @@ def project(db: Session) -> dict[str, list[list]]:
         rows["Weekly"].append([week, (date.fromisoformat(week) + timedelta(days=6)).isoformat(),
             field(5), sum(1 for w in ws if w.strength_duration_minutes and w.strength_duration_minutes > 0) if ws else "",
             sum(1 for w in ws if w.template_id == "intervals") if ws else "", sum(zone) if zone else "",
-            field(8), field(3), field(4), field(1), field(17), field(20), field(16), "", field(14), field(15),
-            sum(r[6] >= 6 for r in populated if r[6] != "") if any(r[6] != "" for r in populated) else "", "", "", "", ""])
+            field(8), field(3), field(4), field(1), field(17), field(20), field(16),
+            sum(flags.get((date.fromisoformat(week) + timedelta(days=i)).isoformat(), False) for i in range(7)) if any((date.fromisoformat(week) + timedelta(days=i)).isoformat() in flags for i in range(7)) else "",
+            field(14), field(15),
+            sum(r[6] >= 6 for r in populated if r[6] != "") if any(r[6] != "" for r in populated) else "",
+            meal_counts(meals_by_week[week])[0] if meals_by_week[week] else "",
+            meal_counts(meals_by_week[week])[1] if meals_by_week[week] else "",
+            field(23), ""])
     return rows
 
 
@@ -249,7 +280,7 @@ def sync(db, sheets, sheet_id: str, now=None):
               ["Source", "GainLog backend, authoritative persisted records; one-way mirror"],
               ["Timezone", "America/New_York; weeks Monday–Sunday"],
               ["Null semantics", "Blank = not logged or unavailable; zero = recorded zero"],
-              ["Unavailable domains", "CPAP, BP, supplement adherence, meal tags, full-day flag and structured one change pending source models; not inferred"],
+              ["Unavailable domains", "Structured weekly one change pending; not inferred from free-form review text"],
               ["Labs", "Owner-managed manual rows; exporter never writes Labs data"]]
     sheets.write(sheet_id, "README", 2, readme)
     return counts
