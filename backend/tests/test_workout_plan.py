@@ -37,6 +37,7 @@ def test_plan_versions_and_validation():
         assert changed.status_code == 200, changed.text
         assert changed.json()['revision'] == 1
         assert changed.json()['overrides']['legs'][0]['name'] == 'Standing Calf Raise'
+        assert changed.json()['overrides']['legs'][0]['measure'] == 'reps'
         assert client.put(url, json=payload).status_code == 409
         assert client.get('/workout-plan', params={'weekStart': next_week}).json()['overrides']['legs'][0]['name'] == 'Standing Calf Raise'
         future = client.put(f'/workout-plan?weekStart={next_week}', json={
@@ -47,3 +48,23 @@ def test_plan_versions_and_validation():
         assert client.get(url).json()['overrides']['legs'][0]['targetReps'] == '12–20'
         assert client.get(f'/workout-plan?weekStart={next_week}').json()['overrides']['legs'][0]['targetReps'] == '10–15'
         assert client.get('/workouts/').json() == []
+
+
+def test_timed_override_round_trip_and_validation():
+    engine.dispose()
+    TEST_DB.unlink(missing_ok=True)
+    week = _plan_week(None)
+    carry = {
+        'name': "Farmer's Carry", 'sets': 3, 'measure': 'seconds',
+        'targetReps': '40–60', 'rest': '2 min', 'cue': None,
+        'substitutions': ['Trap Bar Carry', 'Suitcase Carry'],
+    }
+    with TestClient(app) as client:
+        url = f'/workout-plan?weekStart={week}'
+        payload = {'expectedRevision': 0, 'overrides': {'upper': [carry]}}
+        response = client.put(url, json=payload)
+        assert response.status_code == 200, response.text
+        assert client.get(url).json()['overrides']['upper'][0] == carry
+        assert client.put(url, json={**payload, 'expectedRevision': 1,
+                                     'overrides': {'upper': [{**carry, 'measure': 'minutes'}]}}).status_code == 422
+        assert client.get(url).json()['revision'] == 1
