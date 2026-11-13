@@ -155,7 +155,7 @@ test('server-owned plan changes draft prescriptions without filling actual sets'
   assert.equal(draft.exercises[1].targetReps, '10–15');
   assert.ok(draft.exercises[1].sets.every(set => set.weight === '' && set.reps === ''));
   assert.match(logScreen, /applyWorkoutPlanOverrides\(planOverrides\)/);
-  assert.match(logScreen, /buildWorkoutTemplateDraft\(templateId, generateId, sessions, new Date\(\), activeTemplates\)/);
+  assert.match(logScreen, /buildWorkoutTemplateDraft\(templateId, generateId, sessions, new Date\(\), activeTemplates, option\)/);
 });
 
 test('next week prioritizes learnable chest presses with same-role crowded-gym options', () => {
@@ -265,13 +265,13 @@ test('suggested template follows Monday through Friday and leaves weekends open'
   assert.equal(getSuggestedTemplateId(6), null);
 });
 
-test('Wednesday draft is cardio-only recovery and does not manufacture steps', () => {
+test('Wednesday easy swap is cardio-only and does not manufacture steps', () => {
   let nextId = 0;
   const draft = buildWorkoutTemplateDraft(
     'recovery',
     () => `id-${++nextId}`,
     [],
-    new Date('2026-08-12T06:00:00-04:00'),
+    new Date('2026-08-12T06:00:00-04:00'), undefined, 'easy',
   );
 
   assert.equal(draft.exercises.length, 1);
@@ -279,7 +279,7 @@ test('Wednesday draft is cardio-only recovery and does not manufacture steps', (
   assert.equal(draft.exercises[0].name, 'Elliptical');
   assert.equal(draft.exercises[0].cardioDurationMinutes, '');
   assert.match(draft.exercises[0].prescription, /25–35 min/);
-  assert.match(draft.exercises[0].prescription, /treadmill walk/i);
+  assert.match(draft.exercises[0].prescription, /treadmill/i);
   assert.match(draft.exercises[0].prescription, /not steps/i);
 });
 

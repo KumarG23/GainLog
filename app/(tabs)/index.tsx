@@ -20,6 +20,8 @@ import { useWorkouts } from '../../context/WorkoutsContext';
 import { useHealth } from '../../context/HealthContext';
 import { generateId } from '../../utils/id';
 import { cardioSwapChoices, isTreadmill, swapCardioModality } from '../../utils/cardioModality';
+import { intervalReadiness } from '../../utils/cardioPlan';
+import { DEFAULT_ZONE2_BAND, readZone2Band, type Zone2Band } from '../../utils/zone2Settings';
 import { clearWorkoutDraft, loadWorkoutDraft, persistWorkoutDraft } from '../../utils/workoutDraft';
 import { API_URL } from '../../constants/api';
 import { Exercise, ExerciseKind, WorkoutEffort, WorkoutSession } from '../../types/workout';
@@ -230,6 +232,7 @@ function SetRow({
 
 interface ExerciseCardProps {
   exercise: DraftExercise;
+  zone2Band: Zone2Band;
   previousExercise?: Exercise;
   recordsBySetId: ReadonlyMap<string, SetPersonalRecord>;
   index: number;
@@ -248,6 +251,7 @@ interface ExerciseCardProps {
 
 function ExerciseCard({
   exercise,
+  zone2Band,
   previousExercise,
   recordsBySetId,
   index,
@@ -310,6 +314,12 @@ function ExerciseCard({
           />
           {exercise.prescription && (
             <Text style={styles.exercisePrescription}>{exercise.prescription}</Text>
+          )}
+          {exercise.kind === 'cardio' &&
+            !exercise.name.includes('Hard interval') && !exercise.name.includes('Cool-down') && (
+            <Text style={styles.exercisePrescription}>
+              Estimated easy HR band: {zone2Band.lower}–{zone2Band.upper} bpm · adjust in Settings; conversational effort comes first.
+            </Text>
           )}
           {previousSummary && (
             <Text style={styles.exerciseHistory}>{previousSummary}</Text>
@@ -552,7 +562,11 @@ export function WorkoutLogScreen() {
     refresh,
   } = useWorkouts();
   useFocusEffect(useCallback(() => { void refresh(); }, [refresh]));
-  const { nutritionEntries, loading: healthLoading } = useHealth();
+  const { nutritionEntries, healthDailyEntries, dailyHealthError, loading: healthLoading } = useHealth();
+  const [zone2Band, setZone2Band] = useState<Zone2Band>(DEFAULT_ZONE2_BAND);
+  useFocusEffect(useCallback(() => { void readZone2Band().then(setZone2Band).catch(() => {
+    setZone2Band(DEFAULT_ZONE2_BAND);
+  }); }, []));
   const router = useRouter();
 
   const now = new Date();
@@ -655,6 +669,9 @@ export function WorkoutLogScreen() {
 
   const suggestedTemplateId = getSuggestedTemplateId(now.getDay());
   const activeTemplates = useMemo(() => applyWorkoutPlanOverrides(planOverrides), [planOverrides]);
+  const readiness = dailyHealthError
+    ? { status: 'unknown' as const, reasons: ['Daily health history unavailable'] }
+    : intervalReadiness(healthDailyEntries, now);
   const planHistoryCutoff = getWorkoutPlanWeekStart(now);
   const canLoadTemplate = canLoadWorkoutTemplate(workoutsLoading, workoutsError);
   const planScrollRef = useRef<ScrollView>(null);
@@ -827,11 +844,13 @@ export function WorkoutLogScreen() {
     [],
   );
 
-  const loadTemplate = useCallback((templateId: WorkoutTemplateId) => {
+  const loadTemplate = useCallback((templateId: WorkoutTemplateId,
+    cardioOption?: 'intervals' | 'easy' | 'three-rounds') => {
     if (!canLoadTemplate) return;
 
     const applyTemplate = () => {
-      const draft = buildWorkoutTemplateDraft(templateId, generateId, sessions, new Date(), activeTemplates);
+      const option = cardioOption ?? (templateId === 'recovery' && readiness.status === 'swap' ? 'easy' : 'intervals');
+      const draft = buildWorkoutTemplateDraft(templateId, generateId, sessions, new Date(), activeTemplates, option);
       setExercises(draft.exercises);
       setSelectedTemplateId(draft.template.id);
       setStrengthDuration('');
@@ -857,7 +876,7 @@ export function WorkoutLogScreen() {
         { text: 'Replace', style: 'destructive', onPress: applyTemplate },
       ],
     );
-  }, [canLoadTemplate, exercises.length, sessions, activeTemplates]);
+  }, [canLoadTemplate, exercises.length, sessions, activeTemplates, readiness.status]);
 
   // -- Save -----------------------------------------------------------------
 
@@ -1226,7 +1245,7 @@ export function WorkoutLogScreen() {
                     <Text style={styles.planFocus}>{template.focus}</Text>
                     <Text style={styles.planMeta}>
                       {template.id === 'recovery'
-                        ? `Easy cardio · ~${template.estimatedMinutes} min`
+                        ? '4 × 4 min · 3-round option'
                         : `${template.exercises.length} lifts · ~${template.estimatedMinutes} min`}
                     </Text>
                   </TouchableOpacity>
@@ -1238,8 +1257,31 @@ export function WorkoutLogScreen() {
                 ? 'Loading your workout history before generating this week’s plan…'
                 : workoutsError
                   ? 'Retry workout history before loading a plan. Your saved workouts remain intact.'
-                  : 'Each week uses your completed GainLog history from before Monday to recommend the next load. Enter what you actually complete. Wednesday is easy cardio only; elliptical counts as cardio, not step-equivalent mileage.'}
+                  : 'Each week uses completed GainLog history from before Monday to recommend the next load. Wednesday has intervals or an easy-cardio swap; no strength is prescribed.'}
             </Text>
+            {selectedTemplateId === 'recovery' && (
+              <View style={styles.planError}>
+                <View style={styles.planErrorBody}>
+                  <Text style={styles.planErrorTitle}>
+                    {readiness.status === 'swap' ? 'Swap to easy zone 2 today' :
+                      readiness.status === 'unknown' ? 'Readiness unknown' : 'Interval option'}
+                  </Text>
+                  <Text style={styles.planErrorText}>
+                    {readiness.reasons.length ? readiness.reasons.join(' · ') : 'No veto signals in complete recent data.'}
+                    {' '}This guidance is not a medical clearance. Choose what you actually do.
+                  </Text>
+                  <TouchableOpacity onPress={() => loadTemplate('recovery', 'easy')} accessibilityRole="button">
+                    <Text style={styles.planRetryText}>Easy zone 2 instead</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => loadTemplate('recovery', 'three-rounds')} accessibilityRole="button">
+                    <Text style={styles.planRetryText}>3 rounds (first week back / override)</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => loadTemplate('recovery', 'intervals')} accessibilityRole="button">
+                    <Text style={styles.planRetryText}>4 rounds (override if vetoed)</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
           </View>
 
           {/* Exercise cards */}
@@ -1256,6 +1298,7 @@ export function WorkoutLogScreen() {
               <ExerciseCard
                 key={ex.id}
                 exercise={ex}
+                zone2Band={zone2Band}
                 previousExercise={findPreviousExercise(
                   sessions,
                   ex.name,

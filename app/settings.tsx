@@ -7,6 +7,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -16,6 +17,7 @@ import { Colors, FontSize, Radius, Spacing } from '../constants/theme';
 import { useHealth } from '../context/HealthContext';
 import { repairHealthConnect, syncHealthConnect } from '../utils/healthConnectSync';
 import { formatSyncTimestamp } from '../utils/settingsDisplay';
+import { DEFAULT_ZONE2_BAND, readZone2Band, saveZone2Band } from '../utils/zone2Settings';
 import {
   beginGoogleHealthConnection,
   disconnectGoogleHealth,
@@ -41,6 +43,21 @@ export default function SettingsScreen() {
   const [googleHealthStatus, setGoogleHealthStatus] = useState<GoogleHealthStatus | null>(null);
   const [googleHealthBusy, setGoogleHealthBusy] = useState(false);
   const [showRecoveryTools, setShowRecoveryTools] = useState(false);
+  const [zoneLower, setZoneLower] = useState(String(DEFAULT_ZONE2_BAND.lower));
+  const [zoneUpper, setZoneUpper] = useState(String(DEFAULT_ZONE2_BAND.upper));
+  useEffect(() => { void readZone2Band().then(band => {
+    setZoneLower(String(band.lower)); setZoneUpper(String(band.upper));
+  }).catch(() => {}); }, []);
+
+  const saveBand = async () => {
+    try {
+      const band = await saveZone2Band(Number(zoneLower), Number(zoneUpper));
+      setZoneLower(String(band.lower)); setZoneUpper(String(band.upper));
+      Alert.alert('Zone 2 band saved', 'Your guidance will use this estimate next time you open Log.');
+    } catch (error) {
+      Alert.alert('Invalid zone 2 band', error instanceof Error ? error.message : 'Could not save the band.');
+    }
+  };
 
   const loadGoogleHealthStatus = useCallback(async () => {
     try {
@@ -163,6 +180,20 @@ export default function SettingsScreen() {
               GainLog refreshes when it opens or returns to the foreground. Android background timing remains best-effort; these controls are recovery tools.
             </Text>
           </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Easy cardio guidance</Text>
+          <Text style={styles.hint}>Editable estimated zone 2 HR band (bpm). This is not a measured threshold; use conversational effort too.</Text>
+          <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+            <TextInput accessibilityLabel="Zone 2 lower bpm" keyboardType="number-pad" value={zoneLower}
+              onChangeText={setZoneLower} style={styles.zoneInput} />
+            <TextInput accessibilityLabel="Zone 2 upper bpm" keyboardType="number-pad" value={zoneUpper}
+              onChangeText={setZoneUpper} style={styles.zoneInput} />
+          </View>
+          <TouchableOpacity style={styles.primaryButton} onPress={() => void saveBand()} accessibilityRole="button">
+            <Text style={styles.primaryButtonText}>Save zone 2 band</Text>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.section}>
@@ -318,6 +349,8 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
+  zoneInput: { color: Colors.text, borderColor: Colors.cardBorder, borderWidth: 1, borderRadius: 8,
+    minWidth: 80, padding: Spacing.sm },
   container: { flex: 1, backgroundColor: Colors.background },
   content: {
     padding: Spacing.base,

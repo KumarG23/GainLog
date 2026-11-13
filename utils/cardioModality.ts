@@ -1,5 +1,5 @@
 export function isTreadmill(name: string): boolean {
-  return name.trim().toLowerCase() === 'treadmill';
+  return name.trim().toLowerCase() === 'treadmill' || name.trim().toLowerCase().startsWith('treadmill · ');
 }
 
 export const SWAPPABLE_CARDIO = ['Elliptical', 'Treadmill', 'Stair Climber'] as const;

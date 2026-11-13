@@ -1,4 +1,5 @@
 import type { Exercise, WorkoutSession, WorkoutSet } from '../types/workout';
+import { intervalProtocol } from './cardioPlan.ts';
 
 export type WorkoutTemplateId = 'push' | 'pull' | 'recovery' | 'legs' | 'upper';
 
@@ -89,8 +90,17 @@ const recoveryCardio = (): WorkoutTemplateDraftExercise => ({
   resistanceLevel: '',
   inclinePercent: '',
   prescription:
-    '25–35 min easy · conversational pace · elliptical resistance 3–4 or an easy treadmill walk · cardio, not steps',
+    '25–35 min easy zone 2 · conversational pace · elliptical or treadmill · cardio, not steps',
 });
+
+function intervalCardio(rounds: 3 | 4, createId: () => string): WorkoutTemplateDraftExercise[] {
+  return intervalProtocol(rounds).map(segment => ({
+    id: createId(), name: `Treadmill · ${segment.name}`, kind: 'cardio' as const, sets: [],
+    cardioDurationMinutes: '', distanceMiles: '',
+    resistanceLevel: '', inclinePercent: '',
+    prescription: `${segment.name} · ${segment.minutes} min · ${segment.instruction}`,
+  }));
+}
 
 export const PLANET_FITNESS_TEMPLATES: readonly WorkoutTemplate[] = [
   {
@@ -171,9 +181,9 @@ export const PLANET_FITNESS_TEMPLATES: readonly WorkoutTemplate[] = [
   {
     id: 'recovery',
     weekday: 'Wednesday',
-    title: 'Recovery Cardio',
-    focus: 'Easy elliptical or treadmill walk',
-    estimatedMinutes: 30,
+    title: 'Intervals',
+    focus: 'Treadmill 4 × 4 hard · easy recoveries',
+    estimatedMinutes: 40,
     exercises: [],
   },
   {
@@ -312,6 +322,7 @@ export function buildWorkoutTemplateDraft(
   sessions: readonly WorkoutSession[] = [],
   planDate: Date = new Date(),
   templates: readonly WorkoutTemplate[] = PLANET_FITNESS_TEMPLATES,
+  cardioOption: 'intervals' | 'easy' | 'three-rounds' = 'intervals',
 ): BuiltWorkoutTemplateDraft {
   const template = templates.find(item => item.id === templateId);
   if (!template) {
@@ -321,9 +332,13 @@ export function buildWorkoutTemplateDraft(
   const exercises = template.exercises.map(exercise =>
     buildStrengthDraftExercise(exercise, template.id, createId, sessions, planDate));
 
-  const cardio = template.id === 'recovery' ? recoveryCardio() : cardioFinisher();
-  cardio.id = createId();
-  exercises.push(cardio);
+  if (template.id === 'recovery' && cardioOption !== 'easy') {
+    exercises.push(...intervalCardio(cardioOption === 'three-rounds' ? 3 : 4, createId));
+  } else {
+    const cardio = template.id === 'recovery' ? recoveryCardio() : cardioFinisher();
+    cardio.id = createId();
+    exercises.push(cardio);
+  }
 
   return { template, exercises };
 }

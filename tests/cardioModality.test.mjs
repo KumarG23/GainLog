@@ -27,7 +27,7 @@ test('cardio correction preserves actual minutes/miles and prescription, clears 
 
 test('recovery and optional finisher drafts can swap without changing plan identity or filling actuals', () => {
   for (const template of ['recovery', 'push', 'pull', 'legs', 'upper']) {
-    const draft = buildWorkoutTemplateDraft(template, () => 'test', [], new Date('2026-09-09T12:00:00Z'));
+    const draft = buildWorkoutTemplateDraft(template, () => 'test', [], new Date('2026-09-09T12:00:00Z'), undefined, 'easy');
     const cardio = draft.exercises.find(ex => ex.kind === 'cardio');
     const swapped = swapCardioModality(cardio, 'Treadmill');
     assert.equal(swapped.name, 'Treadmill');
