@@ -7,7 +7,7 @@ from sqlalchemy import Column, DateTime, Integer, MetaData, Table, inspect, sele
 from sqlalchemy.engine import Engine
 from sqlmodel import SQLModel
 
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 6
 
 _VERSION_METADATA = MetaData()
 _VERSION_TABLE = Table(
@@ -116,6 +116,14 @@ def apply_schema_migrations(engine: Engine) -> list[int]:
                     connection.execute(text(f"ALTER TABLE exercise ADD COLUMN IF NOT EXISTS {column} INTEGER"))
         versions = set(connection.execute(select(_VERSION_TABLE.c.version)).scalars())
         SQLModel.metadata.create_all(connection)
+        connection.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_bp_source_record "
+            "ON bp_reading (source, source_record_id)"
+        ))
+        connection.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_bp_manual_time "
+            "ON bp_reading (time) WHERE source = 'manual'"
+        ))
         # Keep this invariant explicit because SQLModel does not describe the
         # nullable source identity's uniqueness in model metadata.
         connection.execute(text(
@@ -169,4 +177,9 @@ def apply_schema_migrations(engine: Engine) -> list[int]:
                 version=5, applied_at=datetime.now(timezone.utc),
             ))
             applied.append(5)
+        if 6 not in versions:
+            connection.execute(_VERSION_TABLE.insert().values(
+                version=6, applied_at=datetime.now(timezone.utc),
+            ))
+            applied.append(6)
     return applied

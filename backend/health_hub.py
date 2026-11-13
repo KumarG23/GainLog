@@ -58,9 +58,11 @@ def project(db: Session) -> dict[str, list[list]]:
     try:
         from .main import (AppleHealthDailyDB, BodyWeightEntryDB, ExerciseDB, NutritionEntryDB,
                            WeeklyReviewDB, WorkoutSessionDB, WorkoutSetDB)
+        from .longevity import BPReadingDB, CPAPNightDB
     except ImportError:
         from main import (AppleHealthDailyDB, BodyWeightEntryDB, ExerciseDB, NutritionEntryDB,
                           WeeklyReviewDB, WorkoutSessionDB, WorkoutSetDB)
+        from longevity import BPReadingDB, CPAPNightDB
 
     rows = {name: [] for name in KEY_COL}
     daily = defaultdict(lambda: [""] * len(HEADERS["Daily"]))
@@ -75,6 +77,23 @@ def project(db: Session) -> dict[str, list[list]]:
         d = local_date(w.date)
         r = daily[d]
         r[0], r[1], r[2] = d, clean(w.weight_lbs), clean(w.body_fat_percent)
+    for night in db.exec(select(CPAPNightDB)).all():
+        r = daily[night.day]
+        r[0], r[6], r[7] = night.day, night.hours, night.ahi
+    bp_groups = defaultdict(list)
+    for reading in db.exec(select(BPReadingDB).order_by(BPReadingDB.time, BPReadingDB.id)).all():
+        rows['BP'].append([reading.id, reading.day, reading.time, reading.systolic,
+                           reading.diastolic, clean(reading.pulse), clean(reading.arm),
+                           clean(reading.position), reading.source])
+        bp_groups[reading.day, reading.pair_id or reading.id].append(reading)
+    day_bp = defaultdict(list)
+    for (day, _), readings in bp_groups.items():
+        day_bp[day].append((sum(r.systolic for r in readings)/len(readings),
+                            sum(r.diastolic for r in readings)/len(readings)))
+    for day, sessions in day_bp.items():
+        r = daily[day]
+        r[0] = day
+        r[14], r[15] = (round(sum(item[i] for item in sessions)/len(sessions), 1) for i in (0, 1))
     workouts = db.exec(select(WorkoutSessionDB).order_by(WorkoutSessionDB.date, WorkoutSessionDB.id)).all()
     exercises = db.exec(select(ExerciseDB).order_by(ExerciseDB.session_id, ExerciseDB.position)).all()
     sets = db.exec(select(WorkoutSetDB).order_by(WorkoutSetDB.exercise_id, WorkoutSetDB.position)).all()
@@ -136,7 +155,8 @@ def project(db: Session) -> dict[str, list[list]]:
         rows["Weekly"].append([week, (date.fromisoformat(week) + timedelta(days=6)).isoformat(),
             field(5), sum(1 for w in ws if w.strength_duration_minutes and w.strength_duration_minutes > 0) if ws else "",
             sum(1 for w in ws if w.template_id == "intervals") if ws else "", sum(zone) if zone else "",
-            field(8), field(3), field(4), field(1), field(17), field(20), field(16), "", "", "", "", "", "", "", ""])
+            field(8), field(3), field(4), field(1), field(17), field(20), field(16), "", field(14), field(15),
+            sum(r[6] >= 6 for r in populated if r[6] != "") if any(r[6] != "" for r in populated) else "", "", "", "", ""])
     return rows
 
 

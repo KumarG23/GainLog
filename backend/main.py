@@ -21,6 +21,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Field, Relationship, Session, SQLModel, col, select
 import requests
 try:
+    from .longevity import BPReadingDB, CPAPNightDB, install as install_longevity
+except ImportError:
+    from longevity import BPReadingDB, CPAPNightDB, install as install_longevity
+try:
     from .cardio_analytics import analyze as analyze_cardio, cardio_windows, parse_time as parse_cardio_time
     from .health_v2_models import HealthSampleObservationDB
 except ImportError:
@@ -835,6 +839,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="GainLog API", lifespan=lifespan)
+app.include_router(install_longevity(get_db))
 
 DEFAULT_CORS_ORIGINS = (
     "https://gainlog-frontend.tailc88c35.ts.net,"

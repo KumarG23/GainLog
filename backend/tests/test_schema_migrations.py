@@ -13,15 +13,15 @@ def test_versioned_schema_setup_is_idempotent(tmp_path):
     first = apply_schema_migrations(engine)
     second = apply_schema_migrations(engine)
 
-    assert CURRENT_SCHEMA_VERSION == 5
-    assert first == [1, 2, 3, 4, 5]
+    assert CURRENT_SCHEMA_VERSION == 6
+    assert first == [1, 2, 3, 4, 5, 6]
     assert second == []
     assert "cardio_analysis_json" in {column['name'] for column in inspect(engine).get_columns('workout_session')}
     assert "gainlog_schema_version" in inspect(engine).get_table_names()
     with engine.connect() as connection:
         assert connection.execute(
             text("SELECT version FROM gainlog_schema_version ORDER BY version")
-        ).scalars().all() == [1, 2, 3, 4, 5]
+        ).scalars().all() == [1, 2, 3, 4, 5, 6]
 
 
 def test_v4_cardio_column_adds_to_existing_v3_workouts(tmp_path):

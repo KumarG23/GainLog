@@ -279,6 +279,7 @@ function LegacyHealthScreen() {
             </View>
           )}
 
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open blood pressure and CPAP log" onPress={() => router.push('/longevity' as Href)} style={{ padding: 14, backgroundColor: Colors.surface, borderRadius: 12, marginBottom: 16 }}><Text style={{ color: Colors.primary, fontWeight: '700' }}>Blood pressure & CPAP →</Text></TouchableOpacity>
           <Text style={styles.sectionEyebrow}>Daily dashboard</Text>
           <View style={styles.summaryGrid}>
             <SummaryTile
