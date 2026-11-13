@@ -21,6 +21,8 @@ import { useHealth } from '../../context/HealthContext';
 import { generateId } from '../../utils/id';
 import { cardioSwapChoices, isTreadmill, swapCardioModality } from '../../utils/cardioModality';
 import { intervalReadiness } from '../../utils/cardioPlan';
+import { cardioTimingValid, isCardioRunning } from '../../utils/cardioTimer';
+import { CardioTimer } from '../../components/CardioTimer';
 import { readCardioHeartRate } from '../../utils/cardioHeartRate';
 import { DEFAULT_ZONE2_BAND, readZone2Band, type Zone2Band } from '../../utils/zone2Settings';
 import { clearWorkoutDraft, loadWorkoutDraft, persistWorkoutDraft } from '../../utils/workoutDraft';
@@ -248,6 +250,7 @@ interface ExerciseCardProps {
     field: 'cardioDurationMinutes' | 'distanceMiles' | 'resistanceLevel' | 'inclinePercent' | 'cardioStartedAt' | 'cardioEndedAt',
     value: string,
   ) => void;
+  onUpdateCardioTiming: (patch: Partial<Pick<DraftExercise, 'cardioDurationMinutes' | 'cardioStartedAt' | 'cardioEndedAt'>>) => void;
   onSubstitute: (name: string) => void;
   onRemove: () => void;
 }
@@ -264,6 +267,7 @@ function ExerciseCard({
   onUpdateSet,
   onCompleteSet,
   onUpdateCardio,
+  onUpdateCardioTiming,
   onSubstitute,
   onRemove,
 }: ExerciseCardProps) {
@@ -384,36 +388,19 @@ function ExerciseCard({
         </>
       ) : (
         <View style={styles.cardioFields}>
+          <CardioTimer timing={exercise} onChange={onUpdateCardioTiming} />
           <View style={styles.cardioField}>
-            <Text style={styles.cardioLabel}>MINUTES *</Text>
+            <Text style={styles.cardioLabel}>ACTUAL MINUTES * {isCardioRunning(exercise) ? '· timer running' : ''}</Text>
             <TextInput
               style={styles.cardioInput}
               value={exercise.cardioDurationMinutes}
               onChangeText={value => onUpdateCardio('cardioDurationMinutes', value)}
+              editable={!isCardioRunning(exercise) && !exercise.cardioEndedAt}
               placeholder="30"
               placeholderTextColor={Colors.textMuted}
               keyboardType="number-pad"
             />
           </View>
-          <View style={styles.cardioField}>
-            <Text style={styles.cardioLabel}>ACTUAL START · ISO date/time with offset</Text>
-            <TextInput style={styles.cardioInput} value={exercise.cardioStartedAt ?? ''}
-              onChangeText={value => onUpdateCardio('cardioStartedAt', value)}
-              placeholder="2026-11-16T07:00:00-05:00" placeholderTextColor={Colors.textMuted} autoCapitalize="none" />
-            <TouchableOpacity onPress={() => onUpdateCardio('cardioStartedAt', new Date().toISOString())}>
-              <Text style={styles.addExerciseText}>Start now</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={styles.cardioField}>
-            <Text style={styles.cardioLabel}>ACTUAL END · ISO date/time with offset</Text>
-            <TextInput style={styles.cardioInput} value={exercise.cardioEndedAt ?? ''}
-              onChangeText={value => onUpdateCardio('cardioEndedAt', value)}
-              placeholder="2026-11-16T07:20:00-05:00" placeholderTextColor={Colors.textMuted} autoCapitalize="none" />
-            <TouchableOpacity onPress={() => onUpdateCardio('cardioEndedAt', new Date().toISOString())}>
-              <Text style={styles.addExerciseText}>End now</Text>
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.metaReadout}>Capture both times as the segment happens, or enter truthful clock times. Without both, HR analysis and benchmark verification remain unavailable.</Text>
           <View style={styles.cardioField}>
             <Text style={styles.cardioLabel}>MILES</Text>
             <TextInput
@@ -896,6 +883,11 @@ export function WorkoutLogScreen() {
     [],
   );
 
+  const updateCardioTiming = useCallback((exerciseId: string,
+    patch: Partial<Pick<DraftExercise, 'cardioDurationMinutes' | 'cardioStartedAt' | 'cardioEndedAt'>>) => {
+    setExercises(prev => prev.map(e => e.id === exerciseId ? { ...e, ...patch } : e));
+  }, []);
+
   const loadTemplate = useCallback((templateId: WorkoutTemplateId,
     cardioOption?: 'intervals' | 'easy' | 'three-rounds') => {
     if (!canLoadTemplate) return;
@@ -954,6 +946,12 @@ export function WorkoutLogScreen() {
       return;
     }
 
+    if (exercises.some(e => e.kind === 'cardio' && isCardioRunning(e))) {
+      if (Platform.OS === 'web') window.alert('Stop the cardio timer before saving this workout.');
+      else Alert.alert('Cardio timer running', 'Stop the cardio timer before saving this workout.');
+      return;
+    }
+
     const validExercises = exercises.filter(e =>
       e.name.trim() && (
         e.kind === 'cardio'
@@ -978,11 +976,7 @@ export function WorkoutLogScreen() {
     }
 
     const cardio = validExercises.filter(e => e.kind === 'cardio');
-    if (cardio.some(e => !!e.cardioStartedAt !== !!e.cardioEndedAt ||
-      (e.cardioStartedAt && e.cardioEndedAt && (!/(Z|[+-]\d\d:\d\d)$/.test(e.cardioStartedAt) ||
-        !/(Z|[+-]\d\d:\d\d)$/.test(e.cardioEndedAt) ||
-        !Number.isFinite(Date.parse(e.cardioStartedAt)) || !Number.isFinite(Date.parse(e.cardioEndedAt)) ||
-        Math.abs((Date.parse(e.cardioEndedAt) - Date.parse(e.cardioStartedAt)) / 60000 - Number(e.cardioDurationMinutes)) > 1)))) {
+    if (cardio.some(e => !cardioTimingValid(e))) {
       Alert.alert('Invalid cardio times', 'Record both real start/end times with timezone; the elapsed time must match logged minutes within one minute. Or leave both blank for an unverified log.');
       return;
     }
@@ -1407,6 +1401,7 @@ export function WorkoutLogScreen() {
                 }
                 onCompleteSet={completeSet}
                 onUpdateCardio={(field, value) => updateCardio(ex.id, field, value)}
+                onUpdateCardioTiming={patch => updateCardioTiming(ex.id, patch)}
                 onSubstitute={name => substituteExercise(ex.id, name)}
                 onRemove={() => removeExercise(ex.id)}
               />
