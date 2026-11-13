@@ -2,6 +2,8 @@ export interface WorkoutSet {
   id: string;
   weight: number; // lbs
   reps: number;
+  measure?: 'reps' | 'seconds';
+  seconds?: number;
 }
 
 export type ExerciseKind = 'strength' | 'cardio';

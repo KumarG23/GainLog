@@ -73,6 +73,8 @@ class WorkoutSetDB(SQLModel, table=True):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
     reps: int
     weight: float
+    measure: str = "reps"
+    seconds: Optional[int] = None
     exercise_id: str = Field(foreign_key="exercise.id")
     position: int = 0
     exercise: Optional["ExerciseDB"] = Relationship(back_populates="sets")
@@ -288,12 +290,25 @@ class WorkoutSetOut(CamelModel):
     id: str
     reps: int
     weight: float
+    measure: Literal["reps", "seconds"] = "reps"
+    seconds: Optional[int] = None
 
 
 class WorkoutSetIn(CamelModel):
     id: Optional[str] = None
-    reps: int
-    weight: float
+    reps: int = 0
+    weight: float = Field(default=0, ge=0)
+    measure: Literal["reps", "seconds"] = "reps"
+    seconds: Optional[int] = Field(default=None, ge=1, le=3600)
+
+    @model_validator(mode="after")
+    def validate_measure(self):
+        if self.measure == "seconds":
+            if self.seconds is None or self.reps != 0:
+                raise ValueError("timed sets require seconds and no reps")
+        elif self.seconds is not None or self.reps < 1:
+            raise ValueError("rep sets require positive reps and no seconds")
+        return self
 
 
 class ExerciseOut(CamelModel):
@@ -406,6 +421,7 @@ class WorkoutFeedbackIn(CamelModel):
 class PlannedExercise(CamelModel):
     name: str = PydanticField(min_length=1, max_length=100)
     sets: int = PydanticField(ge=1, le=10)
+    measure: Literal["reps", "seconds"] = "reps"
     target_reps: str = PydanticField(pattern=r"^[0-9]{1,2}[–-][0-9]{1,2}$")
     rest: str = PydanticField(min_length=1, max_length=30)
     cue: Optional[str] = PydanticField(default=None, max_length=200)
@@ -908,7 +924,9 @@ def _to_out(s: WorkoutSessionDB) -> WorkoutSessionOut:
                 distance_miles=e.distance_miles,
                 resistance_level=e.resistance_level,
                 incline_percent=e.incline_percent,
-                sets=[WorkoutSetOut(id=ws.id, reps=ws.reps, weight=ws.weight) for ws in e.sets],
+                sets=[WorkoutSetOut(id=ws.id, reps=ws.reps, weight=ws.weight,
+                                    measure=cast(Literal["reps", "seconds"], ws.measure or "reps"),
+                                    seconds=ws.seconds) for ws in e.sets],
             )
             for e in s.exercises
         ],
@@ -1148,8 +1166,11 @@ def _format_session(s: WorkoutSessionDB, label: str) -> str:
                 details.append(f"resistance {ex.resistance_level:g}")
             lines.append(f"  {ex.name} (cardio): {', '.join(details) or 'completed'}")
             continue
-        sets_str = "  ".join(f"{ws.weight}×{ws.reps}" for ws in ex.sets)
-        vol = int(sum(ws.weight * ws.reps for ws in ex.sets))
+        sets_str = "  ".join(
+            f"{ws.seconds} s @ {ws.weight:g} lb" if ws.measure == "seconds"
+            else f"{ws.weight:g}×{ws.reps}" for ws in ex.sets
+        )
+        vol = int(sum(ws.weight * ws.reps for ws in ex.sets if ws.measure != "seconds"))
         lines.append(f"  {ex.name}: {sets_str}  [{vol} lbs volume]")
     if s.strength_duration_minutes is not None:
         details = [f"{s.strength_duration_minutes} min"]
@@ -3268,6 +3289,8 @@ def create_workout(payload: WorkoutSessionIn, db: Session = Depends(get_db)):
                 id=s.id or str(uuid.uuid4()),
                 reps=s.reps,
                 weight=s.weight,
+                measure=s.measure,
+                seconds=s.seconds,
                 exercise_id=eid,
                 position=set_position,
             ))
@@ -3333,6 +3356,7 @@ def get_insight(session_id: str, db: Session = Depends(get_db)):
     history = db.exec(
         select(WorkoutSessionDB)
         .where(WorkoutSessionDB.id != session_id)
+        .where(WorkoutSessionDB.date < row.date)
         .order_by(WorkoutSessionDB.date.desc())
         .limit(4)
     ).all()

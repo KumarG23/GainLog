@@ -7,7 +7,7 @@ from sqlalchemy import Column, DateTime, Integer, MetaData, Table, inspect, sele
 from sqlalchemy.engine import Engine
 from sqlmodel import SQLModel
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 _VERSION_METADATA = MetaData()
 _VERSION_TABLE = Table(
@@ -141,4 +141,15 @@ def apply_schema_migrations(engine: Engine) -> list[int]:
                 version=2, applied_at=datetime.now(timezone.utc),
             ))
             applied.append(2)
+        if 3 not in versions:
+            if "workout_set" in inspect(connection).get_table_names():
+                columns = {column["name"] for column in inspect(connection).get_columns("workout_set")}
+                if "measure" not in columns:
+                    connection.execute(text("ALTER TABLE workout_set ADD COLUMN measure VARCHAR NOT NULL DEFAULT 'reps'"))
+                if "seconds" not in columns:
+                    connection.execute(text("ALTER TABLE workout_set ADD COLUMN seconds INTEGER"))
+            connection.execute(_VERSION_TABLE.insert().values(
+                version=3, applied_at=datetime.now(timezone.utc),
+            ))
+            applied.append(3)
     return applied

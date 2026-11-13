@@ -96,7 +96,7 @@ function ExerciseTable({ exercise, index, recordsBySetId }: ExerciseTableProps) 
       <View style={styles.tableHeader}>
         <Text style={[styles.tableCell, styles.colSet]}>SET</Text>
         <Text style={[styles.tableCell, styles.colWeight]}>LBS</Text>
-        <Text style={[styles.tableCell, styles.colReps]}>REPS</Text>
+        <Text style={[styles.tableCell, styles.colReps]}>REPS / SEC</Text>
         <Text style={[styles.tableCell, styles.colVol]}>VOL</Text>
         <Text style={[styles.tableCell, styles.colPr]}>PR</Text>
       </View>
@@ -122,10 +122,10 @@ function ExerciseTable({ exercise, index, recordsBySetId }: ExerciseTableProps) 
               {set.weight > 0 ? set.weight : '—'}
             </Text>
             <Text style={[styles.tableCell, styles.colReps, styles.cellValue]}>
-              {set.reps}
+              {set.measure === 'seconds' ? `${set.seconds} s` : set.reps}
             </Text>
             <Text style={[styles.tableCell, styles.colVol, styles.cellValue]}>
-              {set.weight > 0 ? `${set.weight * set.reps}` : set.reps}
+              {set.measure === 'seconds' ? '—' : (set.weight > 0 ? `${set.weight * set.reps}` : set.reps)}
             </Text>
             <View style={styles.colPr}>
               {record ? (
@@ -149,7 +149,10 @@ function ExerciseTable({ exercise, index, recordsBySetId }: ExerciseTableProps) 
       <View style={styles.exerciseFooter}>
         <Text style={styles.exerciseFooterText}>
           {exercise.sets.length} sets ·{' '}
-          {exercise.sets.reduce((a, s) => a + s.reps, 0)} reps
+          {exercise.sets.filter(s => s.measure !== 'seconds').reduce((a, s) => a + s.reps, 0)} reps
+          {exercise.sets.some(s => s.measure === 'seconds')
+            ? ` · ${exercise.sets.reduce((a, s) => a + (s.measure === 'seconds' ? (s.seconds ?? 0) : 0), 0)} sec`
+            : ''}
           {volume > 0 ? ` · ${volume.toLocaleString()} lbs total` : ''}
         </Text>
       </View>

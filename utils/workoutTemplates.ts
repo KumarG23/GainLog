@@ -6,6 +6,7 @@ export interface WorkoutTemplateExercise {
   name: string;
   sets: number;
   targetReps: string;
+  measure?: 'reps' | 'seconds';
   rest: string;
   cue?: string;
   substitutions?: readonly [string, string];
@@ -39,6 +40,8 @@ export interface WorkoutTemplateDraftSet {
   id: string;
   weight: string;
   reps: string;
+  measure?: 'reps' | 'seconds';
+  seconds?: string;
 }
 
 export interface WorkoutTemplateDraftExercise {
@@ -260,12 +263,12 @@ export function canLoadWorkoutTemplate(
 }
 
 function formatExercisePrescription(
-  exercise: Pick<WorkoutTemplateExercise, 'sets' | 'targetReps' | 'rest' | 'cue'>,
+  exercise: Pick<WorkoutTemplateExercise, 'sets' | 'targetReps' | 'rest' | 'cue' | 'measure'>,
   recommendation: { weight?: string; label: string } | null,
 ): string {
   const base = recommendation?.label ?? 'Establish a clean baseline';
   const cue = exercise.cue ? ` · ${exercise.cue}` : '';
-  return `${base} · ${exercise.sets} × ${exercise.targetReps} · rest ${exercise.rest}${cue}`;
+  return `${base} · ${exercise.sets} × ${exercise.targetReps}${exercise.measure === 'seconds' ? ' s' : ''} · rest ${exercise.rest}${cue}`;
 }
 
 function buildStrengthDraftExercise(
@@ -275,7 +278,8 @@ function buildStrengthDraftExercise(
   sessions: readonly WorkoutSession[],
   planDate: Date,
 ): WorkoutTemplateDraftExercise {
-  const recommendation = buildWeightRecommendation(exercise, templateId, sessions, planDate);
+  const recommendation = exercise.measure === 'seconds'
+    ? null : buildWeightRecommendation(exercise, templateId, sessions, planDate);
   return {
     id: createId(),
     name: exercise.name,
@@ -284,6 +288,7 @@ function buildStrengthDraftExercise(
       id: createId(),
       weight: '',
       reps: '',
+      ...(exercise.measure === 'seconds' ? { measure: 'seconds' as const, seconds: '' } : {}),
     })),
     cardioDurationMinutes: '',
     distanceMiles: '',
@@ -342,19 +347,17 @@ export function substituteWorkoutTemplateExercise(
     name: substituteName,
     sets: exercise.sets.length,
     targetReps: exercise.targetReps,
+    measure: exercise.sets[0]?.measure,
     rest: exercise.rest,
     cue: exercise.cue,
   };
-  const recommendation = buildWeightRecommendation(
-    substitutedExercise,
-    templateId,
-    sessions,
-    planDate,
+  const recommendation = substitutedExercise.measure === 'seconds' ? null : buildWeightRecommendation(
+    substitutedExercise, templateId, sessions, planDate,
   );
   return {
     ...exercise,
     name: substituteName,
-    sets: exercise.sets.map(set => ({ ...set, weight: '', reps: '' })),
+    sets: exercise.sets.map(set => ({ ...set, weight: '', reps: '', seconds: '' })),
     prescription: formatExercisePrescription(substitutedExercise, recommendation),
     recommendedWeight: recommendation?.weight,
   };
@@ -380,10 +383,25 @@ function validSets(exercise: Exercise): WorkoutSet[] {
     set =>
       Number.isFinite(set.weight) &&
       Number.isFinite(set.reps) &&
+      (set.measure ?? 'reps') === 'reps' &&
       set.weight > 0 &&
       set.reps > 0 &&
       set.reps <= 40,
   );
+}
+
+// Seconds are excluded from rep-based PR, volume and weight progression.
+// A complete target session earns a single next step.
+export function timedSetNextStep(exercise: Exercise, targetSeconds: number, prescribedSets: number): string | null {
+  const sets = exercise.sets.filter(set => set.measure === 'seconds');
+  if (!Number.isInteger(targetSeconds) || targetSeconds < 1 ||
+      sets.length < prescribedSets || prescribedSets < 1) return null;
+  const working = sets.slice(-prescribedSets);
+  if (!working.every(set => (set.seconds ?? 0) >= targetSeconds && set.weight >= 0)) return null;
+  const load = working[0].weight;
+  if (!working.every(set => set.weight === load)) return null;
+  return load > 0 ? `Next: ${formatWeight(load + 5)} lb per hand at ${targetSeconds} s`
+    : `Next: ${targetSeconds + 10} s per set`;
 }
 
 interface PriorExercise {

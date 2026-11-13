@@ -14,6 +14,30 @@ const {
   substituteWorkoutTemplateExercise,
 } = workoutTemplates;
 
+test('timed drafts remain blank and earn only a complete target step', () => {
+  const templates = applyWorkoutPlanOverrides({ pull: [{ name: 'Dead Hang', sets: 2,
+    targetReps: '20–45', measure: 'seconds', rest: '2 min',
+    substitutions: ['Assisted Dead Hang', 'Towel Hang'] }] });
+  let n = 0;
+  const draft = buildWorkoutTemplateDraft('pull', () => `id-${++n}`, [], new Date(), templates);
+  assert.deepEqual(draft.exercises[0].sets.map(set => [set.measure, set.seconds, set.reps]),
+    [['seconds', '', ''], ['seconds', '', '']]);
+  assert.match(draft.exercises[0].prescription, /20–45 s/);
+  const substituted = substituteWorkoutTemplateExercise(draft.exercises[0], 'Assisted Dead Hang', 'pull');
+  assert.equal(substituted.recommendedWeight, undefined);
+  assert.equal(substituted.sets[0].measure, 'seconds');
+  const exercise = { id: 'hang', name: 'Dead Hang', sets: [
+    { id: 'a', weight: 0, reps: 0, measure: 'seconds', seconds: 45 },
+    { id: 'b', weight: 0, reps: 0, measure: 'seconds', seconds: 45 }] };
+  assert.equal(workoutTemplates.timedSetNextStep(exercise, 45, 2), 'Next: 55 s per set');
+  exercise.sets[1].seconds = 44;
+  assert.equal(workoutTemplates.timedSetNextStep(exercise, 45, 2), null);
+  exercise.sets[1].seconds = 45;
+  exercise.sets.forEach(set => { set.weight = 40; });
+  assert.equal(workoutTemplates.timedSetNextStep(exercise, 45, 2),
+    'Next: 45 lb per hand at 45 s');
+});
+
 test('only an actual draft prescription is serialized at workout save', () => {
   const parse = workoutTemplates.savedRepPrescription;
   assert.deepEqual(parse('8–12', 3), { targetRepsMin: 8, targetRepsMax: 12, prescribedSets: 3 });

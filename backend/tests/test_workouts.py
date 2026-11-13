@@ -67,6 +67,30 @@ def test_workout_crud_round_trip():
         assert missing.status_code == 404
 
 
+def test_timed_set_round_trip_and_rejects_ambiguous_measures():
+    reset_db()
+    with TestClient(app) as client:
+        base = {"date": "2026-11-16T12:00:00Z", "durationMinutes": 20,
+                "exercises": [{"name": "Carry", "sets": [
+                    {"measure": "seconds", "seconds": 45, "weight": 40}]}]}
+        created = client.post('/workouts/', json=base)
+        assert created.status_code == 201, created.text
+        sid = created.json()["id"]
+        assert client.get(f'/workouts/{sid}').json()["exercises"][0]["sets"][0] == {
+            "id": created.json()["exercises"][0]["sets"][0]["id"],
+            "reps": 0, "weight": 40, "measure": "seconds", "seconds": 45,
+        }
+        from backend.main import _format_session, WorkoutSessionDB
+        from sqlmodel import Session
+        with Session(engine) as db:
+            assert "45 s @ 40 lb" in _format_session(db.get(WorkoutSessionDB, sid), "CURRENT WORKOUT")
+        for bad in ({"measure": "seconds", "seconds": 45, "reps": 5},
+                    {"measure": "seconds"}, {"reps": 10, "seconds": 45},
+                    {"measure": "seconds", "seconds": 4000}, {"reps": 0}):
+            base["exercises"][0]["sets"] = [bad]
+            assert client.post('/workouts/', json=base).status_code == 422
+
+
 def test_cardio_exercise_round_trip():
     reset_db()
     with TestClient(app) as client:

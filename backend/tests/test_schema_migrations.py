@@ -13,14 +13,30 @@ def test_versioned_schema_setup_is_idempotent(tmp_path):
     first = apply_schema_migrations(engine)
     second = apply_schema_migrations(engine)
 
-    assert CURRENT_SCHEMA_VERSION == 2
-    assert first == [1, 2]
+    assert CURRENT_SCHEMA_VERSION == 3
+    assert first == [1, 2, 3]
     assert second == []
     assert "gainlog_schema_version" in inspect(engine).get_table_names()
     with engine.connect() as connection:
         assert connection.execute(
             text("SELECT version FROM gainlog_schema_version ORDER BY version")
-        ).scalars().all() == [1, 2]
+        ).scalars().all() == [1, 2, 3]
+
+
+def test_timed_set_migration_preserves_existing_reps(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'timed.db'}")
+    apply_schema_migrations(engine)
+    with engine.begin() as connection:
+        connection.execute(text("INSERT INTO workout_session (id,date,duration_minutes,pain) VALUES ('old','2026-10-01',30,0)"))
+        connection.execute(text("INSERT INTO exercise (id,name,session_id,position,kind) VALUES ('ex','Press','old',0,'strength')"))
+        connection.execute(text("DELETE FROM gainlog_schema_version WHERE version=3"))
+        connection.execute(text("ALTER TABLE workout_set DROP COLUMN seconds"))
+        connection.execute(text("ALTER TABLE workout_set DROP COLUMN measure"))
+        connection.execute(text("INSERT INTO workout_set (id,exercise_id,reps,weight,position) VALUES ('set','ex',8,50,0)"))
+    assert apply_schema_migrations(engine) == [3]
+    assert apply_schema_migrations(engine) == []
+    with engine.connect() as connection:
+        assert connection.execute(text("SELECT reps,weight,measure,seconds FROM workout_set WHERE id='set'")).one() == (8, 50, 'reps', None)
 
 
 def test_v2_size_columns_support_database_above_two_gib(tmp_path):

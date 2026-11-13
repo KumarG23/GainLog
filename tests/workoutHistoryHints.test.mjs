@@ -31,6 +31,22 @@ test('findPreviousExercise returns the newest matching strength exercise', () =>
   assert.equal(previous?.id, 'newer-exercise');
 });
 
+test('timed history stays separate from rep history and displays seconds', () => {
+  const sessions = [
+    session('rep', '2026-07-28T07:00:00-04:00', 'Dead Hang', [
+      { id: 'rep-set', weight: 25, reps: 10 },
+    ]),
+    session('timed', '2026-08-04T07:00:00-04:00', 'Dead Hang', [
+      { id: 'timed-set', weight: 0, reps: 0, measure: 'seconds', seconds: 45 },
+    ]),
+  ];
+  const timed = findPreviousExercise(sessions, 'Dead Hang', 'strength', undefined, undefined, 'seconds');
+  assert.equal(timed?.id, 'timed-exercise');
+  assert.equal(formatPreviousExerciseSummary(timed), 'Last: 45 s');
+  assert.equal(findPreviousExercise(sessions, 'Dead Hang')?.id, 'rep-exercise');
+  assert.deepEqual(getPreviousSetHint(timed, 0), {});
+});
+
 test('findPreviousExercise scopes planned-workout hints to the exact template', () => {
   const push = session('push', '2026-08-17T07:00:00-04:00', 'Machine Shoulder Press', [
     { id: 'push-set', weight: 45, reps: 10 },

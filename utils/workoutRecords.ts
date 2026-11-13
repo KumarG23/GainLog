@@ -6,6 +6,7 @@ interface StrengthSetDraft {
   id: string;
   weight: string | number;
   reps: string | number;
+  measure?: 'reps' | 'seconds';
 }
 
 interface ExerciseDraft {
@@ -49,7 +50,8 @@ function parseNumber(value: string | number): number {
 }
 
 function isUsableStrengthSet(set: Pick<WorkoutSet, 'weight' | 'reps'>): boolean {
-  return Number.isFinite(set.weight)
+  return (('measure' in set ? set.measure : undefined) ?? 'reps') === 'reps'
+    && Number.isFinite(set.weight)
     && Number.isFinite(set.reps)
     && set.weight >= 0
     && set.reps > 0
@@ -63,6 +65,7 @@ export function findSuspiciousStrengthSets(
     if ((exercise.kind ?? 'strength') !== 'strength') return [];
 
     return exercise.sets.flatMap(set => {
+      if (set.measure === 'seconds') return [];
       const reps = parseNumber(set.reps);
       if (!Number.isFinite(reps) || reps <= MAX_REASONABLE_REPS) return [];
 

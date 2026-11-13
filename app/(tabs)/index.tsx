@@ -46,6 +46,7 @@ import {
   getSuggestedTemplateId,
   getWorkoutPlanWeekStart,
   savedRepPrescription,
+  timedSetNextStep,
   substituteWorkoutTemplateExercise,
   WorkoutTemplateId,
 } from '../../utils/workoutTemplates';
@@ -58,6 +59,8 @@ interface DraftSet {
   id: string;
   weight: string;
   reps: string;
+  measure?: 'reps' | 'seconds';
+  seconds?: string;
 }
 
 interface DraftExercise {
@@ -149,6 +152,7 @@ interface SetRowProps {
   canDelete: boolean;
   onChangeWeight: (v: string) => void;
   onChangeReps: (v: string) => void;
+  onChangeMeasure: (measure: 'reps' | 'seconds') => void;
   onComplete: () => void;
   onDelete: () => void;
 }
@@ -162,6 +166,7 @@ function SetRow({
   canDelete,
   onChangeWeight,
   onChangeReps,
+  onChangeMeasure,
   onComplete,
   onDelete,
 }: SetRowProps) {
@@ -183,14 +188,17 @@ function SetRow({
           selectTextOnFocus
         />
 
-        <Text style={styles.setMultiplier}>×</Text>
+        <TouchableOpacity onPress={() => onChangeMeasure(set.measure === 'seconds' ? 'reps' : 'seconds')}
+          accessibilityRole="button" accessibilityLabel={`Log ${set.measure === 'seconds' ? 'reps' : 'seconds'} instead`}>
+          <Text style={styles.setMultiplier}>{set.measure === 'seconds' ? 'sec' : '×'}</Text>
+        </TouchableOpacity>
 
         <TextInput
           style={[styles.setInput, styles.repsInput]}
-          value={set.reps}
+          value={set.measure === 'seconds' ? (set.seconds ?? '') : set.reps}
           onChangeText={onChangeReps}
           onBlur={onComplete}
-          placeholder={previousHint.reps ?? '0'}
+          placeholder={set.measure === 'seconds' ? 'seconds' : (previousHint.reps ?? '0')}
           placeholderTextColor={Colors.textMuted}
           keyboardType="number-pad"
           returnKeyType="done"
@@ -228,7 +236,7 @@ interface ExerciseCardProps {
   onUpdateName: (name: string) => void;
   onAddSet: () => void;
   onRemoveSet: (setId: string) => void;
-  onUpdateSet: (setId: string, field: 'weight' | 'reps', value: string) => void;
+  onUpdateSet: (setId: string, field: 'weight' | 'reps' | 'seconds' | 'measure', value: string) => void;
   onCompleteSet: (set: DraftSet) => void;
   onUpdateCardio: (
     field: 'cardioDurationMinutes' | 'distanceMiles' | 'resistanceLevel' | 'inclinePercent',
@@ -253,6 +261,11 @@ function ExerciseCard({
   onRemove,
 }: ExerciseCardProps) {
   const previousSummary = formatPreviousExerciseSummary(previousExercise);
+  const timedStep = previousExercise && exercise.sets[0]?.measure === 'seconds'
+    ? timedSetNextStep(previousExercise,
+        Number(exercise.targetReps?.split(/[^0-9]+/)[1]),
+        exercise.prescribedSets ?? exercise.sets.length)
+    : null;
   const substitutionChoices = (exercise.kind === 'cardio'
     ? cardioSwapChoices(exercise.name, exercise.kind)
     : (exercise.substitutionOptions ?? []))
@@ -301,6 +314,7 @@ function ExerciseCard({
           {previousSummary && (
             <Text style={styles.exerciseHistory}>{previousSummary}</Text>
           )}
+          {timedStep && <Text style={styles.exerciseHistory}>{timedStep}</Text>}
           {substitutionChoices.length > 0 && (
             <TouchableOpacity
               style={styles.exerciseSwapButton}
@@ -327,7 +341,7 @@ function ExerciseCard({
             <View style={styles.setBadge} />
             <Text style={[styles.setColumnLabel, styles.weightInput]}>LBS</Text>
             <View style={{ width: Spacing.base }} />
-            <Text style={[styles.setColumnLabel, styles.repsInput]}>REPS</Text>
+            <Text style={[styles.setColumnLabel, styles.repsInput]}>REPS / SEC</Text>
             <View style={{ width: 28 }} />
           </View>
 
@@ -336,12 +350,15 @@ function ExerciseCard({
               key={set.id}
               set={set}
               index={setIdx}
-              previousHint={getPreviousSetHint(previousExercise, setIdx)}
+              previousHint={exercise.sets[setIdx].measure === 'seconds'
+                ? { weight: undefined, reps: undefined }
+                : getPreviousSetHint(previousExercise, setIdx)}
               recommendedWeight={exercise.recommendedWeight}
               record={recordsBySetId.get(set.id)}
               canDelete={exercise.sets.length > 1}
               onChangeWeight={v => onUpdateSet(set.id, 'weight', v)}
-              onChangeReps={v => onUpdateSet(set.id, 'reps', v)}
+              onChangeReps={v => onUpdateSet(set.id, set.measure === 'seconds' ? 'seconds' : 'reps', v)}
+              onChangeMeasure={measure => onUpdateSet(set.id, 'measure', measure)}
               onComplete={() => onCompleteSet(set)}
               onDelete={() => onRemoveSet(set.id)}
             />
@@ -698,7 +715,7 @@ export function WorkoutLogScreen() {
             )
           : exercise));
     };
-    const hasEnteredSets = current.sets.some(set => set.weight.trim() || set.reps.trim());
+    const hasEnteredSets = current.sets.some(set => set.weight.trim() || set.reps.trim() || set.seconds?.trim());
     if (!hasEnteredSets) {
       applySubstitution();
       return;
@@ -716,7 +733,10 @@ export function WorkoutLogScreen() {
   const addSet = useCallback((exerciseId: string) => {
     setExercises(prev =>
       prev.map(e =>
-        e.id === exerciseId ? { ...e, sets: [...e.sets, newSet()] } : e,
+        e.id === exerciseId ? { ...e, sets: [...e.sets, {
+          ...newSet(),
+          ...(e.sets[0]?.measure === 'seconds' ? { measure: 'seconds' as const, seconds: '' } : {}),
+        }] } : e,
       ),
     );
   }, []);
@@ -732,7 +752,7 @@ export function WorkoutLogScreen() {
   }, []);
 
   const updateSet = useCallback(
-    (exerciseId: string, setId: string, field: 'weight' | 'reps', value: string) => {
+    (exerciseId: string, setId: string, field: 'weight' | 'reps' | 'seconds' | 'measure', value: string) => {
       setRecordsBySetId(current => {
         if (!current.has(setId)) return current;
         const next = new Map(current);
@@ -745,7 +765,8 @@ export function WorkoutLogScreen() {
             ? {
                 ...e,
                 sets: e.sets.map(s =>
-                  s.id === setId ? { ...s, [field]: value } : s,
+                  s.id === setId ? { ...s, [field]: value,
+                    ...(field === 'measure' ? { reps: '', seconds: '' } : {}) } : s,
                 ),
               }
             : e,
@@ -769,6 +790,8 @@ export function WorkoutLogScreen() {
               id: draftSet.id,
               weight: Number.parseFloat(draftSet.weight) || 0,
               reps: Number.parseInt(draftSet.reps, 10) || 0,
+              measure: draftSet.measure ?? 'reps',
+              seconds: draftSet.measure === 'seconds' ? Number.parseInt(draftSet.seconds ?? '', 10) : undefined,
             }))
           : [],
         cardioDurationMinutes: draftExercise.kind === 'cardio'
@@ -864,7 +887,7 @@ export function WorkoutLogScreen() {
       e.name.trim() && (
         e.kind === 'cardio'
           ? parseInt(e.cardioDurationMinutes, 10) > 0
-          : e.sets.some(s => s.reps.trim())
+          : e.sets.some(s => s.measure === 'seconds' ? s.seconds?.trim() : s.reps.trim())
       ),
     );
 
@@ -873,6 +896,13 @@ export function WorkoutLogScreen() {
         'Incomplete',
         'Strength exercises need reps. Cardio activities need a name and duration.',
       );
+      return;
+    }
+
+    if (validExercises.some(e => e.kind === 'strength' && e.sets.some(s =>
+      s.measure === 'seconds' && s.seconds?.trim()
+      && (!/^\d+$/.test(s.seconds.trim()) || Number(s.seconds) < 1 || Number(s.seconds) > 3600)))) {
+      Alert.alert('Invalid timed set', 'Enter a whole number of seconds between 1 and 3600.');
       return;
     }
 
@@ -966,11 +996,13 @@ export function WorkoutLogScreen() {
             : {}),
           sets: e.kind === 'strength'
             ? e.sets
-                .filter(s => s.reps.trim())
+                .filter(s => s.measure === 'seconds' ? s.seconds?.trim() : s.reps.trim())
                 .map(s => ({
                   id: s.id,
                   weight: parseFloat(s.weight) || 0,
-                  reps: parseInt(s.reps, 10) || 0,
+                  reps: s.measure === 'seconds' ? 0 : (parseInt(s.reps, 10) || 0),
+                  measure: s.measure ?? 'reps',
+                  ...(s.measure === 'seconds' ? { seconds: parseInt(s.seconds ?? '', 10) } : {}),
                 }))
             : [],
           cardioDurationMinutes: e.kind === 'cardio'
@@ -1230,6 +1262,7 @@ export function WorkoutLogScreen() {
                   ex.kind,
                   selectedTemplateId ? planHistoryCutoff : undefined,
                   selectedTemplateId ?? undefined,
+                  ex.sets[0]?.measure ?? 'reps',
                 )}
                 recordsBySetId={recordsBySetId}
                 index={idx}

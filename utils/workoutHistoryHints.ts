@@ -12,6 +12,7 @@ function normalizeExerciseName(name: string): string {
 function usableHistoricalSets(exercise: Exercise): WorkoutSet[] {
   return exercise.sets.filter(
     set =>
+      (set.measure ?? 'reps') === 'reps' &&
       Number.isFinite(set.weight) &&
       Number.isFinite(set.reps) &&
       set.weight > 0 &&
@@ -26,6 +27,7 @@ export function findPreviousExercise(
   exerciseKind: ExerciseKind = 'strength',
   before?: Date,
   templateId?: string,
+  measure: 'reps' | 'seconds' = 'reps',
 ): Exercise | undefined {
   if (exerciseKind !== 'strength') return undefined;
 
@@ -44,7 +46,9 @@ export function findPreviousExercise(
       exercise =>
         (exercise.kind ?? 'strength') === 'strength' &&
         normalizeExerciseName(exercise.name) === normalizedName &&
-        usableHistoricalSets(exercise).length > 0,
+        (measure === 'seconds'
+          ? exercise.sets.some(set => set.measure === 'seconds' && Number.isFinite(set.seconds) && (set.seconds ?? 0) > 0)
+          : usableHistoricalSets(exercise).length > 0),
     );
 }
 
@@ -54,6 +58,8 @@ function formatValue(value: number): string {
 
 export function formatPreviousExerciseSummary(exercise: Exercise | undefined): string | null {
   if (!exercise || exercise.sets.length === 0) return null;
+  const timed = exercise.sets.filter(set => set.measure === 'seconds' && (set.seconds ?? 0) > 0);
+  if (timed.length > 0) return `Last: ${timed.map(set => `${formatValue(set.seconds!)} s${set.weight > 0 ? ` @ ${formatValue(set.weight)} lb` : ''}`).join(' · ')}`;
 
   const sets = usableHistoricalSets(exercise)
     .map(set => `${formatValue(set.weight)}×${formatValue(set.reps)}`);
