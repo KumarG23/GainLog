@@ -1,0 +1,10 @@
+[Unit]
+Description=Sync GainLog private Health Hub at 03:30 Eastern
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 America/New_York
+Persistent=true
+Unit=gainlog-health-hub.service
+
+[Install]
+WantedBy=timers.target
