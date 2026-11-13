@@ -60,7 +60,7 @@ def test_source_projection_real_models_and_missing_is_blank(client):
         db.add(BodyWeightEntryDB(id="weight", date="2026-11-15", weight_lbs=180.2))
         db.add(NutritionEntryDB(id="meal1", date="2026-11-15", meal="dinner", name="test", calories=420, protein_g=35))
         db.add(NutritionEntryDB(id="meal2", date="2026-11-15", meal="breakfast", name="test", calories=200, protein_g=20))
-        db.add(WorkoutSessionDB(id="workout", date="2026-11-16T03:30:00Z", duration_minutes=50, cardio_duration_minutes=20, cardio_analysis_json='{"windowSource":"recorded","zone2Minutes":12.5,"protocolCompliant":true,"benchmarkAverageHr":117}'))
+        db.add(WorkoutSessionDB(id="workout", date="2026-11-16T03:30:00Z", duration_minutes=50, cardio_duration_minutes=20, cardio_analysis_json='{"windowSource":"recorded","zone2Minutes":12.5,"protocolCompliant":true,"benchmarkCoverage":1,"benchmarkAverageHr":117}'))
         db.add(ExerciseDB(id="exercise", session_id="workout", name="Hang"))
         db.add(WorkoutSetDB(id="set", exercise_id="exercise", reps=0, weight=0, measure="seconds", seconds=40))
         db.commit()

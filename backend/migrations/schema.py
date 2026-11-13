@@ -7,7 +7,7 @@ from sqlalchemy import Column, DateTime, Integer, MetaData, Table, inspect, sele
 from sqlalchemy.engine import Engine
 from sqlmodel import SQLModel
 
-CURRENT_SCHEMA_VERSION = 7
+CURRENT_SCHEMA_VERSION = 8
 
 _VERSION_METADATA = MetaData()
 _VERSION_TABLE = Table(
@@ -190,4 +190,13 @@ def apply_schema_migrations(engine: Engine) -> list[int]:
                 version=7, applied_at=datetime.now(timezone.utc),
             ))
             applied.append(7)
+        if 8 not in versions:
+            columns = {column["name"] for column in inspect(connection).get_columns("weekly_review")}
+            for name in ("scorecard_json", "one_change"):
+                if name not in columns:
+                    connection.execute(text(f"ALTER TABLE weekly_review ADD COLUMN {name} TEXT"))
+            connection.execute(_VERSION_TABLE.insert().values(
+                version=8, applied_at=datetime.now(timezone.utc),
+            ))
+            applied.append(8)
     return applied

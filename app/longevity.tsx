@@ -3,6 +3,7 @@ import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, Vi
 import { API_URL } from '../constants/api';
 import { importBloodPressure, writeBloodPressure } from '../utils/longevityHealthConnect';
 import SupplementChecklist from '../components/SupplementChecklist';
+import WeeklyScorecard from '../components/WeeklyScorecard';
 
 type Reading = { id: string; pairId: string | null; day: string; time: string; systolic: number; diastolic: number; pulse: number | null; arm: string | null; position: string | null; source: string };
 type BP = { readings: Reading[]; average7: { systolic: number | null; diastolic: number | null; sessions: number }; average30: { systolic: number | null; diastolic: number | null; sessions: number } };
@@ -60,5 +61,6 @@ export default function Longevity() {
       {cpap?.nights.slice(0, 14).map(n => <Pressable key={n.day} accessibilityRole="button" onPress={() => { setDay(n.day); setHours(String(n.hours)); setAhi(String(n.ahi)); setLeak(n.leakLpm == null ? '' : String(n.leakLpm)); setMask(n.maskOffCount == null ? '' : String(n.maskOffCount)); }}><Text style={muted}>{n.day} · {n.hours} h · AHI {n.ahi} · leak {n.leakLpm ?? '—'} · mask on/off {n.maskOffCount ?? '—'} (tap to edit)</Text></Pressable>)}
     </View>
     <SupplementChecklist />
+    <WeeklyScorecard />
   </ScrollView>;
 }

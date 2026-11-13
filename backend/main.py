@@ -243,6 +243,8 @@ class WeeklyReviewDB(SQLModel, table=True):
     week_start: str
     review: str
     generated_at: str
+    scorecard_json: Optional[str] = None
+    one_change: Optional[str] = None
 
 
 class TrendSummaryDB(SQLModel, table=True):
@@ -849,6 +851,11 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="GainLog API", lifespan=lifespan)
 app.include_router(install_longevity(get_db))
 app.include_router(install_supplements(get_db))
+try:
+    from .weekly_scorecard import install as install_scorecard
+except ImportError:
+    from weekly_scorecard import install as install_scorecard
+app.include_router(install_scorecard(get_db))
 
 DEFAULT_CORS_ORIGINS = (
     "https://gainlog-frontend.tailc88c35.ts.net,"

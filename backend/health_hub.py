@@ -113,16 +113,20 @@ def project(db: Session) -> dict[str, list[list]]:
         r = daily[d]
         r[0] = d
         r[10] = clean(w.template_id)
-        r[11] = clean(w.strength_duration_minutes)
-        r[12] = clean(w.cardio_duration_minutes)
+        if w.strength_duration_minutes is not None:
+            r[11] = (r[11] if r[11] != "" else 0) + w.strength_duration_minutes
+        if w.cardio_duration_minutes is not None:
+            r[12] = (r[12] if r[12] != "" else 0) + w.cardio_duration_minutes
         analysis = _analysis(w)
         # Zone-2 is valid only when backed by sample coverage and verified segment windows.
-        r[13] = clean(analysis.get("zone2Minutes")) if analysis.get("windowSource") != "unverified" else ""
+        if analysis.get("windowSource") == "recorded" and analysis.get("zone2Minutes") is not None:
+            r[13] = (r[13] if r[13] != "" else 0) + analysis["zone2Minutes"]
         r[25] = clean(w.notes)
         rows["Workouts"].append([w.id, w.date, w.duration_minutes, clean(w.avg_heart_rate),
             clean(w.active_calories), clean(w.total_calories), clean(w.notes), clean(w.insight),
             clean(w.template_id), clean(w.effort), clean(w.pain)])
-        if analysis.get("protocolCompliant") and analysis.get("benchmarkAverageHr") is not None:
+        if (analysis.get("windowSource") == "recorded" and analysis.get("protocolCompliant")
+                and analysis.get("benchmarkAverageHr") is not None and (analysis.get("benchmarkCoverage") or 0) >= .8):
             rows["Benchmarks"].append([d, "Treadmill 3.0 mph / 7% / 20 min", analysis["benchmarkAverageHr"], clean(w.notes), w.id])
         for ex in by_session[w.id]:
             for item in by_exercise[ex.id]:
@@ -180,14 +184,14 @@ def project(db: Session) -> dict[str, list[list]]:
         # Free-form review text is not a structured 'one change' field.
         rows["Weekly"].append([week, (date.fromisoformat(week) + timedelta(days=6)).isoformat(),
             field(5), sum(1 for w in ws if w.strength_duration_minutes and w.strength_duration_minutes > 0) if ws else "",
-            sum(1 for w in ws if w.template_id == "intervals") if ws else "", sum(zone) if zone else "",
+            sum(any(ex.kind == "cardio" and "Hard interval" in ex.name and ex.cardio_duration_minutes and ex.cardio_duration_minutes > 0 for ex in by_session[w.id]) for w in ws) if ws else "", sum(zone) if zone else "",
             field(8), field(3), field(4), field(1), field(17), field(20), field(16),
             sum(flags.get((date.fromisoformat(week) + timedelta(days=i)).isoformat(), False) for i in range(7)) if any((date.fromisoformat(week) + timedelta(days=i)).isoformat() in flags for i in range(7)) else "",
             field(14), field(15),
             sum(r[6] >= 6 for r in populated if r[6] != "") if any(r[6] != "" for r in populated) else "",
             meal_counts(meals_by_week[week])[0] if meals_by_week[week] else "",
             meal_counts(meals_by_week[week])[1] if meals_by_week[week] else "",
-            field(23), ""])
+            field(23), clean(review.one_change) if review else ""])
     return rows
 
 
@@ -280,7 +284,7 @@ def sync(db, sheets, sheet_id: str, now=None):
               ["Source", "GainLog backend, authoritative persisted records; one-way mirror"],
               ["Timezone", "America/New_York; weeks Monday–Sunday"],
               ["Null semantics", "Blank = not logged or unavailable; zero = recorded zero"],
-              ["Unavailable domains", "Structured weekly one change pending; not inferred from free-form review text"],
+              ["One change", "Structured saved weekly scorecard suggestion; blank until a review is saved"],
               ["Labs", "Owner-managed manual rows; exporter never writes Labs data"]]
     sheets.write(sheet_id, "README", 2, readme)
     return counts
