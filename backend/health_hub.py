@@ -83,7 +83,7 @@ def project(db: Session) -> dict[str, list[list]]:
         r[0], r[1], r[2] = d, clean(w.weight_lbs), clean(w.body_fat_percent)
     for night in db.exec(select(CPAPNightDB)).all():
         r = daily[night.day]
-        r[0], r[6], r[7] = night.day, night.hours, night.ahi
+        r[0], r[6], r[7] = night.day, night.hours, clean(night.ahi)
     bp_groups = defaultdict(list)
     for reading in db.exec(select(BPReadingDB).order_by(BPReadingDB.time, BPReadingDB.id)).all():
         rows['BP'].append([reading.id, reading.day, reading.time, reading.systolic,
@@ -175,23 +175,33 @@ def project(db: Session) -> dict[str, list[list]]:
         return round(sum(values) / len(values), 2) if values else ""
     for week in sorted(weeks):
         days = [daily.get((date.fromisoformat(week) + timedelta(days=i)).isoformat()) for i in range(7)]
-        populated = [r for r in days if r is not None]
-        ws = [w for i in range(7) for w in workouts_by_date.get((date.fromisoformat(week) + timedelta(days=i)).isoformat(), [])]
+        today = datetime.now(EASTERN).date().isoformat()
+        populated = [r for r in days if r is not None and r[0] < today]
+        completed_keys = [(date.fromisoformat(week) + timedelta(days=i)).isoformat() for i in range(7)
+                          if (date.fromisoformat(week) + timedelta(days=i)).isoformat() < today]
+        ws = [w for i in range(7) for w in workouts_by_date.get((date.fromisoformat(week) + timedelta(days=i)).isoformat(), [])
+              if local_date(w.date) <= today]
         def field(index):
             return avg([r[index] for r in populated])
-        zone = [r[13] for r in populated if r[13] != ""]
+        def nutrition_field(index):
+            return avg([r[index] for r in populated if r[24] == 'Y'])
+        scheduled = [(s, d) for s in supplements for d in completed_keys
+                     if s.starts_on <= d <= (s.ends_on or '9999-12-31')]
+        adherence = round(100 * sum(taken.get((s.id, d), False) for s, d in scheduled) / len(scheduled), 1) if scheduled else ""
+        zone = [(_analysis(w).get('zone2Minutes')) for w in ws if _analysis(w).get('windowSource') == 'recorded']
+        zone = [v for v in zone if v is not None]
         review = reviews.get(week)
         # Free-form review text is not a structured 'one change' field.
         rows["Weekly"].append([week, (date.fromisoformat(week) + timedelta(days=6)).isoformat(),
             field(5), sum(1 for w in ws if w.strength_duration_minutes and w.strength_duration_minutes > 0) if ws else "",
             sum(any(ex.kind == "cardio" and "Hard interval" in ex.name and ex.cardio_duration_minutes and ex.cardio_duration_minutes > 0 for ex in by_session[w.id]) for w in ws) if ws else "", sum(zone) if zone else "",
-            field(8), field(3), field(4), field(1), field(17), field(20), field(16),
+            field(8), field(3), field(4), field(1), nutrition_field(17), nutrition_field(20), nutrition_field(16),
             sum(flags.get((date.fromisoformat(week) + timedelta(days=i)).isoformat(), False) for i in range(7)) if any((date.fromisoformat(week) + timedelta(days=i)).isoformat() in flags for i in range(7)) else "",
             field(14), field(15),
             sum(r[6] >= 6 for r in populated if r[6] != "") if any(r[6] != "" for r in populated) else "",
             meal_counts(meals_by_week[week])[0] if meals_by_week[week] else "",
             meal_counts(meals_by_week[week])[1] if meals_by_week[week] else "",
-            field(23), clean(review.one_change) if review else ""])
+            adherence, clean(review.one_change) if review else ""])
     return rows
 
 

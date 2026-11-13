@@ -114,6 +114,39 @@ def test_readback_failure_does_not_advance_freshness(client):
     assert sheets.tabs["README"] == []
 
 
+def test_weekly_projection_matches_completed_day_scorecard_semantics(client, monkeypatch):
+    import backend.health_hub as hub
+    from backend.main import engine, NutritionEntryDB
+    from backend.meal_quality import FullDayLogDB
+    from backend.supplements import SupplementDB, SupplementTakenDB
+    from backend.longevity import CPAPNightDB
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 11, 12, 12, tzinfo=hub.EASTERN)
+
+    monkeypatch.setattr(hub, 'datetime', Clock)
+    with Session(engine) as db:
+        for day, protein in [('2026-11-09', 100), ('2026-11-10', 200), ('2026-11-12', 900)]:
+            db.add(NutritionEntryDB(id=day, date=day, meal='dinner', name='synthetic', calories=1000, protein_g=protein))
+        db.add(FullDayLogDB(day='2026-11-09', confirmed=True))
+        db.add(FullDayLogDB(day='2026-11-12', confirmed=True))
+        db.add(SupplementDB(id='a', name='synthetic a', dose='test', period='AM', starts_on='2026-11-09'))
+        db.add(SupplementDB(id='b', name='synthetic b', dose='test', period='PM', starts_on='2026-11-11'))
+        db.add(CPAPNightDB(day='2026-11-11', hours=6, ahi=1.2))
+        db.commit()
+        db.add(SupplementTakenDB(supplement_id='a', day='2026-11-09', taken=True))
+        db.commit()
+        rows = hub.project(db)
+    week = rows['Weekly'][0]
+    assert week[10] == 100  # Neither an unconfirmed day nor today's partial day enters the average.
+    assert week[16] == 1
+    assert week[19] == 25  # One taken / four scheduled doses, not an average of daily percentages.
+    assert next(row for row in rows['Daily'] if row[0] == '2026-11-11')[7] == 1.2
+
+
+
 def test_schema_drift_duplicate_keys_and_missing_tab_fail_closed(client):
     from backend.main import engine
     sheets = FakeSheets()

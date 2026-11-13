@@ -45,7 +45,8 @@ def test_bp_pair_readback_session_average_and_hc_dedup(client):
         rows = project(db)
     assert len(rows['BP']) == 3
     assert rows['Daily'][0][14:16] == [121.0, 77.5]
-    assert rows['Weekly'][0][14:16] == [121.0, 77.5]
+    # Weekly averages exclude the in-progress Eastern day, matching the scorecard.
+    assert rows['Weekly'][0][14:16] == ['', '']
 
 
 def test_bp_same_time_different_values_are_not_silently_discarded(client):
@@ -91,4 +92,4 @@ def test_cpap_upsert_missing_not_zero_and_export(client):
     with Session(engine) as db:
         rows = project(db)
     assert rows['Daily'][0][6:8] == [3.5, 2.5]
-    assert rows['Weekly'][0][16] == 0
+    assert rows['Weekly'][0][16] == ''  # Today's night is not a completed-day weekly observation.
