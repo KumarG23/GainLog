@@ -3,6 +3,7 @@ import { Text, View } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { useHealth } from '../../context/HealthContext';
 import { useWorkouts } from '../../context/WorkoutsContext';
+import { benchmarkTrend } from '../../utils/cardioBenchmarkTrend';
 import { useHealthspanRefresh } from '../../hooks/useHealthspanRefresh';
 import { calendarWeekSessions, duration, entryDay, finite, goalLabel, metricTrend, numberLabel, trendCaption } from '../../utils/healthspan';
 import { Action, Card, Page, Sparkline, Stat, s } from './ui';
@@ -34,10 +35,13 @@ export { FuelOverview as FuelScreen } from '../journey/FuelOverview';
 
 export function TrendsScreen() {
   const health = useHealth(); const router = useRouter(); const date = useHealthspanRefresh(health.refresh);
+  const workouts = useWorkouts();
+  const benchmarks = benchmarkTrend(workouts.sessions);
   const weight = metricTrend(health.bodyWeightEntries, 'weightLbs', date);
   return <Page title="Trends" subtitle="Zoom out. See what is changing, and what is still uncertain." refreshing={health.loading} onRefresh={health.refresh} error={health.error}>
     <Card title="Your recent direction" label="7 days vs the previous 7">{metrics.map(metric => { const trend = metricTrend(health.healthDailyEntries, metric.field, date); return <View key={metric.field}><Text style={s.body}>{metric.name}</Text><Text style={s.note}>{trendCaption(trend, metric.unit, metric.digits)}</Text></View>; })}<Text style={s.note}>Comparisons require at least four observed days in each window and one consistent row-level source. They are descriptive changes, not causal findings.</Text></Card>
     <Card title="Weight trend"><Text style={s.statValue}>{numberLabel(weight.recent, 1)} lb</Text><Text style={s.note}>Recent 7-day average · {weight.recentDays} observed days</Text><Sparkline points={weight.points} label="Weight over the last 14 completed days; missing days are gaps." /><Text style={s.note}>{trendCaption(weight, 'lb')}</Text></Card>
+    <Card title="Cardio benchmark · 3 mph / 7% / 20 min"><Text style={s.statValue}>{benchmarks.length ? `${benchmarks.at(-1)!.value} bpm` : '—'}</Text><Text style={s.note}>Average HR in minutes 10–20; lower is better. Only explicitly timed protocol runs with ≥80% HR coverage. Inferred windows are excluded.</Text><Sparkline points={benchmarks.slice(-12).map(point => point.value)} label="Verified monthly benchmark average heart rate over time" /><Text style={s.note}>{benchmarks.slice(-3).map(point => `${point.date}: ${point.value} bpm`).join(' · ') || 'No verified benchmarks yet.'}</Text><Action title="Explore benchmark chart" icon="analytics-outline" onPress={() => router.push('/trends?metric=benchmarkHr' as Href)} /></Card>
     <Card title="Explore your history"><Action title="Recovery & activity" detail="Sleep, HRV, resting heart rate and movement" icon="heart-outline" onPress={() => router.push('/trends?metric=recovery' as Href)} /><Action title="Weight & body composition" icon="scale-outline" onPress={() => router.push('/trends?metric=weight' as Href)} /><Action title="Training" icon="barbell-outline" onPress={() => router.push('/trends?metric=training' as Href)} /><Action title="Nutrition" icon="restaurant-outline" onPress={() => router.push('/trends?metric=nutrition' as Href)} /></Card>
     <Text style={s.note}>Personal experiments and cross-domain correlations are a later phase. No causal explanations or biological-age estimates are invented here.</Text>
   </Page>;

@@ -124,6 +124,8 @@ def test_cardio_exercise_round_trip():
             "targetRepsMax": None,
             "prescribedSets": None,
             "cardioDurationMinutes": 30,
+            "cardioStartedAt": None,
+            "cardioEndedAt": None,
             "distanceMiles": 2.4,
             "resistanceLevel": 8.0,
             "inclinePercent": None,

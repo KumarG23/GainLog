@@ -17,6 +17,8 @@ export interface Exercise {
   targetRepsMax?: number;
   prescribedSets?: number;
   cardioDurationMinutes?: number;
+  cardioStartedAt?: string;
+  cardioEndedAt?: string;
   distanceMiles?: number;
   resistanceLevel?: number;
   inclinePercent?: number;
@@ -30,7 +32,8 @@ export interface WorkoutActivitySummary {
 }
 
 export interface CardioAnalysis {
-  segments: { name: string; coverage: number; coveredMinutes: number; averageHr: number | null; zone2Minutes: number | null }[];
+  windowSource?: 'recorded' | 'unverified';
+  segments: { name: string; start?: string; end?: string; coverage: number; coveredMinutes: number; averageHr: number | null; zone2Minutes: number | null }[];
   zone2Minutes: number | null;
   benchmarkAverageHr: number | null;
   benchmarkCoverage: number | null;

@@ -21,10 +21,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Field, Relationship, Session, SQLModel, col, select
 import requests
 try:
-    from .cardio_analytics import analyze as analyze_cardio, parse_time as parse_cardio_time
+    from .cardio_analytics import analyze as analyze_cardio, cardio_windows, parse_time as parse_cardio_time
     from .health_v2_models import HealthSampleObservationDB
 except ImportError:
-    from cardio_analytics import analyze as analyze_cardio, parse_time as parse_cardio_time
+    from cardio_analytics import analyze as analyze_cardio, cardio_windows, parse_time as parse_cardio_time
     from health_v2_models import HealthSampleObservationDB
 
 # Register the additive V2 shadow-health tables with SQLModel metadata. The
@@ -95,6 +95,8 @@ class ExerciseDB(SQLModel, table=True):
     target_reps_max: Optional[int] = None
     prescribed_sets: Optional[int] = None
     cardio_duration_minutes: Optional[int] = None
+    cardio_started_at: Optional[str] = None
+    cardio_ended_at: Optional[str] = None
     distance_miles: Optional[float] = None
     resistance_level: Optional[float] = None
     incline_percent: Optional[float] = None
@@ -327,6 +329,8 @@ class ExerciseOut(CamelModel):
     target_reps_max: Optional[int] = None
     prescribed_sets: Optional[int] = None
     cardio_duration_minutes: Optional[int] = None
+    cardio_started_at: Optional[str] = None
+    cardio_ended_at: Optional[str] = None
     distance_miles: Optional[float] = None
     resistance_level: Optional[float] = None
     incline_percent: Optional[float] = None
@@ -341,9 +345,23 @@ class ExerciseIn(CamelModel):
     target_reps_max: Optional[int] = Field(default=None, ge=1, le=40)
     prescribed_sets: Optional[int] = Field(default=None, ge=1, le=20)
     cardio_duration_minutes: Optional[int] = None
+    cardio_started_at: Optional[str] = None
+    cardio_ended_at: Optional[str] = None
     distance_miles: Optional[float] = None
     resistance_level: Optional[float] = None
     incline_percent: Optional[float] = None
+
+    @model_validator(mode="after")
+    def validate_cardio_window(self):
+        if self.cardio_started_at is not None or self.cardio_ended_at is not None:
+            if self.kind != "cardio" or not self.cardio_started_at or not self.cardio_ended_at:
+                raise ValueError("cardio windows require both endpoints on cardio exercises")
+            start, end = parse_cardio_time(self.cardio_started_at), parse_cardio_time(self.cardio_ended_at)
+            if end <= start or (end - start).total_seconds() > 240 * 60:
+                raise ValueError("invalid cardio window")
+            if self.cardio_duration_minutes is not None and abs((end - start).total_seconds() / 60 - self.cardio_duration_minutes) > 1:
+                raise ValueError("cardio window must match logged duration within one minute")
+        return self
 
     @model_validator(mode="after")
     def validate_prescription(self):
@@ -930,6 +948,8 @@ def _to_out(s: WorkoutSessionDB) -> WorkoutSessionOut:
                 target_reps_max=e.target_reps_max,
                 prescribed_sets=e.prescribed_sets,
                 cardio_duration_minutes=e.cardio_duration_minutes,
+                cardio_started_at=e.cardio_started_at,
+                cardio_ended_at=e.cardio_ended_at,
                 distance_miles=e.distance_miles,
                 resistance_level=e.resistance_level,
                 incline_percent=e.incline_percent,
@@ -3287,6 +3307,8 @@ def create_workout(payload: WorkoutSessionIn, db: Session = Depends(get_db)):
             target_reps_max=ex.target_reps_max,
             prescribed_sets=ex.prescribed_sets,
             cardio_duration_minutes=ex.cardio_duration_minutes,
+            cardio_started_at=ex.cardio_started_at,
+            cardio_ended_at=ex.cardio_ended_at,
             distance_miles=ex.distance_miles,
             resistance_level=ex.resistance_level,
             incline_percent=ex.incline_percent,
@@ -3334,11 +3356,15 @@ def analyze_workout_cardio(session_id: str, payload: CardioAnalysisIn, db: Sessi
         raise HTTPException(404, "Workout not found")
     if payload.zone_lower >= payload.zone_upper:
         raise HTTPException(422, "Invalid zone 2 band")
-    end = parse_cardio_time(row.date)
-    duration = sum(ex.cardio_duration_minutes or 0 for ex in row.exercises if ex.kind == 'cardio')
-    if not 0 < duration <= 240:
-        raise HTTPException(422, "Cardio duration must be 1–240 minutes")
-    start = end - timedelta(minutes=duration)
+    windows = cardio_windows(row)
+    if windows is None:
+        # Legacy workouts retain their logs, but save-time arithmetic cannot verify HR.
+        start = end = parse_cardio_time(row.date)
+    else:
+        start = min(window[0] for _, window in windows)
+        end = max(window[1] for _, window in windows)
+        if (end - start).total_seconds() > 24 * 3600:
+            raise HTTPException(422, "Cardio window span must be at most one day")
     google_rows = db.exec(select(HealthSampleObservationDB).where(
         HealthSampleObservationDB.data_type == 'heart_rate',
         HealthSampleObservationDB.observed_at_utc >= (start - timedelta(days=1)).date().isoformat(),
@@ -3371,7 +3397,7 @@ def analyze_workout_cardio(session_id: str, payload: CardioAnalysisIn, db: Sessi
         result = google_result
         source = 'google-health'
     result['source'] = source if (google_samples or fallback) else 'none'
-    result['windowAssumption'] = 'cardio ended at workout save time; segments are ordered by logged exercise'
+    result['windowAssumption'] = None if windows else 'No recorded cardio windows; HR and benchmark unverified'
     result['band'] = [payload.zone_lower, payload.zone_upper]
     row.cardio_analysis_json = json.dumps(result)
     db.add(row)
@@ -3465,7 +3491,7 @@ def get_insight(session_id: str, db: Session = Depends(get_db)):
         if not session.cardio_analysis_json:
             return None
         analysis = json.loads(session.cardio_analysis_json)
-        if (analysis.get('protocolCompliant') and analysis.get('benchmarkCoverage', 0) >= .8
+        if (analysis.get('windowSource') == 'recorded' and analysis.get('protocolCompliant') and analysis.get('benchmarkCoverage', 0) >= .8
                 and isinstance(analysis.get('benchmarkAverageHr'), (int, float))):
             return analysis['benchmarkAverageHr']
         return None

@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 
-TEST_DB = Path("/tmp/gainlog-test.db")
+TEST_DB = Path(os.environ.get("TMPDIR", "/tmp")) / "gainlog-test.db"
 os.environ["GAINLOG_DATABASE_URL"] = f"sqlite:///{TEST_DB}"
 
 

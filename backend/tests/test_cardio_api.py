@@ -15,7 +15,9 @@ def test_cardio_analysis_persists_coverage_and_ignores_manual_hr():
             'date': (start + timedelta(minutes=20)).isoformat(), 'durationMinutes': 20,
             'cardioSummary': {'durationMinutes': 20, 'avgHeartRate': 95},
             'exercises': [{'name': 'Treadmill · Benchmark 3 mph 7%', 'kind': 'cardio', 'sets': [],
-                           'cardioDurationMinutes': 20, 'distanceMiles': 1, 'inclinePercent': 7}],
+                           'cardioDurationMinutes': 20, 'distanceMiles': 1, 'inclinePercent': 7,
+                           'cardioStartedAt': start.isoformat(),
+                           'cardioEndedAt': (start + timedelta(minutes=20)).isoformat()}],
         })
         assert response.status_code == 201, response.text
         sid = response.json()['id']
@@ -42,7 +44,9 @@ def test_google_preferred_only_with_coverage_in_benchmark_late_window():
         created = client.post('/workouts/', json={
             'date': (start + timedelta(minutes=20)).isoformat(), 'durationMinutes': 20,
             'exercises': [{'name': 'Treadmill · Benchmark 3 mph 7%', 'kind': 'cardio', 'sets': [],
-                           'cardioDurationMinutes': 20, 'distanceMiles': 1, 'inclinePercent': 7}],
+                           'cardioDurationMinutes': 20, 'distanceMiles': 1, 'inclinePercent': 7,
+                           'cardioStartedAt': start.isoformat(),
+                           'cardioEndedAt': (start + timedelta(minutes=20)).isoformat()}],
         })
         assert created.status_code == 201, created.text
         sid = created.json()['id']
@@ -98,3 +102,54 @@ def test_coach_suppresses_cardio_fitness_claim_without_benchmark_pair(monkeypatc
         assert 'HR is better' not in card['verdict']
         assert card['caveat'] is None
         assert 'cardio progress' not in card['nextAction']['detail']
+
+
+def test_delayed_save_without_recorded_times_never_verifies_benchmark_or_zone2():
+    reset_db()
+    start = datetime(2026, 11, 16, 12, tzinfo=timezone.utc)
+    with TestClient(app) as client:
+        created = client.post('/workouts/', json={
+            'date': (start + timedelta(minutes=20)).isoformat(), 'durationMinutes': 20,
+            'exercises': [{'name': 'Treadmill · Benchmark 3 mph 7%', 'kind': 'cardio',
+                           'cardioDurationMinutes': 20, 'distanceMiles': 1, 'inclinePercent': 7}],
+        })
+        assert created.status_code == 201, created.text
+        sid = created.json()['id']
+        samples = [{'time': (start + timedelta(minutes=i)).isoformat(), 'beatsPerMinute': 120}
+                   for i in range(21)]
+        result = client.post(f'/workouts/{sid}/cardio-analysis', json={
+            'zoneLower': 110, 'zoneUpper': 130, 'samples': samples})
+        assert result.status_code == 200, result.text
+        analysis = result.json()['cardioAnalysis']
+        assert analysis['windowSource'] == 'unverified'
+        assert analysis['benchmarkAverageHr'] is None
+        assert analysis['zone2Minutes'] is None
+
+
+def test_recorded_window_uses_actual_clock_time_not_delayed_save_and_rejects_bad_entries():
+    reset_db()
+    start = datetime(2026, 11, 16, 12, tzinfo=timezone.utc)
+    exercise = {'name': 'Treadmill · Benchmark 3 mph 7%', 'kind': 'cardio',
+                'cardioDurationMinutes': 20, 'distanceMiles': 1, 'inclinePercent': 7,
+                'cardioStartedAt': start.isoformat(),
+                'cardioEndedAt': (start + timedelta(minutes=20)).isoformat()}
+    with TestClient(app) as client:
+        payload = {'date': (start + timedelta(hours=3)).isoformat(), 'durationMinutes': 20,
+                   'exercises': [exercise]}
+        for invalid in (
+            {**exercise, 'cardioEndedAt': None},
+            {**exercise, 'cardioStartedAt': '2026-11-16T12:00:00'},
+            {**exercise, 'cardioEndedAt': (start + timedelta(minutes=25)).isoformat()},
+        ):
+            assert client.post('/workouts/', json={**payload, 'exercises': [invalid]}).status_code == 422
+        created = client.post('/workouts/', json=payload)
+        assert created.status_code == 201, created.text
+        sid = created.json()['id']
+        assert client.get(f'/workouts/{sid}').json()['exercises'][0]['cardioStartedAt'] == start.isoformat()
+        samples = [{'time': (start + timedelta(minutes=i)).isoformat(), 'beatsPerMinute': 120}
+                   for i in range(21)]
+        analyzed = client.post(f'/workouts/{sid}/cardio-analysis', json={
+            'zoneLower': 110, 'zoneUpper': 130, 'samples': samples})
+        assert analyzed.status_code == 200, analyzed.text
+        assert analyzed.json()['cardioAnalysis']['benchmarkAverageHr'] == 120
+        assert analyzed.json()['cardioAnalysis']['windowSource'] == 'recorded'

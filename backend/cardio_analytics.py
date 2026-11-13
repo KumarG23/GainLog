@@ -60,30 +60,47 @@ def summarize(samples: list[tuple[datetime, float]], start: datetime, end: datet
     }
 
 
-def analyze(session, samples: list[tuple[datetime, float]], band: tuple[int, int]) -> dict:
-    end = parse_time(session.date)
+def cardio_windows(session):
+    """Only explicitly recorded per-segment windows are admissible for sample analysis."""
     cardio = [ex for ex in session.exercises if ex.kind == 'cardio' and ex.cardio_duration_minutes and ex.cardio_duration_minutes > 0]
-    duration = sum(ex.cardio_duration_minutes for ex in cardio)
-    start = end - timedelta(minutes=duration)
-    segments = []
-    cursor = start
-    zone2 = 0.0
+    windows = []
     for ex in cardio:
-        finish = cursor + timedelta(minutes=ex.cardio_duration_minutes)
-        result = summarize(samples, cursor, finish, band)
-        segments.append({'name': ex.name, **result})
-        if ('Hard interval' not in ex.name) and result['zone2Minutes'] is not None:
+        start = getattr(ex, 'cardio_started_at', None)
+        end = getattr(ex, 'cardio_ended_at', None)
+        if not start or not end:
+            return None
+        a, b = parse_time(start), parse_time(end)
+        if b <= a or abs((b - a).total_seconds() / 60 - ex.cardio_duration_minutes) > 1:
+            return None
+        windows.append((a, b))
+    if not windows or any(left[1] > right[0] for left, right in zip(sorted(windows), sorted(windows)[1:])):
+        return None
+    return list(zip(cardio, windows))
+
+
+def analyze(session, samples: list[tuple[datetime, float]], band: tuple[int, int]) -> dict:
+    recorded = cardio_windows(session)
+    if recorded is None:
+        return {'segments': [], 'zone2Minutes': None, 'benchmarkAverageHr': None,
+                'benchmarkCoverage': None, 'protocolCompliant': False,
+                'windowSource': 'unverified'}
+    segments = []
+    zone2 = 0.0
+    for ex, (start, end) in recorded:
+        result = summarize(samples, start, end, band)
+        segments.append({'name': ex.name, 'start': start.isoformat(), 'end': end.isoformat(), **result})
+        if 'Hard interval' not in ex.name and result['zone2Minutes'] is not None:
             zone2 += result['zone2Minutes']
-        cursor = finish
     benchmark = None
-    # Explicitly designated and protocol-compliant, not inferred from generic treadmill work.
-    if len(cardio) == 1 and cardio[0].name == 'Treadmill · Benchmark 3 mph 7%':
-        ex = cardio[0]
-        if ex.cardio_duration_minutes == 20 and ex.incline_percent is not None and abs(ex.incline_percent - 7) < .01 and ex.distance_miles is not None and abs(ex.distance_miles - 1) < .01:
+    if len(recorded) == 1 and recorded[0][0].name == 'Treadmill · Benchmark 3 mph 7%':
+        ex, (start, end) = recorded[0]
+        # A protocol comparison must represent the same ten-minute interval on every run.
+        if (ex.cardio_duration_minutes == 20 and abs((end - start).total_seconds() - 1200) <= 1
+                and ex.incline_percent is not None and abs(ex.incline_percent - 7) < .01
+                and ex.distance_miles is not None and abs(ex.distance_miles - 1) < .01):
             benchmark = summarize(samples, start + timedelta(minutes=10), end, band)
-    return {'segments': segments, 'zone2Minutes': round(zone2, 2) if segments and all(
+    return {'segments': segments, 'zone2Minutes': round(zone2, 2) if all(
         segment['zone2Minutes'] is not None for segment in segments if 'Hard interval' not in segment['name']) else None,
         'benchmarkAverageHr': benchmark['averageHr'] if benchmark else None,
         'benchmarkCoverage': benchmark['coverage'] if benchmark else None,
-        'protocolCompliant': benchmark is not None,
-    }
+        'protocolCompliant': benchmark is not None, 'windowSource': 'recorded'}

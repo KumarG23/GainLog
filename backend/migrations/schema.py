@@ -7,7 +7,7 @@ from sqlalchemy import Column, DateTime, Integer, MetaData, Table, inspect, sele
 from sqlalchemy.engine import Engine
 from sqlmodel import SQLModel
 
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
 
 _VERSION_METADATA = MetaData()
 _VERSION_TABLE = Table(
@@ -160,4 +160,13 @@ def apply_schema_migrations(engine: Engine) -> list[int]:
                 version=4, applied_at=datetime.now(timezone.utc),
             ))
             applied.append(4)
+        if 5 not in versions:
+            columns = {column["name"] for column in inspect(connection).get_columns("exercise")}
+            for field in ("cardio_started_at", "cardio_ended_at"):
+                if field not in columns:
+                    connection.execute(text(f"ALTER TABLE exercise ADD COLUMN {field} TEXT"))
+            connection.execute(_VERSION_TABLE.insert().values(
+                version=5, applied_at=datetime.now(timezone.utc),
+            ))
+            applied.append(5)
     return applied

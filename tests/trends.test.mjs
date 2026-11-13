@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { benchmarkTrend } from '../utils/cardioBenchmarkTrend.ts';
 
 import {
   aggregateNutritionTrend,
@@ -18,6 +19,27 @@ import {
   buildTrendSummaryRequest,
   relativeDatePositions,
 } from '../utils/trends.ts';
+
+test('benchmark trend excludes legacy inferred windows and insufficient late-window coverage', () => {
+  const session = (id, date, windowSource, value, coverage = 1) => ({
+    id, date, exercises: [], durationMinutes: 20,
+    cardioAnalysis: { windowSource, protocolCompliant: true, benchmarkAverageHr: value,
+      benchmarkCoverage: coverage, segments: [{ start: date }] },
+  });
+  const result = benchmarkTrend([
+    session('old', '2026-11-01T12:00:00Z', undefined, 115),
+    session('gap', '2026-11-02T12:00:00Z', 'recorded', 110, 0.7),
+    session('good', '2026-11-03T12:00:00Z', 'recorded', 120),
+    session('repeat', '2026-11-03T13:00:00Z', 'recorded', 119),
+    session('later', '2026-12-03T12:00:00Z', 'recorded', 112),
+  ]);
+  assert.deepEqual(result.map(p => [p.date, p.value]), [
+    ['2026-11-03', 119], ['2026-12-03', 112],
+  ]);
+  const localClock = session('local', '2026-11-04T01:00:00Z', 'recorded', 118);
+  localClock.exercises = [{ kind: 'cardio', cardioStartedAt: '2026-11-03T20:00:00-05:00' }];
+  assert.equal(benchmarkTrend([localClock])[0].date, '2026-11-03');
+});
 
 test('weight trend keeps the latest measurement for each local calendar day', () => {
   const points = aggregateWeightTrend([

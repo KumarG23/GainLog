@@ -72,6 +72,8 @@ interface DraftExercise {
   kind: ExerciseKind;
   sets: DraftSet[];
   cardioDurationMinutes: string;
+  cardioStartedAt?: string;
+  cardioEndedAt?: string;
   distanceMiles: string;
   resistanceLevel: string;
   inclinePercent: string;
@@ -243,7 +245,7 @@ interface ExerciseCardProps {
   onUpdateSet: (setId: string, field: 'weight' | 'reps' | 'seconds' | 'measure', value: string) => void;
   onCompleteSet: (set: DraftSet) => void;
   onUpdateCardio: (
-    field: 'cardioDurationMinutes' | 'distanceMiles' | 'resistanceLevel' | 'inclinePercent',
+    field: 'cardioDurationMinutes' | 'distanceMiles' | 'resistanceLevel' | 'inclinePercent' | 'cardioStartedAt' | 'cardioEndedAt',
     value: string,
   ) => void;
   onSubstitute: (name: string) => void;
@@ -394,6 +396,25 @@ function ExerciseCard({
             />
           </View>
           <View style={styles.cardioField}>
+            <Text style={styles.cardioLabel}>ACTUAL START · ISO date/time with offset</Text>
+            <TextInput style={styles.cardioInput} value={exercise.cardioStartedAt ?? ''}
+              onChangeText={value => onUpdateCardio('cardioStartedAt', value)}
+              placeholder="2026-11-16T07:00:00-05:00" placeholderTextColor={Colors.textMuted} autoCapitalize="none" />
+            <TouchableOpacity onPress={() => onUpdateCardio('cardioStartedAt', new Date().toISOString())}>
+              <Text style={styles.addExerciseText}>Start now</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.cardioField}>
+            <Text style={styles.cardioLabel}>ACTUAL END · ISO date/time with offset</Text>
+            <TextInput style={styles.cardioInput} value={exercise.cardioEndedAt ?? ''}
+              onChangeText={value => onUpdateCardio('cardioEndedAt', value)}
+              placeholder="2026-11-16T07:20:00-05:00" placeholderTextColor={Colors.textMuted} autoCapitalize="none" />
+            <TouchableOpacity onPress={() => onUpdateCardio('cardioEndedAt', new Date().toISOString())}>
+              <Text style={styles.addExerciseText}>End now</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.metaReadout}>Capture both times as the segment happens, or enter truthful clock times. Without both, HR analysis and benchmark verification remain unavailable.</Text>
+          <View style={styles.cardioField}>
             <Text style={styles.cardioLabel}>MILES</Text>
             <TextInput
               style={styles.cardioInput}
@@ -529,14 +550,14 @@ function SuccessView({
         {session.cardioAnalysis && (
           <View style={styles.sectionCard}>
             <Text style={styles.sectionTitle}>Sample-derived cardio · {session.cardioAnalysis.source}</Text>
-            <Text style={styles.metaReadout}>Window estimated: logged cardio ends at save time; intervals follow exercise order. Delayed logging or pauses can misalign HR.</Text>
-            <Text style={styles.metaReadout}>Zone 2: {session.cardioAnalysis.zone2Minutes == null ? 'Insufficient HR coverage' : `${session.cardioAnalysis.zone2Minutes} min`} ({session.cardioAnalysis.band.join('–')} bpm)</Text>
+            <Text style={styles.metaReadout}>{session.cardioAnalysis.windowSource === 'recorded' ? 'Recorded segment times' : 'Unverified: no recorded segment windows. Historical inferred HR is excluded from benchmark and coach comparisons.'}</Text>
+            <Text style={styles.metaReadout}>{session.cardioAnalysis.windowSource === 'recorded' ? 'Zone 2' : 'Estimated zone 2 (unverified window)'}: {session.cardioAnalysis.zone2Minutes == null ? 'Unavailable' : `${session.cardioAnalysis.zone2Minutes} min`} ({session.cardioAnalysis.band.join('–')} bpm)</Text>
             {session.cardioAnalysis.segments.map((segment, index) => (
               <Text key={`${index}:${segment.name}`} style={styles.metaReadout}>
                 {segment.name}: {segment.averageHr == null ? 'HR unavailable' : `${segment.averageHr} bpm avg`} · {Math.round(segment.coverage * 100)}% covered
               </Text>
             ))}
-            {session.cardioAnalysis.protocolCompliant && (
+            {session.cardioAnalysis.windowSource === 'recorded' && session.cardioAnalysis.protocolCompliant && (
               <Text style={styles.metaReadout}>Benchmark minutes 10–20: {session.cardioAnalysis.benchmarkAverageHr == null ? 'Insufficient HR coverage' : `${session.cardioAnalysis.benchmarkAverageHr} bpm avg`}</Text>
             )}
           </View>
@@ -688,16 +709,16 @@ export function WorkoutLogScreen() {
     const monday = getWorkoutPlanWeekStart(new Date());
     const start = monday.getTime();
     const weekly = sessions.filter(item => Date.parse(item.date) >= start && Date.parse(item.date) <= Date.now());
-    const values = weekly.map(item => item.cardioAnalysis?.zone2Minutes);
+    const values = weekly.map(item => item.cardioAnalysis?.windowSource === 'recorded' ? item.cardioAnalysis.zone2Minutes : null);
     const intervalCount = weekly.filter(item => {
       const hard = item.exercises.filter(ex => /^Treadmill · Hard interval [1-4]$/.test(ex.name));
       return hard.length >= 3 && hard.length <= 4 && hard.every(ex => ex.cardioDurationMinutes === 4 &&
-        item.cardioAnalysis?.segments.some(segment => segment.name === ex.name && segment.averageHr != null));
+        item.cardioAnalysis?.windowSource === 'recorded' && item.cardioAnalysis.segments.some(segment => segment.name === ex.name && segment.averageHr != null));
     }).length;
-    const benchmarks = sessions.filter(item => item.cardioAnalysis?.benchmarkAverageHr != null)
+    const benchmarks = sessions.filter(item => item.cardioAnalysis?.windowSource === 'recorded' && item.cardioAnalysis.benchmarkAverageHr != null)
       .map(item => `${item.date.slice(0, 10)}: ${item.cardioAnalysis?.benchmarkAverageHr} bpm`);
     return { minutes: values.some(value => value != null) ? values.reduce<number>((sum, value) => sum + (value ?? 0), 0) : null,
-      incomplete: weekly.some(item => item.cardioSummary && item.cardioAnalysis?.zone2Minutes == null), intervalCount, benchmarks };
+      incomplete: weekly.some(item => item.cardioSummary && (item.cardioAnalysis?.windowSource !== 'recorded' || item.cardioAnalysis.zone2Minutes == null)), intervalCount, benchmarks };
   }, [sessions]);
   const activeTemplates = useMemo(() => applyWorkoutPlanOverrides(planOverrides), [planOverrides]);
   const readiness = dailyHealthError
@@ -865,7 +886,7 @@ export function WorkoutLogScreen() {
   const updateCardio = useCallback(
     (
       exerciseId: string,
-      field: 'cardioDurationMinutes' | 'distanceMiles' | 'resistanceLevel' | 'inclinePercent',
+      field: 'cardioDurationMinutes' | 'distanceMiles' | 'resistanceLevel' | 'inclinePercent' | 'cardioStartedAt' | 'cardioEndedAt',
       value: string,
     ) => {
       setExercises(prev =>
@@ -956,6 +977,15 @@ export function WorkoutLogScreen() {
       return;
     }
 
+    const cardio = validExercises.filter(e => e.kind === 'cardio');
+    if (cardio.some(e => !!e.cardioStartedAt !== !!e.cardioEndedAt ||
+      (e.cardioStartedAt && e.cardioEndedAt && (!/(Z|[+-]\d\d:\d\d)$/.test(e.cardioStartedAt) ||
+        !/(Z|[+-]\d\d:\d\d)$/.test(e.cardioEndedAt) ||
+        !Number.isFinite(Date.parse(e.cardioStartedAt)) || !Number.isFinite(Date.parse(e.cardioEndedAt)) ||
+        Math.abs((Date.parse(e.cardioEndedAt) - Date.parse(e.cardioStartedAt)) / 60000 - Number(e.cardioDurationMinutes)) > 1)))) {
+      Alert.alert('Invalid cardio times', 'Record both real start/end times with timezone; the elapsed time must match logged minutes within one minute. Or leave both blank for an unverified log.');
+      return;
+    }
     if (!(await confirmSuspiciousEntries(validExercises))) return;
 
     const hasStrength = validExercises.some(e => e.kind === 'strength');
@@ -1058,6 +1088,8 @@ export function WorkoutLogScreen() {
           cardioDurationMinutes: e.kind === 'cardio'
             ? parseInt(e.cardioDurationMinutes, 10)
             : undefined,
+          cardioStartedAt: e.kind === 'cardio' && e.cardioStartedAt ? e.cardioStartedAt : undefined,
+          cardioEndedAt: e.kind === 'cardio' && e.cardioEndedAt ? e.cardioEndedAt : undefined,
           distanceMiles: e.kind === 'cardio' && e.distanceMiles.trim()
             ? parseFloat(e.distanceMiles)
             : undefined,
@@ -1074,9 +1106,11 @@ export function WorkoutLogScreen() {
       clearWorkoutDraft();
       if (hasCardio) {
         try {
-          const end = new Date(session.date);
-          const start = new Date(end.getTime() - cardioDuration * 60_000);
-          const samples = await readCardioHeartRate(start, end).catch(() => []);
+          const cardioExercises = session.exercises.filter(ex => ex.kind === 'cardio');
+          const windows = cardioExercises.filter(ex => ex.cardioStartedAt && ex.cardioEndedAt);
+          const start = windows.length === cardioExercises.length ? new Date(Math.min(...windows.map(ex => Date.parse(ex.cardioStartedAt!)))) : null;
+          const end = start ? new Date(Math.max(...windows.map(ex => Date.parse(ex.cardioEndedAt!)))) : null;
+          const samples = start && end ? await readCardioHeartRate(start, end).catch(() => []) : [];
           const response = await fetch(`${API_URL}/workouts/${encodeURIComponent(session.id)}/cardio-analysis`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ zoneLower: zone2Band.lower, zoneUpper: zone2Band.upper, samples }),

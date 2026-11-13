@@ -15,6 +15,7 @@ import { Colors, FontSize, Radius, Spacing } from '../constants/theme';
 import { API_URL } from '../constants/api';
 import { useHealth } from '../context/HealthContext';
 import { useWorkouts } from '../context/WorkoutsContext';
+import { benchmarkTrend } from '../utils/cardioBenchmarkTrend';
 import { localDateKey, previousLocalDateKey } from '../utils/date';
 import { formatVolume } from '../utils/stats';
 import {
@@ -41,6 +42,7 @@ type MetricKey =
   | 'volume'
   | 'sessions'
   | 'minutes'
+  | 'benchmarkHr'
   | 'sleep'
   | 'deepSleep'
   | 'awake'
@@ -89,6 +91,7 @@ const METRICS: Record<TrendCategory, MetricOption[]> = {
   training: [
     { key: 'volume', label: 'Volume', color: Colors.primary },
     { key: 'sessions', label: 'Sessions', color: Colors.success },
+    { key: 'benchmarkHr', label: 'Benchmark HR', color: Colors.primary },
     { key: 'minutes', label: 'Minutes', color: Colors.warning },
   ],
   recovery: [
@@ -108,6 +111,7 @@ const RANGES: TrendRange[] = ['7D', '30D', '90D', 'ALL'];
 
 function categoryFromParam(value: string | string[] | undefined): TrendCategory {
   const key = Array.isArray(value) ? value[0] : value;
+  if (key === 'benchmarkHr') return 'training';
   if (key === 'nutrition' || key === 'training' || key === 'recovery') return key;
   return 'weight';
 }
@@ -134,7 +138,7 @@ function formatMetricValue(metric: MetricKey, value: number): string {
   if (metric === 'protein' || metric === 'fiber') return `${value.toFixed(1)} g`;
   if (metric === 'volume') return formatVolume(Math.round(value));
   if (metric === 'minutes' || metric === 'sleep' || metric === 'deepSleep' || metric === 'awake' || metric === 'exerciseMinutes') return formatMinutes(value);
-  if (metric === 'restingHeartRate') return `${value.toFixed(0)} bpm`;
+  if (metric === 'restingHeartRate' || metric === 'benchmarkHr') return `${value.toFixed(0)} bpm`;
   if (metric === 'hrv') return `${value.toFixed(1)} ms`;
   if (metric === 'steps') return Math.round(value).toLocaleString();
   return value.toFixed(1);
@@ -170,8 +174,8 @@ export default function TrendsScreen() {
   const params = useLocalSearchParams<{ metric?: string }>();
   const initialCategory = categoryFromParam(params.metric);
   const [category, setCategory] = useState<TrendCategory>(initialCategory);
-  const [metric, setMetric] = useState<MetricKey>(defaultMetric(initialCategory));
-  const [range, setRange] = useState<TrendRange>('30D');
+  const [metric, setMetric] = useState<MetricKey>(params.metric === 'benchmarkHr' ? 'benchmarkHr' : defaultMetric(initialCategory));
+  const [range, setRange] = useState<TrendRange>(params.metric === 'benchmarkHr' ? '90D' : '30D');
   const [trendSummary, setTrendSummary] = useState<string | null>(null);
   const [trendSummaryLoading, setTrendSummaryLoading] = useState(false);
   const [trendSummaryError, setTrendSummaryError] = useState(false);
@@ -276,6 +280,7 @@ export default function TrendsScreen() {
       }));
     }
 
+    if (metric === 'benchmarkHr') return benchmarkTrend(sessions);
     return aggregateTrainingTrend(sessions).map(point => ({
       date: point.date,
       value:
@@ -324,7 +329,7 @@ export default function TrendsScreen() {
     : undefined;
   const summaryAsOfDate = category === 'recovery' ? recoveryAsOfDate : today;
   const trendSummaryRequest = useMemo(
-    () => buildTrendSummaryRequest(
+    () => metric === 'benchmarkHr' ? null : buildTrendSummaryRequest(
       category,
       metric,
       range,
@@ -336,8 +341,10 @@ export default function TrendsScreen() {
   );
 
   useEffect(() => {
-    if (trendSummaryRequest.points.length < 2) {
-      setTrendSummary('Need at least two observed points before GainLog can interpret this chart.');
+    if (!trendSummaryRequest || trendSummaryRequest.points.length < 2) {
+      setTrendSummary(metric === 'benchmarkHr'
+        ? 'Only like-for-like, timestamped and HR-covered benchmark sessions appear here. Lower average HR can indicate improved efficiency; consider conditions and measurement variability.'
+        : 'Need at least two observed points before GainLog can interpret this chart.');
       setTrendSummaryLoading(false);
       setTrendSummaryError(false);
       return undefined;
@@ -372,7 +379,7 @@ export default function TrendsScreen() {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [trendSummaryRequest, trendSummaryRetry]);
+  }, [metric, trendSummaryRequest, trendSummaryRetry]);
 
   const values = visiblePoints.map(point => point.value);
   const latest = values.at(-1);
@@ -450,6 +457,8 @@ export default function TrendsScreen() {
           })}
         </View>
 
+        {metric === 'benchmarkHr' && <Text style={styles.metricText}>3.0 mph · 7% incline · 20 min. Average HR during minutes 10–20; lower is better. Only recorded segment windows with sufficient wearable coverage qualify. Missing and inferred sessions are excluded.</Text>}
+
         <View style={styles.summaryRow}>
           {category === 'recovery' ? (
             <>
@@ -473,11 +482,11 @@ export default function TrendsScreen() {
             <>
               <SummaryCard
                 emphasis
-                label={isTraining ? 'Total' : 'Latest'}
-                value={isTraining ? formatMetricValue(metric, total) : latest == null ? '—' : formatMetricValue(metric, latest)}
+                label={isTraining && metric !== 'benchmarkHr' ? 'Total' : 'Latest'}
+                value={isTraining && metric !== 'benchmarkHr' ? formatMetricValue(metric, total) : latest == null ? '—' : formatMetricValue(metric, latest)}
               />
               <SummaryCard
-                label={isTraining ? 'Per Week' : 'Average'}
+                label={isTraining && metric !== 'benchmarkHr' ? 'Per Week' : 'Average'}
                 value={average == null ? '—' : formatMetricValue(metric, average)}
               />
               <SummaryCard
@@ -498,8 +507,8 @@ export default function TrendsScreen() {
             category === 'nutrition' ||
             category === 'recovery'
           )}
-          floorAtZero={category === 'nutrition' || category === 'training'}
-          pixelsPerDay={category === 'training' ? 7 : 44}
+          floorAtZero={category === 'nutrition' || (category === 'training' && metric !== 'benchmarkHr')}
+          pixelsPerDay={category === 'training' && metric !== 'benchmarkHr' ? 7 : 44}
         />
 
         <View style={styles.solTakeCard}>
@@ -541,7 +550,9 @@ export default function TrendsScreen() {
                   ? recoveryComparison.baselineAverage == null
                     ? `The bright line is the seven-day average across observed days. Personal baseline is still building (${recoveryComparison.baselineObservedDays}/28 observed days; at least 7 are required). Missing metrics remain gaps, never zeroes.${recoveryMetricUsesCompletedDays(metric) ? ' Today is omitted because this activity total is still in progress.' : ''}`
                     : `The bright line is the seven-day average across observed days. The summary compares it with the preceding 28-day personal baseline (${recoveryComparison.baselineObservedDays}/28 observed); direction is context, not a readiness score.${recoveryMetricUsesCompletedDays(metric) ? ' Today is omitted because this activity total is still in progress.' : ''}`
-                  : 'Training is grouped into Monday–Sunday weeks. Volume includes strength sets only; cardio does not inflate it.'}
+                  : metric === 'benchmarkHr'
+                    ? 'Each point is an explicitly timed protocol session with adequate wearable HR coverage; legacy inferred windows are excluded.'
+                    : 'Training is grouped into Monday–Sunday weeks. Volume includes strength sets only; cardio does not inflate it.'}
           </Text>
         </View>
       </ScrollView>

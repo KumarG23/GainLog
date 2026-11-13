@@ -13,15 +13,15 @@ def test_versioned_schema_setup_is_idempotent(tmp_path):
     first = apply_schema_migrations(engine)
     second = apply_schema_migrations(engine)
 
-    assert CURRENT_SCHEMA_VERSION == 4
-    assert first == [1, 2, 3, 4]
+    assert CURRENT_SCHEMA_VERSION == 5
+    assert first == [1, 2, 3, 4, 5]
     assert second == []
     assert "cardio_analysis_json" in {column['name'] for column in inspect(engine).get_columns('workout_session')}
     assert "gainlog_schema_version" in inspect(engine).get_table_names()
     with engine.connect() as connection:
         assert connection.execute(
             text("SELECT version FROM gainlog_schema_version ORDER BY version")
-        ).scalars().all() == [1, 2, 3, 4]
+        ).scalars().all() == [1, 2, 3, 4, 5]
 
 
 def test_v4_cardio_column_adds_to_existing_v3_workouts(tmp_path):
@@ -36,6 +36,24 @@ def test_v4_cardio_column_adds_to_existing_v3_workouts(tmp_path):
     assert apply_schema_migrations(engine) == []
     with engine.connect() as connection:
         assert connection.execute(text("SELECT cardio_analysis_json FROM workout_session WHERE id='old'")).scalar_one() is None
+
+
+def test_v5_cardio_windows_upgrade_preserves_existing_exercises(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'cardio-window-upgrade.db'}")
+    apply_schema_migrations(engine)
+    with engine.begin() as connection:
+        connection.execute(text("INSERT INTO workout_session (id,date,duration_minutes,pain) "
+                                "VALUES ('old','2026-10-01',20,0)"))
+        connection.execute(text("INSERT INTO exercise (id,name,session_id,position,kind) "
+                                "VALUES ('ex','Treadmill','old',0,'cardio')"))
+        connection.execute(text("DELETE FROM gainlog_schema_version WHERE version=5"))
+        connection.execute(text("ALTER TABLE exercise DROP COLUMN cardio_started_at"))
+        connection.execute(text("ALTER TABLE exercise DROP COLUMN cardio_ended_at"))
+    assert apply_schema_migrations(engine) == [5]
+    assert apply_schema_migrations(engine) == []
+    with engine.connect() as connection:
+        assert connection.execute(text("SELECT name,cardio_started_at,cardio_ended_at "
+                                       "FROM exercise WHERE id='ex'")).one() == ('Treadmill', None, None)
 
 
 def test_timed_set_migration_preserves_existing_reps(tmp_path):
