@@ -29,6 +29,16 @@ export interface WorkoutActivitySummary {
   totalCalories?: number;
 }
 
+export interface CardioAnalysis {
+  segments: { name: string; coverage: number; coveredMinutes: number; averageHr: number | null; zone2Minutes: number | null }[];
+  zone2Minutes: number | null;
+  benchmarkAverageHr: number | null;
+  benchmarkCoverage: number | null;
+  protocolCompliant: boolean;
+  source: 'google-health' | 'health-connect' | 'none';
+  band: [number, number];
+}
+
 export type WorkoutEffort = 'easy' | 'right' | 'hard';
 export type WorkoutTemplateId = 'push' | 'pull' | 'recovery' | 'legs' | 'upper';
 
@@ -55,6 +65,7 @@ export interface WorkoutSession {
   totalCalories?: number;
   strengthSummary?: WorkoutActivitySummary;
   cardioSummary?: WorkoutActivitySummary;
+  cardioAnalysis?: CardioAnalysis | null;
   notes?: string;
   insight?: string;
   coachInsight?: CoachInsight;

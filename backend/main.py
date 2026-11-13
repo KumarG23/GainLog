@@ -18,8 +18,14 @@ from pydantic import BaseModel, ConfigDict, Field as PydanticField, ValidationEr
 from pydantic.alias_generators import to_camel
 from sqlalchemy import func, text, update
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import Field, Relationship, Session, SQLModel, select
+from sqlmodel import Field, Relationship, Session, SQLModel, col, select
 import requests
+try:
+    from .cardio_analytics import analyze as analyze_cardio, parse_time as parse_cardio_time
+    from .health_v2_models import HealthSampleObservationDB
+except ImportError:
+    from cardio_analytics import analyze as analyze_cardio, parse_time as parse_cardio_time
+    from health_v2_models import HealthSampleObservationDB
 
 # Register the additive V2 shadow-health tables with SQLModel metadata. The
 # existing daily-health models and API remain authoritative in Phase 1.
@@ -117,6 +123,7 @@ class WorkoutSessionDB(SQLModel, table=True):
     cardio_avg_heart_rate: Optional[int] = None
     cardio_active_calories: Optional[int] = None
     cardio_total_calories: Optional[int] = None
+    cardio_analysis_json: Optional[str] = None
     notes: Optional[str] = None
     insight: Optional[str] = None
     insight_json: Optional[str] = None
@@ -380,6 +387,7 @@ class CoachInsight(CamelModel):
 
 
 class WorkoutSessionOut(CamelModel):
+    cardio_analysis: Optional[dict] = None
     id: str
     date: str
     exercises: List[ExerciseOut]
@@ -903,6 +911,7 @@ def _to_out(s: WorkoutSessionDB) -> WorkoutSessionOut:
         total_calories=s.total_calories,
         strength_summary=strength_summary,
         cardio_summary=cardio_summary,
+        cardio_analysis=json.loads(s.cardio_analysis_json) if s.cardio_analysis_json else None,
         notes=s.notes,
         insight=s.insight,
         coach_insight=coach_insight,
@@ -1409,7 +1418,8 @@ Create a compact coaching response with a clear verdict, no more than two eviden
 Rules:
 - Never criticize absent strength during planned recovery cardio.
 - Never invent a workout when a recorded plan exists; connect the next action to the next scheduled template.
-- Compare only genuinely comparable sessions of the same modality. Do not infer improved cardiovascular efficiency unless activity, speed/incline or resistance, and effort are sufficiently comparable; otherwise state the limitation.
+- Cardio fitness/efficiency improvement or decline claims are permitted ONLY when both the current and prior sessions have protocol-compliant treadmill 3.0 mph / 7% / 20 min benchmarks with sufficient HR-sample coverage for minutes 10–20. The comparable metric is average HR for minutes 10–20, never manually entered average HR, generic cardio, distance, or calorie totals. If no such pair exists, describe cardio activity without fitness-trend inference; do not add a repetitive 'not directly comparable' caveat to ordinary workouts.
+- Respect a readiness swap to easy cardio when reported; do not prescribe hard intervals against a sleep/HRV/resting-HR veto without an explicit override.
 - Call something a personal record only when the record type and available history support it.
 - Use reported effort and pain from prior sessions when choosing the next action. Pain should make the advice conservative, not diagnostic.
 - When comparable strength sets at the same load show more reps, acknowledge that progress explicitly. Only call a next-load step earned for an exercise explicitly marked "earned next-load step: yes" in PRESCRIPTION EVIDENCE; otherwise hold or discuss reps without claiming a target was met. Neutral notes do not veto objective progress; clear negative form/safety notes do. If the prescribed range or machine increment is absent, do not invent it: discuss the recorded reps without prescribing an increase. When earned, say "next available load step" rather than inventing an increment.
@@ -3299,6 +3309,76 @@ def create_workout(payload: WorkoutSessionIn, db: Session = Depends(get_db)):
     return _to_out(row)
 
 
+class CardioSampleIn(CamelModel):
+    time: str
+    beats_per_minute: float = Field(ge=30, le=240)
+
+    @field_validator('time')
+    @classmethod
+    def validate_time(cls, value: str) -> str:
+        parse_cardio_time(value)
+        return value
+
+
+class CardioAnalysisIn(CamelModel):
+    zone_lower: int = Field(ge=40, le=220)
+    zone_upper: int = Field(ge=40, le=220)
+    # Optional Android Health Connect fallback; server Google Health samples take precedence.
+    samples: List[CardioSampleIn] = PydanticField(default_factory=list, max_length=5000)
+
+
+@app.post("/workouts/{session_id}/cardio-analysis", response_model=WorkoutSessionOut, response_model_by_alias=True)
+def analyze_workout_cardio(session_id: str, payload: CardioAnalysisIn, db: Session = Depends(get_db)):
+    row = db.get(WorkoutSessionDB, session_id)
+    if not row:
+        raise HTTPException(404, "Workout not found")
+    if payload.zone_lower >= payload.zone_upper:
+        raise HTTPException(422, "Invalid zone 2 band")
+    end = parse_cardio_time(row.date)
+    duration = sum(ex.cardio_duration_minutes or 0 for ex in row.exercises if ex.kind == 'cardio')
+    if not 0 < duration <= 240:
+        raise HTTPException(422, "Cardio duration must be 1–240 minutes")
+    start = end - timedelta(minutes=duration)
+    google_rows = db.exec(select(HealthSampleObservationDB).where(
+        HealthSampleObservationDB.data_type == 'heart_rate',
+        HealthSampleObservationDB.observed_at_utc >= (start - timedelta(days=1)).date().isoformat(),
+        HealthSampleObservationDB.observed_at_utc < (end + timedelta(days=1)).date().isoformat() + 'T23:59:59',
+        HealthSampleObservationDB.is_deleted == False,  # noqa: E712
+    )).all()
+    google_samples = [(timestamp, sample.numeric_value) for sample in google_rows
+                      if sample.provider == 'google-health'
+                      and start <= (timestamp := parse_cardio_time(sample.observed_at_utc)) <= end]
+    fallback = []
+    for sample in payload.samples:
+        timestamp = parse_cardio_time(sample.time)
+        if start <= timestamp <= end:
+            fallback.append((timestamp, sample.beats_per_minute))
+    band = (payload.zone_lower, payload.zone_upper)
+    google_result = analyze_cardio(row, google_samples, band)
+    fallback_result = analyze_cardio(row, fallback, band) if fallback else None
+    # Prefer Google when it covers every reported interval; for a benchmark the
+    # late ten minutes are decisive. Never combine observations across sources.
+    def coverage_key(result: dict) -> float:
+        coverage = [segment['coverage'] for segment in result['segments']]
+        if result['protocolCompliant']:
+            coverage.append(result['benchmarkCoverage'])
+        return min(coverage) if coverage else 0.0
+    google_coverage = coverage_key(google_result)
+    if fallback_result is not None and google_coverage < .8 and coverage_key(fallback_result) > google_coverage:
+        result = fallback_result
+        source = 'health-connect'
+    else:
+        result = google_result
+        source = 'google-health'
+    result['source'] = source if (google_samples or fallback) else 'none'
+    result['windowAssumption'] = 'cardio ended at workout save time; segments are ordered by logged exercise'
+    result['band'] = [payload.zone_lower, payload.zone_upper]
+    row.cardio_analysis_json = json.dumps(result)
+    db.add(row)
+    db.commit()
+    return _to_out(row)
+
+
 @app.get("/workouts/{session_id}", response_model=WorkoutSessionOut, response_model_by_alias=True)
 def get_workout(session_id: str, db: Session = Depends(get_db)):
     row = db.get(WorkoutSessionDB, session_id)
@@ -3381,6 +3461,22 @@ def get_insight(session_id: str, db: Session = Depends(get_db)):
     )
 
     prompt = _build_prompt(row, list(history), broader_context)
+    def benchmark_value(session: WorkoutSessionDB) -> Optional[int]:
+        if not session.cardio_analysis_json:
+            return None
+        analysis = json.loads(session.cardio_analysis_json)
+        if (analysis.get('protocolCompliant') and analysis.get('benchmarkCoverage', 0) >= .8
+                and isinstance(analysis.get('benchmarkAverageHr'), (int, float))):
+            return analysis['benchmarkAverageHr']
+        return None
+    prior_benchmarks = [(item.date, benchmark_value(item)) for item in db.exec(
+        select(WorkoutSessionDB).where(col(WorkoutSessionDB.cardio_analysis_json).is_not(None))
+    ).all() if item.id != row.id and parse_cardio_time(item.date) < parse_cardio_time(row.date)]
+    prior_benchmarks.sort(key=lambda item: parse_cardio_time(item[0]), reverse=True)
+    prior_benchmarks = prior_benchmarks[:36]
+    prompt += (f"\nCARDIO BENCHMARK EVIDENCE: current minutes 10–20 average HR = {benchmark_value(row)} bpm; "
+               f"prior benchmark sessions = {[(day, hr) for day, hr in prior_benchmarks if hr is not None]}. "
+               "None means unavailable, never a zero or comparable fitness result.")
 
     try:
         provider = get_coach_provider()
@@ -3389,6 +3485,20 @@ def get_insight(session_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=503, detail=f"AI insights unavailable: {exc}") from exc
 
     coach_insight = _parse_coach_insight(insight_text)
+    if benchmark_value(row) is None or not any(hr is not None for _, hr in prior_benchmarks):
+        # Do not persist unsupported cardio fitness trends even if the provider ignores the prompt.
+        trend = re.compile(r'(?i)(?:cardio(?:vascular)?|aerobic|heart.?rate|\bHR\b|treadmill|endurance).{0,75}(?:improv|fit(?:ter|ness)|efficien|declin|progress|better|worse|adapt)|(?:improv|fit(?:ter|ness)|efficien|declin|progress|better|worse|adapt).{0,75}(?:cardio(?:vascular)?|aerobic|heart.?rate|\bHR\b|treadmill|endurance)')
+        def safe_copy(value: str) -> str:
+            return 'Cardio activity was recorded; fitness trend needs a covered benchmark pair.' if trend.search(value) else value
+        coach_insight.headline = safe_copy(coach_insight.headline)
+        coach_insight.verdict = safe_copy(coach_insight.verdict)
+        coach_insight.wins = [safe_copy(value) for value in coach_insight.wins]
+        if coach_insight.caveat and (('not directly comparable' in coach_insight.caveat.lower())
+                                      or (re.search(r'(?i)cardio|heart.?rate|treadmill|aerobic', coach_insight.caveat)
+                                          and re.search(r'(?i)compar|efficien|fitness|trend', coach_insight.caveat))
+                                      or trend.search(coach_insight.caveat)):
+            coach_insight.caveat = None
+        coach_insight.next_action.detail = safe_copy(coach_insight.next_action.detail)
     legacy_insight = _legacy_insight_text(insight_text, coach_insight)
     row.insight = legacy_insight
     row.insight_json = coach_insight.model_dump_json(by_alias=True)

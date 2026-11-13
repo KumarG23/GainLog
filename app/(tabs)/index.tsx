@@ -21,6 +21,7 @@ import { useHealth } from '../../context/HealthContext';
 import { generateId } from '../../utils/id';
 import { cardioSwapChoices, isTreadmill, swapCardioModality } from '../../utils/cardioModality';
 import { intervalReadiness } from '../../utils/cardioPlan';
+import { readCardioHeartRate } from '../../utils/cardioHeartRate';
 import { DEFAULT_ZONE2_BAND, readZone2Band, type Zone2Band } from '../../utils/zone2Settings';
 import { clearWorkoutDraft, loadWorkoutDraft, persistWorkoutDraft } from '../../utils/workoutDraft';
 import { API_URL } from '../../constants/api';
@@ -525,6 +526,21 @@ function SuccessView({
           </View>
         )}
 
+        {session.cardioAnalysis && (
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Sample-derived cardio · {session.cardioAnalysis.source}</Text>
+            <Text style={styles.metaReadout}>Window estimated: logged cardio ends at save time; intervals follow exercise order. Delayed logging or pauses can misalign HR.</Text>
+            <Text style={styles.metaReadout}>Zone 2: {session.cardioAnalysis.zone2Minutes == null ? 'Insufficient HR coverage' : `${session.cardioAnalysis.zone2Minutes} min`} ({session.cardioAnalysis.band.join('–')} bpm)</Text>
+            {session.cardioAnalysis.segments.map((segment, index) => (
+              <Text key={`${index}:${segment.name}`} style={styles.metaReadout}>
+                {segment.name}: {segment.averageHr == null ? 'HR unavailable' : `${segment.averageHr} bpm avg`} · {Math.round(segment.coverage * 100)}% covered
+              </Text>
+            ))}
+            {session.cardioAnalysis.protocolCompliant && (
+              <Text style={styles.metaReadout}>Benchmark minutes 10–20: {session.cardioAnalysis.benchmarkAverageHr == null ? 'Insufficient HR coverage' : `${session.cardioAnalysis.benchmarkAverageHr} bpm avg`}</Text>
+            )}
+          </View>
+        )}
         {(insightLoading || insightError || session.coachInsight || session.insight) && (
           <CoachInsightCard
             session={session}
@@ -668,6 +684,21 @@ export function WorkoutLogScreen() {
   ]);
 
   const suggestedTemplateId = getSuggestedTemplateId(now.getDay());
+  const weeklyCardio = useMemo(() => {
+    const monday = getWorkoutPlanWeekStart(new Date());
+    const start = monday.getTime();
+    const weekly = sessions.filter(item => Date.parse(item.date) >= start && Date.parse(item.date) <= Date.now());
+    const values = weekly.map(item => item.cardioAnalysis?.zone2Minutes);
+    const intervalCount = weekly.filter(item => {
+      const hard = item.exercises.filter(ex => /^Treadmill · Hard interval [1-4]$/.test(ex.name));
+      return hard.length >= 3 && hard.length <= 4 && hard.every(ex => ex.cardioDurationMinutes === 4 &&
+        item.cardioAnalysis?.segments.some(segment => segment.name === ex.name && segment.averageHr != null));
+    }).length;
+    const benchmarks = sessions.filter(item => item.cardioAnalysis?.benchmarkAverageHr != null)
+      .map(item => `${item.date.slice(0, 10)}: ${item.cardioAnalysis?.benchmarkAverageHr} bpm`);
+    return { minutes: values.some(value => value != null) ? values.reduce<number>((sum, value) => sum + (value ?? 0), 0) : null,
+      incomplete: weekly.some(item => item.cardioSummary && item.cardioAnalysis?.zone2Minutes == null), intervalCount, benchmarks };
+  }, [sessions]);
   const activeTemplates = useMemo(() => applyWorkoutPlanOverrides(planOverrides), [planOverrides]);
   const readiness = dailyHealthError
     ? { status: 'unknown' as const, reasons: ['Daily health history unavailable'] }
@@ -1041,6 +1072,24 @@ export function WorkoutLogScreen() {
       setSavedSession(session);
       setSaved(true);
       clearWorkoutDraft();
+      if (hasCardio) {
+        try {
+          const end = new Date(session.date);
+          const start = new Date(end.getTime() - cardioDuration * 60_000);
+          const samples = await readCardioHeartRate(start, end).catch(() => []);
+          const response = await fetch(`${API_URL}/workouts/${encodeURIComponent(session.id)}/cardio-analysis`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ zoneLower: zone2Band.lower, zoneUpper: zone2Band.upper, samples }),
+          });
+          if (response.ok) {
+            const analyzed = await response.json() as WorkoutSession;
+            setSavedSession(analyzed);
+            void refresh();
+          }
+        } catch {
+          // The workout remains saved; missing sensor data is never treated as zero minutes.
+        }
+      }
       setInsightError(null);
       setInsightLoading(true);
       insightRequestSessionId.current = session.id;
@@ -1074,6 +1123,7 @@ export function WorkoutLogScreen() {
     strengthCalories,
     cardioHeartRate,
     cardioCalories,
+    zone2Band,
     notes,
     effort,
     pain,
@@ -1156,6 +1206,12 @@ export function WorkoutLogScreen() {
           showsVerticalScrollIndicator={false}
         >
           {/* Date banner */}
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Cardio this week · target 150 easy min + 1 interval session</Text>
+            <Text style={styles.metaReadout}>Sample-derived zone 2: {weeklyCardio.minutes == null ? 'No covered data yet' : `${Math.round(weeklyCardio.minutes)} min`}{weeklyCardio.incomplete ? ' · incomplete HR coverage on some sessions' : ''}</Text>
+            <Text style={styles.metaReadout}>Intervals with covered work HR: {weeklyCardio.intervalCount}</Text>
+            <Text style={styles.metaReadout}>Benchmark HR (minutes 10–20): {weeklyCardio.benchmarks.length ? weeklyCardio.benchmarks.slice(0, 4).join(' · ') : 'No covered benchmark yet'}</Text>
+          </View>
           <View style={styles.dateBanner}>
             <Text style={styles.dateText}>{today}</Text>
           </View>
@@ -1337,6 +1393,16 @@ export function WorkoutLogScreen() {
             >
               <Ionicons name="heart-outline" size={18} color={Colors.primary} />
               <Text style={styles.addExerciseText}>Add Cardio</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.addExerciseBtn}
+              onPress={() => setExercises(prev => [...prev, {
+                ...newExercise('cardio'), id: generateId(),
+                name: 'Treadmill · Benchmark 3 mph 7%',
+                cardioDurationMinutes: '20', distanceMiles: '1', inclinePercent: '7',
+              }])}
+            >
+              <Text style={styles.addExerciseText}>Add 20-min benchmark · 3 mph · 7%</Text>
             </TouchableOpacity>
           </View>
 

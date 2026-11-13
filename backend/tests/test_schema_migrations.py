@@ -13,14 +13,29 @@ def test_versioned_schema_setup_is_idempotent(tmp_path):
     first = apply_schema_migrations(engine)
     second = apply_schema_migrations(engine)
 
-    assert CURRENT_SCHEMA_VERSION == 3
-    assert first == [1, 2, 3]
+    assert CURRENT_SCHEMA_VERSION == 4
+    assert first == [1, 2, 3, 4]
     assert second == []
+    assert "cardio_analysis_json" in {column['name'] for column in inspect(engine).get_columns('workout_session')}
     assert "gainlog_schema_version" in inspect(engine).get_table_names()
     with engine.connect() as connection:
         assert connection.execute(
             text("SELECT version FROM gainlog_schema_version ORDER BY version")
-        ).scalars().all() == [1, 2, 3]
+        ).scalars().all() == [1, 2, 3, 4]
+
+
+def test_v4_cardio_column_adds_to_existing_v3_workouts(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'cardio-upgrade.db'}")
+    apply_schema_migrations(engine)
+    with engine.begin() as connection:
+        connection.execute(text("INSERT INTO workout_session (id,date,duration_minutes,pain) "
+                                "VALUES ('old','2026-10-01',30,0)"))
+        connection.execute(text("DELETE FROM gainlog_schema_version WHERE version=4"))
+        connection.execute(text("ALTER TABLE workout_session DROP COLUMN cardio_analysis_json"))
+    assert apply_schema_migrations(engine) == [4]
+    assert apply_schema_migrations(engine) == []
+    with engine.connect() as connection:
+        assert connection.execute(text("SELECT cardio_analysis_json FROM workout_session WHERE id='old'")).scalar_one() is None
 
 
 def test_timed_set_migration_preserves_existing_reps(tmp_path):
