@@ -14,6 +14,7 @@ import {
   requestNutritionWriteAccess,
 } from './healthConnectNutritionBridge';
 import type { NutritionAutoSyncResult } from './healthConnectNutritionAutoSync';
+import { createSerialTaskRunner } from './healthConnectChangeSync';
 
 const CURSOR_KEY = 'gainlog.healthConnect.nutritionSyncCursor';
 
@@ -47,7 +48,18 @@ export async function hasNutritionAutoSyncAccess(): Promise<boolean> {
   return hasNutritionWriteAccess();
 }
 
-export async function syncIncrementalNutritionToHealthConnect(): Promise<NutritionAutoSyncResult> {
+const saveCursor = (cursor: number) => AsyncStorage.setItem(CURSOR_KEY, String(cursor));
+
+// Every Health Connect meal write goes through this one serialized lane. Writes
+// always use the server's sync cursor as clientRecordVersion, so a later edit
+// always carries a higher version than the copy already in Health Connect.
+// (Mixing Date.now() versions with cursor versions made Health Connect silently
+// ignore edits.) Serializing also stops two runs from saving cursors out of order.
+const runSerialized = createSerialTaskRunner(
+  async (task: () => Promise<NutritionAutoSyncResult | number>) => task(),
+);
+
+async function runIncremental(): Promise<NutritionAutoSyncResult> {
   if (!await hasNutritionWriteAccess()) {
     throw new Error('GainLog needs Health Connect nutrition write permission.');
   }
@@ -59,21 +71,32 @@ export async function syncIncrementalNutritionToHealthConnect(): Promise<Nutriti
     fetchPage,
     applyUpserts: applyNutritionUpsertsToHealthConnect,
     applyDeletes: applyNutritionDeletesToHealthConnect,
-    saveCursor: cursor => AsyncStorage.setItem(CURSOR_KEY, String(cursor)),
+    saveCursor,
   });
 }
 
-export async function repairAllNutritionToHealthConnect(): Promise<number> {
+export async function syncIncrementalNutritionToHealthConnect(): Promise<NutritionAutoSyncResult> {
+  return runSerialized(runIncremental) as Promise<NutritionAutoSyncResult>;
+}
+
+export async function exportNutritionChangesToHealthConnect(): Promise<NutritionAutoSyncResult> {
   await requestNutritionWriteAccess();
-  const currentCursor = parseCursor(await AsyncStorage.getItem(CURSOR_KEY));
-  const result = await reconcileFullNutritionRepair({
-    currentCursor,
-    today: localDateKey(),
-    fetchBootstrap,
-    fetchPage,
-    applyUpserts: applyNutritionUpsertsToHealthConnect,
-    applyDeletes: applyNutritionDeletesToHealthConnect,
-    saveCursor: cursor => AsyncStorage.setItem(CURSOR_KEY, String(cursor)),
-  });
-  return result.snapshotWritten;
+  return syncIncrementalNutritionToHealthConnect();
+}
+
+export async function repairAllNutritionToHealthConnect(): Promise<number> {
+  return runSerialized(async () => {
+    await requestNutritionWriteAccess();
+    const currentCursor = parseCursor(await AsyncStorage.getItem(CURSOR_KEY));
+    const result = await reconcileFullNutritionRepair({
+      currentCursor,
+      today: localDateKey(),
+      fetchBootstrap,
+      fetchPage,
+      applyUpserts: applyNutritionUpsertsToHealthConnect,
+      applyDeletes: applyNutritionDeletesToHealthConnect,
+      saveCursor,
+    });
+    return result.snapshotWritten;
+  }) as Promise<number>;
 }

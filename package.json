@@ -23,9 +23,10 @@
     "test:healthspan": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/healthspan.test.mjs tests/dayJourney.test.mjs tests/domainRefresh.test.mjs",
     "test:health-connect": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/healthConnect.test.mjs tests/healthConnectChangeSync.test.mjs tests/healthConnectSyncWeb.test.mjs tests/healthConnectRepairUi.test.mjs tests/settingsHealthSyncUi.test.mjs",
     "test:health-connect-auto": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/healthConnectAutoSync.test.mjs",
-    "test:health-connect-nutrition": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/healthConnectNutrition.test.mjs tests/nutritionIncrementalSync.test.mjs",
+    "test:health-connect-nutrition": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/healthConnectNutrition.test.mjs tests/nutritionIncrementalSync.test.mjs tests/nutritionExportLane.test.mjs",
+    "test:health-connect-workouts": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/healthConnectWorkouts.test.mjs",
     "test:api-config": "NODE_NO_WARNINGS=1 node --test tests/apiConfig.test.mjs",
-    "test": "npm run test:notifications && npm run test:nutrition-memory && npm run test:visual && npm run test:workout-templates && npm run test:workout-history && npm run test:workout-insight && npm run test:workout-records && npm run test:trends && npm run test:goals && npm run test:health-display && npm run test:v2-today && npm run test:healthspan && npm run test:health-connect && npm run test:health-connect-auto && npm run test:health-connect-nutrition && npm run test:api-config"
+    "test": "npm run test:notifications && npm run test:nutrition-memory && npm run test:visual && npm run test:workout-templates && npm run test:workout-history && npm run test:workout-insight && npm run test:workout-records && npm run test:trends && npm run test:goals && npm run test:health-display && npm run test:v2-today && npm run test:healthspan && npm run test:health-connect && npm run test:health-connect-auto && npm run test:health-connect-nutrition && npm run test:health-connect-workouts && npm run test:api-config"
   },
   "dependencies": {
     "@expo/ngrok": "^4.1.3",

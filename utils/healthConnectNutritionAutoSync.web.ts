@@ -8,6 +8,10 @@ export async function syncIncrementalNutritionToHealthConnect(): Promise<Nutriti
   return { bootstrapped: false, written: 0, deleted: 0, cursor: 0 };
 }
 
+export async function exportNutritionChangesToHealthConnect(): Promise<NutritionAutoSyncResult> {
+  return { bootstrapped: false, written: 0, deleted: 0, cursor: 0 };
+}
+
 export async function repairAllNutritionToHealthConnect(): Promise<number> {
   return 0;
 }

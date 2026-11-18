@@ -38,7 +38,7 @@ test('manual integration maintenance lives in Settings instead of dashboard scre
 
 
 test('foreground Health Connect checks force freshness and auto-repair only repair-required cursors', () => {
-  assert.match(coordinator, /performAutoSync\(\{ requestPermissions: true, force: true \}\)/);
+  assert.match(coordinator, /performAutoSync\(\{ requestPermissions: !isRetry, force: true \}\)/);
   assert.match(coordinator, /repairIfRequired: requestPermissions/);
   assert.match(nativeSync, /runHealthConnectRepairFallback/);
   assert.match(changeSync, /options\.repairIfRequired/);

@@ -9,10 +9,10 @@ import { API_URL } from '../constants/api';
 import { localDateKey, previousLocalDateKey } from '../utils/date';
 import { refreshIndependentDomains } from '../utils/domainRefresh';
 import {
-  deleteNutritionEntryFromHealthConnect,
-  writeNutritionEntryToHealthConnect,
-} from '../utils/healthConnectNutritionBridge';
-import { repairAllNutritionToHealthConnect } from '../utils/healthConnectNutritionAutoSync';
+  exportNutritionChangesToHealthConnect,
+  repairAllNutritionToHealthConnect,
+} from '../utils/healthConnectNutritionAutoSync';
+import { saveAutoSyncSuccess } from '../utils/healthConnectSyncStatus';
 import {
   BodyWeightEntry,
   CoachStatus,
@@ -184,8 +184,9 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
       body: JSON.stringify(data),
     });
     try {
-      await writeNutritionEntryToHealthConnect(entry);
+      await exportNutritionChangesToHealthConnect();
       setNutritionHealthConnectError(null);
+      void saveAutoSyncSuccess('nutrition', Date.now()).catch(() => undefined);
     } catch (err) {
       setNutritionHealthConnectError(
         err instanceof Error ? err.message : 'Meal saved, but Health Connect export failed.',
@@ -198,8 +199,9 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
   const deleteNutritionEntry = useCallback(async (id: string) => {
     await apiFetch<void>(`/nutrition/${id}`, { method: 'DELETE' });
     try {
-      await deleteNutritionEntryFromHealthConnect(id);
+      await exportNutritionChangesToHealthConnect();
       setNutritionHealthConnectError(null);
+      void saveAutoSyncSuccess('nutrition', Date.now()).catch(() => undefined);
     } catch (err) {
       setNutritionHealthConnectError(
         err instanceof Error ? err.message : 'Meal deleted, but Health Connect cleanup failed.',

@@ -8,6 +8,19 @@ import React, {
 import { WorkoutEffort, WorkoutSession } from '../types/workout';
 import { API_URL } from '../constants/api';
 import { getWorkoutPlanWeekStart, type WorkoutPlanOverrides } from '../utils/workoutTemplates';
+import { syncWorkoutsToHealthConnect } from '../utils/healthConnectWorkoutExport';
+import { saveAutoSyncFailure, saveAutoSyncSuccess } from '../utils/healthConnectSyncStatus';
+import { describeAutoSyncError } from '../utils/healthConnectAutoSync';
+
+/** Mirrors workout changes to Health Connect when the user enabled it; never blocks saving. */
+function exportWorkoutsInBackground() {
+  void syncWorkoutsToHealthConnect()
+    .then(result => (result.skipped ? undefined : saveAutoSyncSuccess('workouts', Date.now())))
+    .catch(error => saveAutoSyncFailure('workouts', {
+      atMs: Date.now(),
+      message: describeAutoSyncError(error),
+    }).catch(() => undefined));
+}
 
 interface WorkoutsContextValue {
   sessions: WorkoutSession[];
@@ -86,6 +99,7 @@ export function WorkoutsProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify(data),
       });
       setSessions(prev => [session, ...prev]);
+      exportWorkoutsInBackground();
       return session;
     },
     [],
@@ -94,6 +108,7 @@ export function WorkoutsProvider({ children }: { children: React.ReactNode }) {
   const deleteSession = useCallback(async (id: string) => {
     await apiFetch<void>(`/workouts/${id}`, { method: 'DELETE' });
     setSessions(prev => prev.filter(s => s.id !== id));
+    exportWorkoutsInBackground();
   }, []);
 
   const updateFeedback = useCallback(async (
@@ -105,6 +120,7 @@ export function WorkoutsProvider({ children }: { children: React.ReactNode }) {
       body: JSON.stringify(feedback),
     });
     setSessions(prev => prev.map(session => session.id === id ? updated : session));
+    exportWorkoutsInBackground();
     return updated;
   }, []);
 

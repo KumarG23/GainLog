@@ -10,6 +10,65 @@ export interface AutoSyncLaneResult {
   attempted: string[];
   succeeded: string[];
   failed: string[];
+  /** Readable failure message per failed lane. */
+  errors?: Record<string, string>;
+}
+
+export interface AutoSyncFailure {
+  atMs: number;
+  message: string;
+}
+
+/** Foreground retry delays after a failed lane (e.g. Tailscale still reconnecting). */
+export const AUTO_SYNC_RETRY_DELAYS_MS = [30_000, 2 * 60_000, 5 * 60_000] as const;
+
+export function autoSyncRetryDelayMs(attempt: number): number | null {
+  if (!Number.isSafeInteger(attempt) || attempt < 0) return null;
+  return AUTO_SYNC_RETRY_DELAYS_MS[attempt] ?? null;
+}
+
+const NETWORK_ERROR_PATTERN = /network request failed|failed to fetch|networkerror|timed? ?out|aborted|ECONNREFUSED|ENOTFOUND|EAI_AGAIN/i;
+
+/**
+ * Turns a thrown sync error into one short sentence for Settings.
+ * The GainLog API is only reachable over Tailscale, so a network failure is
+ * almost always the phone's VPN being disconnected or asleep.
+ */
+export function describeAutoSyncError(error: unknown): string {
+  let message = '';
+  if (error instanceof Error) message = error.message;
+  else if (typeof error === 'string') message = error;
+  else if (error && typeof error === 'object' && 'message' in error) {
+    const value = (error as { message?: unknown }).message;
+    if (typeof value === 'string') message = value;
+  }
+  message = message.trim();
+  if (!message || NETWORK_ERROR_PATTERN.test(message)) {
+    return 'Could not reach the GainLog server. Check that Tailscale is connected.';
+  }
+  return message.length > 160 ? `${message.slice(0, 157)}...` : message;
+}
+
+export function parseAutoSyncFailure(raw: string | null): AutoSyncFailure | null {
+  if (raw == null) return null;
+  try {
+    const value = JSON.parse(raw) as Partial<AutoSyncFailure>;
+    if (typeof value.atMs !== 'number' || !Number.isFinite(value.atMs)) return null;
+    if (typeof value.message !== 'string' || !value.message) return null;
+    return { atMs: value.atMs, message: value.message };
+  } catch {
+    return null;
+  }
+}
+
+export function formatSyncAge(nowMs: number, thenMs: number | null): string {
+  if (thenMs == null || !Number.isFinite(thenMs)) return 'never';
+  const minutes = Math.max(0, Math.round((nowMs - thenMs) / 60_000));
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours} h ago`;
+  return `${Math.round(hours / 24)} days ago`;
 }
 
 export function createForceAwareTaskRunner<
@@ -79,13 +138,15 @@ export async function runIndependentAutoSyncLanes({
   force,
   lanes,
   saveSuccess,
+  saveFailure,
 }: {
   nowMs: number;
   force: boolean;
   lanes: AutoSyncLane[];
   saveSuccess: (name: string, nowMs: number) => Promise<void>;
+  saveFailure?: (name: string, failure: AutoSyncFailure) => Promise<void>;
 }): Promise<AutoSyncLaneResult> {
-  const result: AutoSyncLaneResult = { attempted: [], succeeded: [], failed: [] };
+  const result: AutoSyncLaneResult = { attempted: [], succeeded: [], failed: [], errors: {} };
   for (const lane of lanes) {
     if (!force && !shouldAttemptHealthConnectAutoSync({
       nowMs,
@@ -97,8 +158,17 @@ export async function runIndependentAutoSyncLanes({
       await lane.run();
       await saveSuccess(lane.name, nowMs);
       result.succeeded.push(lane.name);
-    } catch {
+    } catch (error) {
+      const message = describeAutoSyncError(error);
       result.failed.push(lane.name);
+      result.errors![lane.name] = message;
+      if (saveFailure) {
+        try {
+          await saveFailure(lane.name, { atMs: nowMs, message });
+        } catch {
+          // Status bookkeeping must never mask the sync result itself.
+        }
+      }
     }
   }
   return result;

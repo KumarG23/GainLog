@@ -6,6 +6,7 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -16,6 +17,23 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize, Radius, Spacing } from '../constants/theme';
 import { useHealth } from '../context/HealthContext';
 import { repairHealthConnect, syncHealthConnect } from '../utils/healthConnectSync';
+import { describeAutoSyncError, formatSyncAge } from '../utils/healthConnectAutoSync';
+import {
+  hasNutritionAutoSyncAccess,
+  syncIncrementalNutritionToHealthConnect,
+} from '../utils/healthConnectNutritionAutoSync';
+import {
+  readAutoSyncStatuses,
+  saveAutoSyncFailure,
+  saveAutoSyncSuccess,
+  type AutoSyncLaneName,
+  type AutoSyncLaneStatus,
+} from '../utils/healthConnectSyncStatus';
+import {
+  isWorkoutExportEnabled,
+  setWorkoutExportEnabled,
+  syncWorkoutsToHealthConnect,
+} from '../utils/healthConnectWorkoutExport';
 import { formatSyncTimestamp } from '../utils/settingsDisplay';
 import { DEFAULT_ZONE2_BAND, readZone2Band, saveZone2Band } from '../utils/zone2Settings';
 import {
@@ -43,6 +61,10 @@ export default function SettingsScreen() {
   const [googleHealthStatus, setGoogleHealthStatus] = useState<GoogleHealthStatus | null>(null);
   const [googleHealthBusy, setGoogleHealthBusy] = useState(false);
   const [showRecoveryTools, setShowRecoveryTools] = useState(false);
+  const [syncStatuses, setSyncStatuses] = useState<AutoSyncLaneStatus[]>([]);
+  const [statusNowMs, setStatusNowMs] = useState(() => Date.now());
+  const [workoutExportEnabled, setWorkoutExportEnabledState] = useState(false);
+  const [workoutExportBusy, setWorkoutExportBusy] = useState(false);
   const [zoneLower, setZoneLower] = useState(String(DEFAULT_ZONE2_BAND.lower));
   const [zoneUpper, setZoneUpper] = useState(String(DEFAULT_ZONE2_BAND.upper));
   useEffect(() => { void readZone2Band().then(band => {
@@ -56,6 +78,61 @@ export default function SettingsScreen() {
       Alert.alert('Zone 2 band saved', 'Your guidance will use this estimate next time you open Log.');
     } catch (error) {
       Alert.alert('Invalid zone 2 band', error instanceof Error ? error.message : 'Could not save the band.');
+    }
+  };
+
+  const loadSyncStatuses = useCallback(async () => {
+    try {
+      const [statuses, exportEnabled] = await Promise.all([
+        readAutoSyncStatuses(),
+        isWorkoutExportEnabled(),
+      ]);
+      setSyncStatuses(statuses);
+      setWorkoutExportEnabledState(exportEnabled);
+      setStatusNowMs(Date.now());
+    } catch {
+      // Status is informational; sync itself keeps working.
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadSyncStatuses();
+    const timer = setInterval(() => { void loadSyncStatuses(); }, 30_000);
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') void loadSyncStatuses();
+    });
+    return () => {
+      clearInterval(timer);
+      subscription.remove();
+    };
+  }, [loadSyncStatuses]);
+
+  const runExportLane = async (lane: AutoSyncLaneName, run: () => Promise<unknown>) => {
+    try {
+      await run();
+      await saveAutoSyncSuccess(lane, Date.now());
+      return null;
+    } catch (error) {
+      const message = describeAutoSyncError(error);
+      await saveAutoSyncFailure(lane, { atMs: Date.now(), message }).catch(() => undefined);
+      return message;
+    }
+  };
+
+  const handleWorkoutExportToggle = async (enabled: boolean) => {
+    setWorkoutExportBusy(true);
+    try {
+      await setWorkoutExportEnabled(enabled);
+      setWorkoutExportEnabledState(enabled);
+      if (enabled) {
+        const failure = await runExportLane('workouts', syncWorkoutsToHealthConnect);
+        if (failure) Alert.alert('Workout export paused', failure);
+      }
+    } catch (error) {
+      Alert.alert('Workout export unavailable', describeAutoSyncError(error));
+    } finally {
+      setWorkoutExportBusy(false);
+      void loadSyncStatuses();
     }
   };
 
@@ -117,18 +194,35 @@ export default function SettingsScreen() {
         requestBackgroundAccess: true,
         repairIfRequired: true,
       });
+      await saveAutoSyncSuccess('health', Date.now()).catch(() => undefined);
       await refresh();
+      const exportFailures = (await Promise.all([
+        (await hasNutritionAutoSyncAccess())
+          ? runExportLane('nutrition', syncIncrementalNutritionToHealthConnect)
+          : Promise.resolve(null),
+        workoutExportEnabled
+          ? runExportLane('workouts', syncWorkoutsToHealthConnect)
+          : Promise.resolve(null),
+      ])).filter((message): message is string => message != null);
       Alert.alert(
-        'Health Connect synced',
-        `Refreshed ${result.dailyImports} days of activity and ${result.bodyMeasurements} body measurement${result.bodyMeasurements === 1 ? '' : 's'}.`,
+        exportFailures.length > 0 ? 'Health Connect partly synced' : 'Health Connect synced',
+        [
+          `Refreshed ${result.dailyImports} days of activity and ${result.bodyMeasurements} body measurement${result.bodyMeasurements === 1 ? '' : 's'}.`,
+          ...exportFailures,
+        ].join('\n\n'),
       );
     } catch (error) {
+      await saveAutoSyncFailure('health', {
+        atMs: Date.now(),
+        message: describeAutoSyncError(error),
+      }).catch(() => undefined);
       Alert.alert(
         'Health Connect sync unavailable',
         errorMessage(error, 'Unable to sync Health Connect.'),
       );
     } finally {
       setSyncingHealthConnect(false);
+      void loadSyncStatuses();
     }
   };
 
@@ -257,6 +351,45 @@ export default function SettingsScreen() {
           <Text style={styles.hint}>
             RENPHO weight and body composition sync automatically on app foreground and approximately hourly in the background. A repair is needed only when Android invalidates the incremental cursor.
           </Text>
+          {Platform.OS === 'android' && syncStatuses.length > 0 && (
+            <View style={styles.syncStatusList} accessibilityLabel="Automatic sync status">
+              {syncStatuses
+                .filter(status => status.lane !== 'workouts' || workoutExportEnabled)
+                .map(status => (
+                  <View key={status.lane} style={styles.syncStatusRow}>
+                    <Ionicons
+                      name={status.lastFailure ? 'alert-circle-outline' : 'checkmark-circle-outline'}
+                      size={16}
+                      color={status.lastFailure ? Colors.warning : Colors.textMuted}
+                    />
+                    <View style={styles.syncStatusCopy}>
+                      <Text style={styles.syncStatusLabel}>
+                        {status.label} · last synced {formatSyncAge(statusNowMs, status.lastSuccessMs)}
+                      </Text>
+                      {status.lastFailure && (
+                        <Text style={styles.errorText}>
+                          Failed {formatSyncAge(statusNowMs, status.lastFailure.atMs)}: {status.lastFailure.message}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                ))}
+            </View>
+          )}
+          <View style={styles.toggleRow}>
+            <View style={styles.toggleCopy}>
+              <Text style={styles.toggleTitle}>Export workouts</Text>
+              <Text style={styles.hint}>
+                Writes each GainLog workout, with every set, rep and weight in the notes, to Health Connect so Google Health can see it. Your watch may already record the same session, so Google Health can show both.
+              </Text>
+            </View>
+            <Switch
+              value={workoutExportEnabled}
+              onValueChange={value => { void handleWorkoutExportToggle(value); }}
+              disabled={workoutExportBusy || Platform.OS !== 'android'}
+              accessibilityLabel="Export GainLog workouts to Health Connect"
+            />
+          </View>
           <TouchableOpacity
             style={[
               styles.primaryButton,
@@ -387,6 +520,13 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   hint: { color: Colors.textMuted, fontSize: FontSize.sm, lineHeight: 20 },
+  syncStatusList: { gap: Spacing.sm },
+  syncStatusRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm },
+  syncStatusCopy: { flex: 1, gap: 2 },
+  syncStatusLabel: { color: Colors.text, fontSize: FontSize.sm, lineHeight: 19 },
+  toggleRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+  toggleCopy: { flex: 1, gap: 2 },
+  toggleTitle: { color: Colors.text, fontSize: FontSize.base, fontWeight: '600' },
   errorText: { color: Colors.warning, fontSize: FontSize.sm, lineHeight: 19 },
   primaryButton: {
     minHeight: 48,
