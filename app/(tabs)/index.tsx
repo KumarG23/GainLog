@@ -20,7 +20,7 @@ import { useWorkouts } from '../../context/WorkoutsContext';
 import { useHealth } from '../../context/HealthContext';
 import { generateId } from '../../utils/id';
 import { cardioSwapChoices, isTreadmill, swapCardioModality } from '../../utils/cardioModality';
-import { intervalReadiness } from '../../utils/cardioPlan';
+import { intervalReadiness, isIntervalCardioName } from '../../utils/cardioPlan';
 import { cardioTimingValid, isCardioRunning } from '../../utils/cardioTimer';
 import { CardioTimer } from '../../components/CardioTimer';
 import { readCardioHeartRate } from '../../utils/cardioHeartRate';
@@ -323,7 +323,7 @@ function ExerciseCard({
             <Text style={styles.exercisePrescription}>{exercise.prescription}</Text>
           )}
           {exercise.kind === 'cardio' &&
-            !exercise.name.includes('Hard interval') && !exercise.name.includes('Cool-down') && (
+            !isIntervalCardioName(exercise.name) && !exercise.name.includes('Cool-down') && (
             <Text style={styles.exercisePrescription}>
               Estimated easy HR band: {zone2Band.lower}–{zone2Band.upper} bpm · adjust in Settings; conversational effort comes first.
             </Text>
@@ -697,11 +697,9 @@ export function WorkoutLogScreen() {
     const start = monday.getTime();
     const weekly = sessions.filter(item => Date.parse(item.date) >= start && Date.parse(item.date) <= Date.now());
     const values = weekly.map(item => item.cardioAnalysis?.windowSource === 'recorded' ? item.cardioAnalysis.zone2Minutes : null);
-    const intervalCount = weekly.filter(item => {
-      const hard = item.exercises.filter(ex => /^Treadmill · Hard interval [1-4]$/.test(ex.name));
-      return hard.length >= 3 && hard.length <= 4 && hard.every(ex => ex.cardioDurationMinutes === 4 &&
-        item.cardioAnalysis?.windowSource === 'recorded' && item.cardioAnalysis.segments.some(segment => segment.name === ex.name && segment.averageHr != null));
-    }).length;
+    const intervalCount = weekly.filter(item => item.exercises.some(ex => (
+      ex.kind === 'cardio' && isIntervalCardioName(ex.name) && (ex.cardioDurationMinutes ?? 0) > 0
+    ))).length;
     const benchmarks = sessions.filter(item => item.cardioAnalysis?.windowSource === 'recorded' && item.cardioAnalysis.benchmarkAverageHr != null)
       .map(item => `${item.date.slice(0, 10)}: ${item.cardioAnalysis?.benchmarkAverageHr} bpm`);
     return { minutes: values.some(value => value != null) ? values.reduce<number>((sum, value) => sum + (value ?? 0), 0) : null,

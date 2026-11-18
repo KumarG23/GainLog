@@ -15,7 +15,9 @@ def build(db: Session, start: date, today: date | None = None):
         from .health_hub import project, _analysis, local_date
         from .main import AppleHealthDailyDB, WeeklyReviewDB, WorkoutSessionDB, GoalDB
         from .supplements import SupplementDB, SupplementTakenDB
+        from .cardio_analytics import is_interval_cardio_name
     except ImportError:
+        from cardio_analytics import is_interval_cardio_name
         from health_hub import project, _analysis, local_date
         from main import AppleHealthDailyDB, WeeklyReviewDB, WorkoutSessionDB, GoalDB
         from supplements import SupplementDB, SupplementTakenDB
@@ -62,7 +64,7 @@ def build(db: Session, start: date, today: date | None = None):
                 if start.isoformat() <= local_date(w.date) <= min(end, today).isoformat()]
     strength = sum(bool(w.strength_duration_minutes and w.strength_duration_minutes > 0) for w in workouts)
     # Template ID stays recovery for Wednesday; performed segment identities are the evidence.
-    intervals = sum(any(ex.kind == 'cardio' and 'Hard interval' in ex.name
+    intervals = sum(any(ex.kind == 'cardio' and is_interval_cardio_name(ex.name)
                         and ex.cardio_duration_minutes and ex.cardio_duration_minutes > 0
                         for ex in w.exercises) for w in workouts)
     add('strength', 'Strength sessions', strength if workouts else None, '4', strength >= 4,

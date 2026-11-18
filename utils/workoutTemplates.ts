@@ -1,5 +1,5 @@
 import type { Exercise, WorkoutSession, WorkoutSet } from '../types/workout';
-import { intervalProtocol } from './cardioPlan.ts';
+import { INTERVAL_SESSION_NAME, intervalPrescription } from './cardioPlan.ts';
 
 export type WorkoutTemplateId = 'push' | 'pull' | 'recovery' | 'legs' | 'upper';
 
@@ -93,13 +93,15 @@ const recoveryCardio = (): WorkoutTemplateDraftExercise => ({
     '25–35 min easy zone 2 · conversational pace · elliptical or treadmill · cardio, not steps',
 });
 
+// One cardio entry with one timer for the whole interval session. Typing times for each
+// interval mid-workout isn't practical; the watch already records heart rate throughout.
 function intervalCardio(rounds: 3 | 4, createId: () => string): WorkoutTemplateDraftExercise[] {
-  return intervalProtocol(rounds).map(segment => ({
-    id: createId(), name: `Treadmill · ${segment.name}`, kind: 'cardio' as const, sets: [],
+  return [{
+    id: createId(), name: INTERVAL_SESSION_NAME, kind: 'cardio' as const, sets: [],
     cardioDurationMinutes: '', distanceMiles: '',
     resistanceLevel: '', inclinePercent: '',
-    prescription: `${segment.name} · ${segment.minutes} min · ${segment.instruction}`,
-  }));
+    prescription: intervalPrescription(rounds),
+  }];
 }
 
 export const PLANET_FITNESS_TEMPLATES: readonly WorkoutTemplate[] = [

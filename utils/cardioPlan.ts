@@ -16,6 +16,21 @@ export function intervalProtocol(rounds: 3 | 4 = 4): IntervalSegment[] {
   return segments;
 }
 
+/** Name of the single cardio entry for an interval day: one timer for the whole session. */
+export const INTERVAL_SESSION_NAME = 'Treadmill · Interval session';
+
+/** Interval cardio, including older workouts logged as separate "Hard interval N" segments. */
+export function isIntervalCardioName(name: string): boolean {
+  return name.includes('Interval session') || name.includes('Hard interval');
+}
+
+/** One-line plan shown on the single interval entry; the watch records HR for each part. */
+export function intervalPrescription(rounds: 3 | 4 = 4): string {
+  const totalMinutes = intervalProtocol(rounds).reduce((sum, segment) => sum + segment.minutes, 0);
+  return `${totalMinutes} min total · 10 min easy warm-up → ${rounds} × 4 min hard incline with 3 min easy between → 5 min cool-down`
+    + ' · hard = breathing hard, only a few words · start the timer once and stop it at the end';
+}
+
 export interface ReadinessAdvice { status: 'swap' | 'unknown' | 'clear'; reasons: string[] }
 
 // Use the most recent completed night and *preceding* seven calendar days, never today's
