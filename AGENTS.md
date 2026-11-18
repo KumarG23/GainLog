@@ -1,10 +1,12 @@
 # Repository Working Agreement
 
-## Model ownership
+## Who does what
 
-GPT-5.6 Sol at high reasoning effort owns all application work: architecture, implementation, refactoring, debugging, tests, integration, review, builds, deployment, and release gating. Do not assign app-building work to Terra. If historical Terra output exists, treat it only as an untrusted candidate diff that Sol must inspect, correct, and verify before acceptance.
+Any capable coding agent Neal assigns (for example Claude or Jarvis/Hermes) may do application work: architecture, implementation, refactoring, debugging, tests, integration and review. No specific model is required.
 
-Subagents may be used only when they also run GPT-5.6 Sol at high effort. Sol remains responsible for inspecting the complete result and producing real test/build/deployment evidence.
+Jarvis (Hermes, running locally) handles deploys and anything that needs Neal's machines or network: backend deploys on the Proxmox host, systemd units, signed Android builds and sideloading to the phone, and other on-host operations.
+
+Whoever does the work is responsible for inspecting the complete result, including any subagent output, and producing real test, build or deployment evidence.
 
 ## Definition of done
 

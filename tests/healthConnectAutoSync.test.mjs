@@ -115,7 +115,74 @@ test('a failed health import does not block the independent nutrition export lan
     attempted: ['health', 'nutrition'],
     succeeded: ['nutrition'],
     failed: ['health'],
+    errors: { health: 'health import failed' },
   });
+});
+
+test('a failed lane records a readable failure for Settings without blocking other lanes', async () => {
+  const failures = [];
+  const result = await runIndependentAutoSyncLanes({
+    nowMs: 5_000,
+    force: true,
+    lanes: [
+      { name: 'nutrition', lastSuccessMs: null, run: async () => { throw new TypeError('Network request failed'); } },
+      { name: 'workouts', lastSuccessMs: null, run: async () => {} },
+    ],
+    saveSuccess: async () => {},
+    saveFailure: async (name, failure) => { failures.push([name, failure]); },
+  });
+  assert.deepEqual(result.failed, ['nutrition']);
+  assert.deepEqual(result.succeeded, ['workouts']);
+  assert.deepEqual(failures, [[
+    'nutrition',
+    { atMs: 5_000, message: 'Could not reach the GainLog server. Check that Tailscale is connected.' },
+  ]]);
+});
+
+test('status bookkeeping failures never mask a lane result', async () => {
+  const result = await runIndependentAutoSyncLanes({
+    nowMs: 1,
+    force: true,
+    lanes: [{ name: 'health', lastSuccessMs: null, run: async () => { throw new Error('boom'); } }],
+    saveSuccess: async () => {},
+    saveFailure: async () => { throw new Error('storage full'); },
+  });
+  assert.deepEqual(result.failed, ['health']);
+});
+
+test('sync errors become short, actionable Settings messages', () => {
+  assert.equal(
+    autoSync.describeAutoSyncError(new TypeError('Network request failed')),
+    'Could not reach the GainLog server. Check that Tailscale is connected.',
+  );
+  assert.equal(
+    autoSync.describeAutoSyncError(null),
+    'Could not reach the GainLog server. Check that Tailscale is connected.',
+  );
+  assert.equal(
+    autoSync.describeAutoSyncError(new Error('GainLog needs Health Connect nutrition write permission.')),
+    'GainLog needs Health Connect nutrition write permission.',
+  );
+  assert.equal(autoSync.describeAutoSyncError('x'.repeat(300)).length, 160);
+});
+
+test('foreground retries back off and then stop', () => {
+  assert.deepEqual(
+    [0, 1, 2, 3].map(autoSync.autoSyncRetryDelayMs),
+    [30_000, 120_000, 300_000, null],
+  );
+});
+
+test('stored failures and sync ages parse defensively', () => {
+  assert.deepEqual(autoSync.parseAutoSyncFailure('{"atMs":10,"message":"m"}'), { atMs: 10, message: 'm' });
+  assert.equal(autoSync.parseAutoSyncFailure('not json'), null);
+  assert.equal(autoSync.parseAutoSyncFailure('{"atMs":"x","message":"m"}'), null);
+  const now = 10 * 3_600_000;
+  assert.equal(autoSync.formatSyncAge(now, null), 'never');
+  assert.equal(autoSync.formatSyncAge(now, now - 10_000), 'just now');
+  assert.equal(autoSync.formatSyncAge(now, now - 5 * 60_000), '5 min ago');
+  assert.equal(autoSync.formatSyncAge(now, now - 3 * 3_600_000), '3 h ago');
+  assert.equal(autoSync.formatSyncAge(now, now - 72 * 3_600_000), '3 days ago');
 });
 
 test('each automatic sync lane uses its own freshness timestamp', async () => {
