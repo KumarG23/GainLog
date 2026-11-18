@@ -61,7 +61,9 @@ def project(db: Session) -> dict[str, list[list]]:
         from .longevity import BPReadingDB, CPAPNightDB
         from .meal_quality import FullDayLogDB, tags_of, meal_counts
         from .supplements import SupplementDB, SupplementTakenDB
+        from .cardio_analytics import is_interval_cardio_name
     except ImportError:
+        from cardio_analytics import is_interval_cardio_name
         from main import (AppleHealthDailyDB, BodyWeightEntryDB, ExerciseDB, NutritionEntryDB,
                           WeeklyReviewDB, WorkoutSessionDB, WorkoutSetDB)
         from longevity import BPReadingDB, CPAPNightDB
@@ -194,7 +196,7 @@ def project(db: Session) -> dict[str, list[list]]:
         # Free-form review text is not a structured 'one change' field.
         rows["Weekly"].append([week, (date.fromisoformat(week) + timedelta(days=6)).isoformat(),
             field(5), sum(1 for w in ws if w.strength_duration_minutes and w.strength_duration_minutes > 0) if ws else "",
-            sum(any(ex.kind == "cardio" and "Hard interval" in ex.name and ex.cardio_duration_minutes and ex.cardio_duration_minutes > 0 for ex in by_session[w.id]) for w in ws) if ws else "", sum(zone) if zone else "",
+            sum(any(ex.kind == "cardio" and is_interval_cardio_name(ex.name) and ex.cardio_duration_minutes and ex.cardio_duration_minutes > 0 for ex in by_session[w.id]) for w in ws) if ws else "", sum(zone) if zone else "",
             field(8), field(3), field(4), field(1), nutrition_field(17), nutrition_field(20), nutrition_field(16),
             sum(flags.get((date.fromisoformat(week) + timedelta(days=i)).isoformat(), False) for i in range(7)) if any((date.fromisoformat(week) + timedelta(days=i)).isoformat() in flags for i in range(7)) else "",
             field(14), field(15),

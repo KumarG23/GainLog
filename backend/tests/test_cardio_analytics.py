@@ -59,3 +59,11 @@ def test_paused_intervals_use_separate_recorded_windows_not_contiguous_estimates
     assert result['zone2Minutes'] == 10
     session.exercises[1].cardio_started_at = sample(9, 120)[0].isoformat()
     assert analyze(session, points, (110, 130))['windowSource'] == 'unverified'
+
+
+def test_interval_name_detection_covers_single_and_legacy_entries():
+    from backend.cardio_analytics import is_interval_cardio_name
+    assert is_interval_cardio_name('Treadmill · Interval session')
+    assert is_interval_cardio_name('Treadmill · Hard interval 3')
+    assert not is_interval_cardio_name('Treadmill · Warm-up')
+    assert not is_interval_cardio_name('Treadmill')

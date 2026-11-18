@@ -5,6 +5,11 @@ from datetime import datetime, timedelta, timezone
 from math import isfinite
 
 MAX_GAP_SECONDS = 120
+
+
+def is_interval_cardio_name(name: str) -> bool:
+    """Interval cardio: the single 'Interval session' entry or legacy 'Hard interval N' segments."""
+    return 'Interval session' in name or 'Hard interval' in name
 MIN_COVERAGE = 0.8
 
 
@@ -89,7 +94,7 @@ def analyze(session, samples: list[tuple[datetime, float]], band: tuple[int, int
     for ex, (start, end) in recorded:
         result = summarize(samples, start, end, band)
         segments.append({'name': ex.name, 'start': start.isoformat(), 'end': end.isoformat(), **result})
-        if 'Hard interval' not in ex.name and result['zone2Minutes'] is not None:
+        if not is_interval_cardio_name(ex.name) and result['zone2Minutes'] is not None:
             zone2 += result['zone2Minutes']
     benchmark = None
     if len(recorded) == 1 and recorded[0][0].name == 'Treadmill · Benchmark 3 mph 7%':
@@ -100,7 +105,7 @@ def analyze(session, samples: list[tuple[datetime, float]], band: tuple[int, int
                 and ex.distance_miles is not None and abs(ex.distance_miles - 1) < .01):
             benchmark = summarize(samples, start + timedelta(minutes=10), end, band)
     return {'segments': segments, 'zone2Minutes': round(zone2, 2) if all(
-        segment['zone2Minutes'] is not None for segment in segments if 'Hard interval' not in segment['name']) else None,
+        segment['zone2Minutes'] is not None for segment in segments if not is_interval_cardio_name(segment['name'])) else None,
         'benchmarkAverageHr': benchmark['averageHr'] if benchmark else None,
         'benchmarkCoverage': benchmark['coverage'] if benchmark else None,
         'protocolCompliant': benchmark is not None, 'windowSource': 'recorded'}

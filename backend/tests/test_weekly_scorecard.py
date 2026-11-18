@@ -56,3 +56,15 @@ def test_scorecard_excludes_partial_nutrition_and_counts_performed_intervals(cli
     rows = {r['key']:r for r in client.get('/longevity/scorecard', params={'weekStart':day}).json()['rows']}
     assert rows['protein']['value'] == 35 and rows['protein']['status'] == 'red'
     assert rows['logged']['value'] == 1
+
+
+def test_scorecard_counts_single_timer_interval_session(client):
+    start = week()
+    day = start.isoformat()
+    with Session(engine) as db:
+        workout = WorkoutSessionDB(date=day+'T07:00:00-05:00', duration_minutes=40, template_id='recovery', cardio_duration_minutes=40)
+        db.add(workout); db.flush()
+        db.add(ExerciseDB(session_id=workout.id, name='Treadmill · Interval session', kind='cardio', cardio_duration_minutes=40, position=0))
+        db.commit()
+        rows = {r['key']: r for r in build(db, start)['rows']}
+        assert rows['intervals']['value'] == 1
