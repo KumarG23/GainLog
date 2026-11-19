@@ -5,6 +5,7 @@ import argparse
 import fcntl
 import json
 import os
+import time
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -15,6 +16,9 @@ from sqlmodel import Session, select
 
 EASTERN = ZoneInfo("America/New_York")
 SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
+RETRYABLE = {429, 500, 502, 503, 504}
+MAX_ATTEMPTS = 6
+BATCH_SIZE = 200
 HEADERS = {
     "Daily": ["Date", "Weight (lb)", "Body fat %", "RHR", "HRV", "Sleep (min)", "CPAP hours", "CPAP AHI", "Steps", "Active kcal", "Workout template", "Strength min", "Cardio min", "Zone-2 min", "BP sys avg", "BP dia avg", "Calories", "Protein", "Carbs", "Fat", "Fiber", "UPF dinner (Y/N)", "Fatty fish (Y/N)", "Supplements taken (%)", "Days-logged flag", "Notes"],
     "Workouts": ["ID", "Date", "Duration (min)", "Avg HR", "Active kcal", "Total kcal", "Notes", "Insight", "Template", "Effort", "Pain"],
@@ -220,7 +224,15 @@ class SheetsClient:
 
     def request(self, method, sheet_id, suffix, payload=None):
         url = f"https://sheets.googleapis.com/v4/spreadsheets/{quote(sheet_id, safe='')}{suffix}"
-        response = self.http.request(method, url, json=payload, timeout=45)
+        for attempt in range(MAX_ATTEMPTS):
+            response = self.http.request(method, url, json=payload, timeout=45)
+            if response.status_code not in RETRYABLE or attempt == MAX_ATTEMPTS - 1:
+                break
+            try:
+                delay = float(response.headers.get("Retry-After", ""))
+            except (TypeError, ValueError):
+                delay = 0.0
+            time.sleep(min(max(delay, 15.0 * (attempt + 1)), 90.0))
         response.raise_for_status()
         return response.json()
 
@@ -235,6 +247,14 @@ class SheetsClient:
         address = quote(f"'{tab}'!A{start}:AZ{end}", safe="")
         return self.request("PUT", sheet_id, f"/values/{address}?valueInputOption=RAW",
                             {"majorDimension": "ROWS", "values": values})
+
+
+    def write_batch(self, sheet_id, tab, items):
+        """Write many (start_row, rows) blocks per request to stay inside Sheets write quotas."""
+        for i in range(0, len(items), BATCH_SIZE):
+            data = [{"range": f"'{tab}'!A{start}:AZ{start + len(values) - 1}", "majorDimension": "ROWS", "values": values}
+                    for start, values in items[i:i + BATCH_SIZE]]
+            self.request("POST", sheet_id, "/values:batchUpdate", {"valueInputOption": "RAW", "data": data})
 
 
 def sync(db, sheets, sheet_id: str, now=None):
@@ -261,6 +281,7 @@ def sync(db, sheets, sheet_id: str, now=None):
             if key in indexes:
                 raise ValueError(f"duplicate {tab} key {key}; manual repair required")
             indexes[key] = index
+        pending = []
         for row in projected[tab]:
             key = str(row[key_col])
             formatted = [clean(value) for value in row]
@@ -268,12 +289,14 @@ def sync(db, sheets, sheet_id: str, now=None):
                 current = existing[indexes[key] - 1]
                 if [str(x) for x in current] == [str(x) for x in formatted[:len(current)]] and all(x == "" for x in formatted[len(current):]):
                     continue
-                sheets.write(sheet_id, tab, indexes[key], [formatted])
+                pending.append((indexes[key], [formatted]))
             else:
                 position = len(existing) + 1
-                sheets.write(sheet_id, tab, position, [formatted])
+                pending.append((position, [formatted]))
                 existing.append(formatted)
                 indexes[key] = position
+        if pending:
+            sheets.write_batch(sheet_id, tab, pending)
         verified = sheets.read(sheet_id, tab)
         readback = {str(row[key_col]): row for row in verified[1:] if len(row) > key_col and row[key_col]}
         expected_keys = {str(row[key_col]) for row in projected[tab]}

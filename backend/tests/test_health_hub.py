@@ -26,6 +26,41 @@ class FakeSheets:
             self.tabs[tab][i - 1] = list(row)
 
 
+def _batch(self, sheet_id, tab, items):
+    self.batches = getattr(self, "batches", 0) + 1
+    for start, values in items:
+        self.write(sheet_id, tab, start, values)
+
+
+FakeSheets.write_batch = _batch
+
+
+def test_client_retries_quota_errors_and_batches(monkeypatch):
+    import backend.health_hub as hub
+    class Resp:
+        def __init__(self, code, headers=None):
+            self.status_code, self.headers = code, headers or {}
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise RuntimeError(self.status_code)
+        def json(self):
+            return {}
+    class Http:
+        calls = []
+        def request(self, method, url, json=None, timeout=0):
+            self.calls.append((method, url, json))
+            return Resp(429, {"Retry-After": "1"}) if len(self.calls) < 3 else Resp(200)
+    slept = []
+    monkeypatch.setattr(hub.time, "sleep", slept.append)
+    client = hub.SheetsClient.__new__(hub.SheetsClient)
+    client.http = Http()
+    client.write_batch("sid", "Daily", [(i, [["x"]]) for i in range(2, 502)])
+    posts = [c for c in client.http.calls if c[0] == "POST"]
+    assert all(c[1].endswith("/values:batchUpdate") for c in posts)
+    assert len(slept) == 2 and min(slept) >= 15
+    assert len(posts[-1][2]["data"]) <= hub.BATCH_SIZE
+
+
 def test_personal_oauth_credential_is_rejected(tmp_path):
     from backend.health_hub import SheetsClient
     path = tmp_path / "personal.json"
