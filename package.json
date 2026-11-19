@@ -26,7 +26,8 @@
     "test:health-connect-nutrition": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/healthConnectNutrition.test.mjs tests/nutritionIncrementalSync.test.mjs tests/nutritionExportLane.test.mjs",
     "test:health-connect-workouts": "TZ=America/New_York NODE_NO_WARNINGS=1 node --test tests/healthConnectWorkouts.test.mjs",
     "test:api-config": "NODE_NO_WARNINGS=1 node --test tests/apiConfig.test.mjs",
-    "test": "npm run test:notifications && npm run test:nutrition-memory && npm run test:visual && npm run test:workout-templates && npm run test:workout-history && npm run test:workout-insight && npm run test:workout-records && npm run test:trends && npm run test:goals && npm run test:health-display && npm run test:v2-today && npm run test:healthspan && npm run test:health-connect && npm run test:health-connect-auto && npm run test:health-connect-nutrition && npm run test:health-connect-workouts && npm run test:api-config"
+    "test": "npm run test:notifications && npm run test:nutrition-memory && npm run test:visual && npm run test:workout-templates && npm run test:workout-history && npm run test:workout-insight && npm run test:workout-records && npm run test:trends && npm run test:goals && npm run test:health-display && npm run test:v2-today && npm run test:healthspan && npm run test:health-connect && npm run test:health-connect-auto && npm run test:health-connect-nutrition && npm run test:health-connect-workouts && npm run test:health-connect-bp && npm run test:api-config",
+    "test:health-connect-bp": "node --test tests/healthConnectBloodPressure.test.mjs"
   },
   "dependencies": {
     "@expo/ngrok": "^4.1.3",

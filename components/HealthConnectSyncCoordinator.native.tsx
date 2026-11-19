@@ -24,6 +24,7 @@ import {
   saveAutoSyncSuccess,
   type AutoSyncLaneName,
 } from '../utils/healthConnectSyncStatus';
+import { hasBloodPressureReadAccess, syncRecentBloodPressure } from '../utils/longevityHealthConnect';
 import {
   hasWorkoutWriteAccess,
   isWorkoutExportEnabled,
@@ -49,10 +50,11 @@ async function performAutoSyncUnsafe({
     return { attempted: [], succeeded: [], failed: [] };
   }
 
-  const [hasHealthAccess, hasNutritionAccess, hasWorkoutAccess] = await Promise.all([
+  const [hasHealthAccess, hasNutritionAccess, hasWorkoutAccess, hasBpAccess] = await Promise.all([
     requestPermissions ? Promise.resolve(true) : hasHealthConnectBackgroundAccess(),
     hasNutritionAutoSyncAccess(),
     hasWorkoutAutoSyncAccess(),
+    hasBloodPressureReadAccess(),
   ]);
   const laneRunners: { name: AutoSyncLaneName; run: () => Promise<void> }[] = [
     ...(hasHealthAccess ? [{
@@ -73,6 +75,10 @@ async function performAutoSyncUnsafe({
     ...(hasWorkoutAccess ? [{
       name: 'workouts' as const,
       run: async () => { await syncWorkoutsToHealthConnect(); },
+    }] : []),
+    ...(hasBpAccess ? [{
+      name: 'bloodPressure' as const,
+      run: async () => { await syncRecentBloodPressure(); },
     }] : []),
   ];
   const lastSuccessValues = await Promise.all(
@@ -112,12 +118,13 @@ async function registerBackgroundSyncIfAllowed() {
   if (Platform.OS !== 'android') return;
   if (!await TaskManager.isAvailableAsync()) return;
   if (await BackgroundTask.getStatusAsync() !== BackgroundTask.BackgroundTaskStatus.Available) return;
-  const [hasHealthAccess, hasNutritionAccess, hasWorkoutAccess] = await Promise.all([
+  const [hasHealthAccess, hasNutritionAccess, hasWorkoutAccess, hasBpAccess] = await Promise.all([
     hasHealthConnectBackgroundAccess(),
     hasNutritionAutoSyncAccess(),
     hasWorkoutAutoSyncAccess(),
+    hasBloodPressureReadAccess(),
   ]);
-  if (!hasHealthAccess && !hasNutritionAccess && !hasWorkoutAccess) return;
+  if (!hasHealthAccess && !hasNutritionAccess && !hasWorkoutAccess && !hasBpAccess) return;
   await BackgroundTask.registerTaskAsync(TASK_NAME, {
     minimumInterval: BACKGROUND_INTERVAL_MINUTES,
   });

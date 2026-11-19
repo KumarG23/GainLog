@@ -1,12 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { parseAutoSyncFailure, type AutoSyncFailure } from './healthConnectAutoSync';
 
-export type AutoSyncLaneName = 'health' | 'nutrition' | 'workouts';
+export type AutoSyncLaneName = 'health' | 'nutrition' | 'workouts' | 'bloodPressure';
 
 export const AUTO_SYNC_LANE_LABELS: Record<AutoSyncLaneName, string> = {
   health: 'Health data import',
   nutrition: 'Meals to Health Connect',
   workouts: 'Workouts to Health Connect',
+  bloodPressure: 'Blood pressure import',
 };
 
 // Success keys predate this module; keep them so existing throttling state survives updates.
@@ -14,6 +15,7 @@ export const AUTO_SYNC_SUCCESS_KEYS: Record<AutoSyncLaneName, string> = {
   health: 'gainlog.healthConnect.lastSuccessfulAutoSync',
   nutrition: 'gainlog.healthConnect.lastSuccessfulNutritionAutoSync',
   workouts: 'gainlog.healthConnect.lastSuccessfulWorkoutAutoSync',
+  bloodPressure: 'gainlog.healthConnect.lastSuccessfulBloodPressureAutoSync',
 };
 
 const FAILURE_KEY_PREFIX = 'gainlog.healthConnect.lastAutoSyncFailure.';

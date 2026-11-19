@@ -34,6 +34,7 @@ import {
   setWorkoutExportEnabled,
   syncWorkoutsToHealthConnect,
 } from '../utils/healthConnectWorkoutExport';
+import { hasBloodPressureReadAccess, syncRecentBloodPressure } from '../utils/longevityHealthConnect';
 import { formatSyncTimestamp } from '../utils/settingsDisplay';
 import { DEFAULT_ZONE2_BAND, readZone2Band, saveZone2Band } from '../utils/zone2Settings';
 import {
@@ -202,6 +203,9 @@ export default function SettingsScreen() {
           : Promise.resolve(null),
         workoutExportEnabled
           ? runExportLane('workouts', syncWorkoutsToHealthConnect)
+          : Promise.resolve(null),
+        (await hasBloodPressureReadAccess())
+          ? runExportLane('bloodPressure', syncRecentBloodPressure)
           : Promise.resolve(null),
       ])).filter((message): message is string => message != null);
       Alert.alert(
