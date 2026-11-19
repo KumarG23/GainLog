@@ -211,6 +211,23 @@ def project(db: Session) -> dict[str, list[list]]:
     return rows
 
 
+def same_cell(actual, expected) -> bool:
+    """Equal as text, or numerically (Sheets returns 60.0 as 60)."""
+    a, e = str(actual), str(expected)
+    if a == e:
+        return True
+    try:
+        return float(a) == float(e)
+    except ValueError:
+        return False
+
+
+def same_row(actual, expected) -> bool:
+    return (len(actual) <= len(expected)
+            and all(same_cell(x, y) for x, y in zip(actual, expected))
+            and all(str(y) == "" for y in expected[len(actual):]))
+
+
 class SheetsClient:
     """Scoped Sheets API only; never requests Drive permissions."""
     def __init__(self, credentials_path: str):
@@ -287,7 +304,7 @@ def sync(db, sheets, sheet_id: str, now=None):
             formatted = [clean(value) for value in row]
             if key in indexes:
                 current = existing[indexes[key] - 1]
-                if [str(x) for x in current] == [str(x) for x in formatted[:len(current)]] and all(x == "" for x in formatted[len(current):]):
+                if same_row(current, formatted):
                     continue
                 pending.append((indexes[key], [formatted]))
             else:
@@ -305,7 +322,7 @@ def sync(db, sheets, sheet_id: str, now=None):
         for row in projected[tab]:
             actual = readback[str(row[key_col])]
             expected = [str(clean(value)) for value in row]
-            if [str(value) for value in actual] != expected[:len(actual)] or any(value != "" for value in expected[len(actual):]):
+            if not same_row(actual, expected):
                 raise RuntimeError(f"{tab} readback differs from source; freshness not advanced")
         counts[tab] = len(expected_keys)
     for tab in ("Labs", "README"):

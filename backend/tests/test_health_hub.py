@@ -195,3 +195,19 @@ def test_schema_drift_duplicate_keys_and_missing_tab_fail_closed(client):
         del sheets.tabs["BP"]
         with pytest.raises(ValueError, match="missing Health Hub tabs"):
             sync(db, sheets, "private-sheet")
+
+
+def test_whole_number_floats_pass_readback_and_are_not_rewritten(client):
+    from backend.main import engine, AppleHealthDailyDB
+    class NormalizingSheets(FakeSheets):
+        def read(self, sheet_id, tab):
+            return [[int(c) if isinstance(c, float) and c.is_integer() else c for c in row]
+                    for row in super().read(sheet_id, tab)]
+    sheets = NormalizingSheets()
+    with Session(engine) as db:
+        db.add(AppleHealthDailyDB(date="2026-11-15", steps=100, resting_heart_rate_bpm=60.0, updated_at="2026-11-15T00:00:00Z"))
+        db.commit()
+        sync(db, sheets, "private-sheet")
+        before = [w for w in sheets.writes if w[0] == "Daily"]
+        sync(db, sheets, "private-sheet")
+    assert [w for w in sheets.writes if w[0] == "Daily"] == before
