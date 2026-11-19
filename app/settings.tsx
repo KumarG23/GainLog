@@ -380,7 +380,7 @@ export default function SettingsScreen() {
             <View style={styles.toggleCopy}>
               <Text style={styles.toggleTitle}>Export workouts</Text>
               <Text style={styles.hint}>
-                Writes each GainLog workout, with every set, rep and weight in the notes, to Health Connect so Google Health can see it. Your watch may already record the same session, so Google Health can show both.
+                Writes each GainLog workout, with every set, rep and weight in the notes, to Health Connect so Google Health can see it. Your watch may already record the same session, so Google Health can show both. Turning this off removes every workout GainLog wrote; workouts from your watch stay.
               </Text>
             </View>
             <Switch

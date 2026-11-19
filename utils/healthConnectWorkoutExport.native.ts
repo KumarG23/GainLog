@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
+  deleteRecordsByTimeRange,
   deleteRecordsByUuids,
   getGrantedPermissions,
   initialize,
@@ -38,6 +39,21 @@ export async function hasWorkoutWriteAccess(): Promise<boolean> {
   ));
 }
 
+/**
+ * Removes every exercise session GainLog has written. Health Connect only lets an app
+ * delete its own records, so watch and Google Health workouts are untouched.
+ */
+async function removeExportedWorkouts(): Promise<void> {
+  if (await hasWorkoutWriteAccess()) {
+    await deleteRecordsByTimeRange('ExerciseSession', {
+      operator: 'between',
+      startTime: new Date(0).toISOString(),
+      endTime: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
+    });
+  }
+  await AsyncStorage.removeItem(STATE_KEY);
+}
+
 export async function setWorkoutExportEnabled(enabled: boolean): Promise<void> {
   if (enabled) {
     if (!await initialize()) throw new Error('Health Connect is unavailable on this device.');
@@ -45,8 +61,13 @@ export async function setWorkoutExportEnabled(enabled: boolean): Promise<void> {
     if (!await hasWorkoutWriteAccess()) {
       throw new Error('GainLog needs Health Connect exercise write permission.');
     }
+    await AsyncStorage.setItem(ENABLED_KEY, 'true');
+    return;
   }
-  await AsyncStorage.setItem(ENABLED_KEY, enabled ? 'true' : 'false');
+  // Stop new exports first so a background run can't re-add records mid-cleanup.
+  await AsyncStorage.setItem(ENABLED_KEY, 'false');
+  await runSerialized(undefined);
+  await removeExportedWorkouts();
 }
 
 async function fetchWorkouts(): Promise<WorkoutSession[]> {
