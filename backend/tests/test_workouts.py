@@ -490,11 +490,19 @@ def test_prescription_round_trip_and_assembled_insight_evidence(monkeypatch):
 
         earned = log([(80, 12)] * 3)
         assert "prescribed 3 working sets of 8–12 reps; earned next-load step: yes" in earned
+        # Near-failure sets: a first set 3+ over the top with no set under the bottom also earns.
+        for sets in ([(80, 15), (80, 12), (80, 8)], [(80, 18), (80, 14), (80, 11)]):
+            assert "earned next-load step: yes" in log(sets)
         for prompt in (
             log([(80, 12)] * 3, target=False),
             log([(80, 12)] * 2),
             log([(80, 12), (85, 12), (80, 12)]),
             log([(80, 12), (80, 11), (80, 12)]),
+            log([(80, 14), (80, 12), (80, 10)]),
+            log([(80, 16), (80, 11), (80, 7)]),
+            log([(80, 18), (80, 14), (80, 11)], effort="hard"),
+            log([(80, 18), (85, 14), (80, 11)]),
+            log([(80, 18), (80, 41), (80, 11)]),
             log([(80, 12)] * 3, effort="hard"),
             log([(80, 12)] * 3, pain=True),
             log([(80, 12)] * 3, notes="Form broke on last rep"),
@@ -502,7 +510,7 @@ def test_prescription_round_trip_and_assembled_insight_evidence(monkeypatch):
             log([(80, 12)] * 3, notes="No pain, but struggling with form"),
         ):
             assert "earned next-load step: yes" not in prompt.split("PRESCRIPTION EVIDENCE")[1].split("</workout_data>")[0]
-        assert "no saved prescribed target" in captured[1]
+        assert "no saved prescribed target" in captured[3]
 
 
 def test_incomplete_or_invalid_prescription_is_rejected():

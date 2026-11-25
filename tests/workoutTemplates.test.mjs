@@ -751,6 +751,54 @@ test('double progression requires two qualifying sessions and keeps safety vetoe
   assert.match(draft(row, [15, 15, 15], { notes: 'No form issues. Not bad form.' }).prescription, /Hold 90 lb/);
 });
 
+test('a top set well over the range earns a step when reps fall off across sets', () => {
+  const bench = 'Smith Machine Bench Press'; // 8–12
+  const session = (id, date, reps, feedback = {}, weight = 110) =>
+    workout(id, date, bench, reps.map((count, i) => ({ id: `${id}-${i}`, weight, reps: count })),
+      { effort: 'right', notes: 'Felt good.', ...feedback });
+  const build = history => buildWorkoutTemplateDraft(
+    'push', () => crypto.randomUUID(), history, new Date('2026-08-10T06:00:00-04:00'),
+  ).exercises[0].prescription;
+  const older = '2026-07-27T06:00:00-04:00';
+  const latest = '2026-08-03T06:00:00-04:00';
+  const lighter = session('lighter', '2026-07-13T06:00:00-04:00', [12, 12, 12], {}, 105);
+
+  assert.equal(workoutTemplates.TOP_SET_OVERSHOOT_REPS, 3);
+  // First set 3+ over the top, no set under the bottom, two sessions running.
+  assert.match(build([lighter, session('a', older, [15, 12, 8]), session('b', latest, [18, 14, 11])]),
+    /Increase to 115 lb/);
+  // Top set only 2 over, a set under the bottom of the range, or a single session: hold.
+  assert.match(build([lighter, session('a', older, [15, 12, 8]), session('b', latest, [14, 12, 10])]),
+    /Hold 110 lb/);
+  assert.match(build([lighter, session('a', older, [15, 12, 8]), session('b', latest, [16, 11, 7])]),
+    /Hold 110 lb/);
+  assert.match(build([lighter, session('b', latest, [18, 14, 11])]), /Hold 110 lb/);
+  // Safety feedback still vetoes the top-set path.
+  assert.match(build([lighter, session('a', older, [15, 12, 8]),
+    session('b', latest, [18, 14, 11], { effort: 'hard' })]), /Hold 110 lb/);
+  assert.match(build([lighter, session('a', older, [15, 12, 8]),
+    session('b', latest, [18, 14, 11], { notes: 'Shoulder hurt.' })]), /Hold 110 lb/);
+  // Only the two most recent sessions count: old qualifying days cannot outvote a recent miss.
+  assert.match(build([
+    session('x', '2026-07-13T06:00:00-04:00', [18, 14, 11]),
+    session('y', '2026-07-20T06:00:00-04:00', [18, 14, 11]),
+    session('a', older, [18, 14, 11]),
+    session('b', latest, [13, 11, 9]),
+  ]), /Hold 110 lb/);
+  // A wider range scales the bar: 15 on the first set is mid-range for 12–20.
+  const raise = 'Lateral Raise Machine';
+  const raiseSession = (id, date, reps) => workout(id, date, raise,
+    reps.map((count, i) => ({ id: `${id}-${i}`, weight: 55, reps: count })),
+    { effort: 'right', notes: 'Felt good.' });
+  const raiseDraft = history => buildWorkoutTemplateDraft(
+    'push', () => crypto.randomUUID(), history, new Date('2026-08-10T06:00:00-04:00'),
+  ).exercises.find(exercise => exercise.name === raise).prescription;
+  assert.match(raiseDraft([raiseSession('a', older, [20, 18, 15]), raiseSession('b', latest, [20, 18, 15])]),
+    /Hold 55 lb/);
+  assert.match(raiseDraft([raiseSession('a', older, [23, 18, 15]), raiseSession('b', latest, [24, 19, 14])]),
+    /Use the next available load step above 55 lb/);
+});
+
 test('the weekly prescription freezes performance but same-week pain vetoes an increase', () => {
   const row = 'Chest-Supported Row Machine';
   const top = [15, 17, 16].map((reps, i) => ({ id: `t${i}`, weight: 90, reps }));

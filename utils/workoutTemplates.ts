@@ -467,6 +467,10 @@ function priorExercises(
     });
 }
 
+// A first set this many reps over the top of the range shows the load is too
+// light even when later sets fall back inside the range.
+export const TOP_SET_OVERSHOOT_REPS = 3;
+
 function targetRange(targetReps: string): [number, number] {
   const values = targetReps.split(/[^0-9]+/).filter(Boolean).map(Number);
   return [values[0], values[1] ?? values[0]];
@@ -551,14 +555,25 @@ function buildWeightRecommendation(
           normalizeExerciseName(exercise.name) === normalizeExerciseName(templateExercise.name)) &&
         (session.pain === true || session.effort === 'hard' || noteHasSafetyConcern(session.notes));
     });
-    const qualifyingSessionsAtLoad = history.filter(({ exercise, session }) => {
+    // Two ways to qualify at the current load: every prescribed set reaches the
+    // top of the range, or (for sets taken near failure, where reps fall off)
+    // the first set clears the top by TOP_SET_OVERSHOOT_REPS and no set drops
+    // below the bottom of the range.
+    const qualifiesAtLoad = ({ exercise, session }: PriorExercise): boolean => {
       const candidateSets = exercise.sets.slice(-templateExercise.sets);
-      return candidateSets.length === templateExercise.sets &&
-        candidateSets.every(set =>
-          set.weight === latestSet.weight && set.reps >= maximum && set.reps <= 40,
-        ) && feedbackSupportsIncrease(session);
-    });
-    const earnedIncrease = qualifyingSessionsAtLoad.length >= 2 && !sameWeekSafetyConcern;
+      if (candidateSets.length !== templateExercise.sets ||
+          !candidateSets.every(set => set.weight === latestSet.weight && set.reps <= 40)) {
+        return false;
+      }
+      const allAtTop = candidateSets.every(set => set.reps >= maximum);
+      const topSetOver = candidateSets[0].reps >= maximum + TOP_SET_OVERSHOOT_REPS &&
+        candidateSets.every(set => set.reps >= minimum);
+      return (allAtTop || topSetOver) && feedbackSupportsIncrease(session);
+    };
+    // Only the two most recent sessions count, so an old good day cannot earn
+    // an increase after a recent session that fell short.
+    const earnedIncrease = history.length >= 2 && qualifiesAtLoad(history[0]) &&
+      qualifiesAtLoad(history[1]) && !sameWeekSafetyConcern;
     if (earnedIncrease) {
       if (increment == null) {
         return {

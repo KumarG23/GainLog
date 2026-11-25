@@ -22,7 +22,7 @@ BATCH_SIZE = 200
 HEADERS = {
     "Daily": ["Date", "Weight (lb)", "Body fat %", "RHR", "HRV", "Sleep (min)", "CPAP hours", "CPAP AHI", "Steps", "Active kcal", "Workout template", "Strength min", "Cardio min", "Zone-2 min", "BP sys avg", "BP dia avg", "Calories", "Protein", "Carbs", "Fat", "Fiber", "UPF dinner (Y/N)", "Fatty fish (Y/N)", "Supplements taken (%)", "Days-logged flag", "Notes"],
     "Workouts": ["ID", "Date", "Duration (min)", "Avg HR", "Active kcal", "Total kcal", "Notes", "Insight", "Template", "Effort", "Pain"],
-    "Exercise Sets": ["ID", "Workout ID", "Exercise ID", "Exercise", "Kind", "Position", "Set position", "Reps", "Weight", "Seconds", "measure"],
+    "Exercise Sets": ["ID", "Workout ID", "Exercise ID", "Exercise", "Kind", "Position", "Set position", "Reps", "Weight", "Seconds", "measure", "Target min", "Target max", "Prescribed sets"],
     "Meals": ["ID", "Date", "Meal", "Name", "Calories", "Protein (g)", "Carbs (g)", "Fat (g)", "Fiber (g)", "Notes", "Position", "Tags"],
     "Benchmarks": ["Date", "protocol", "avg HR min 10–20", "notes", "Workout ID"],
     "BP": ["ID", "Date", "Time", "Systolic", "Diastolic", "Pulse", "Arm", "Position", "Source"],
@@ -138,7 +138,8 @@ def project(db: Session) -> dict[str, list[list]]:
             for item in by_exercise[ex.id]:
                 rows["Exercise Sets"].append([item.id, w.id, ex.id, ex.name, ex.kind,
                     ex.position, item.position, clean(item.reps) if item.measure == "reps" else "",
-                    clean(item.weight), clean(item.seconds) if item.measure == "seconds" else "", item.measure])
+                    clean(item.weight), clean(item.seconds) if item.measure == "seconds" else "", item.measure,
+                    clean(ex.target_reps_min), clean(ex.target_reps_max), clean(ex.prescribed_sets)])
     meals_by_week = defaultdict(list)
     for meal in db.exec(select(NutritionEntryDB).order_by(NutritionEntryDB.date, NutritionEntryDB.position)).all():
         d = local_date(meal.date)
