@@ -784,6 +784,14 @@ test('a top set well over the range earns a step when reps fall off across sets'
   assert.match(build([lighter, session('a', older, [15, 12, 8]), session('b', latest, [16, 11, 7])]),
     /Hold 110 lb/);
   assert.match(build([lighter, session('b', latest, [18, 14, 11])]), /Hold 110 lb/);
+  // An extra logged set disqualifies the session, as it does for the coach:
+  // the last three of four must not be counted as the working sets.
+  assert.match(build([lighter, session('a', older, [15, 12, 8]), session('b', latest, [10, 18, 14, 11])]),
+    /Hold 110 lb/);
+  assert.match(build([lighter, session('a', older, [12, 12, 12, 12]), session('b', latest, [12, 12, 12])]),
+    /Hold 110 lb/);
+  assert.match(build([lighter, session('a', older, [12, 12, 12]), session('b', latest, [12, 12, 12])]),
+    /Increase to 115 lb/);
   // Safety feedback still vetoes the top-set path.
   assert.match(build([lighter, session('a', older, [15, 12, 8]),
     session('b', latest, [18, 14, 11], { effort: 'hard' })]), /Hold 110 lb/);

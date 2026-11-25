@@ -496,6 +496,8 @@ def test_prescription_round_trip_and_assembled_insight_evidence(monkeypatch):
         for prompt in (
             log([(80, 12)] * 3, target=False),
             log([(80, 12)] * 2),
+            log([(80, 12)] * 4),
+            log([(80, 10), (80, 18), (80, 14), (80, 11)]),
             log([(80, 12), (85, 12), (80, 12)]),
             log([(80, 12), (80, 11), (80, 12)]),
             log([(80, 14), (80, 12), (80, 10)]),

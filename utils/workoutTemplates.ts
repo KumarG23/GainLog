@@ -575,7 +575,9 @@ function buildWeightRecommendation(
     const qualifiesAtLoad = ({ exercise, session }: PriorExercise): boolean => {
       const saved = savedPrescription(exercise);
       if (!saved) return false;
-      const candidateSets = exercise.sets.slice(-saved.sets);
+      // Exactly the prescribed number of sets, as the coach requires: with
+      // extra sets logged there is no telling warm-ups from working sets.
+      const candidateSets = exercise.sets;
       if (candidateSets.length !== saved.sets ||
           !candidateSets.every(set => set.weight === latestSet.weight && set.reps <= 40)) {
         return false;
