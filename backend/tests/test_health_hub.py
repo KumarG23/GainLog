@@ -96,7 +96,7 @@ def test_source_projection_real_models_and_missing_is_blank(client):
         db.add(NutritionEntryDB(id="meal1", date="2026-11-15", meal="dinner", name="test", calories=420, protein_g=35))
         db.add(NutritionEntryDB(id="meal2", date="2026-11-15", meal="breakfast", name="test", calories=200, protein_g=20))
         db.add(WorkoutSessionDB(id="workout", date="2026-11-16T03:30:00Z", duration_minutes=50, cardio_duration_minutes=20, cardio_analysis_json='{"windowSource":"recorded","zone2Minutes":12.5,"protocolCompliant":true,"benchmarkCoverage":1,"benchmarkAverageHr":117}'))
-        db.add(ExerciseDB(id="exercise", session_id="workout", name="Hang"))
+        db.add(ExerciseDB(id="exercise", session_id="workout", name="Hang", target_reps_min=40, target_reps_max=60, prescribed_sets=2))
         db.add(WorkoutSetDB(id="set", exercise_id="exercise", reps=0, weight=0, measure="seconds", seconds=40))
         db.commit()
         rows = project(db)
@@ -105,7 +105,9 @@ def test_source_projection_real_models_and_missing_is_blank(client):
     assert daily[1] == 180.2 and daily[5] == 0 and daily[8] == 8000
     assert daily[6] == "" and daily[14] == "" and daily[23] == "" and daily[24] == ""
     assert daily[13] == 12.5 and daily[16] == 620 and daily[17] == 55
-    assert rows["Exercise Sets"][0][-1] == "seconds"
+    assert rows["Exercise Sets"][0][10] == "seconds"
+    assert rows["Exercise Sets"][0][11:] == [40, 60, 2]
+    assert len(rows["Exercise Sets"][0]) == len(HEADERS["Exercise Sets"])
     assert rows["Exercise Sets"][0][7] == "" and rows["Exercise Sets"][0][9] == 40
     assert rows["Benchmarks"][0][2] == 117
     assert rows["Weekly"][0][0] == "2026-11-09"

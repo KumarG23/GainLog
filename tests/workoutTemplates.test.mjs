@@ -101,14 +101,25 @@ test('Android substitution alert remains within its three-button limit', () => {
   assert.match(logScreen, /\.filter\(name => name !== exercise\.name\)\s*\.slice\(0, 2\)/);
 });
 
-const workout = (id, date, exerciseName, sets, feedback = {}) => ({
+// A template-loaded log carries the prescription that was on screen. By default
+// that is the built-in template's; pass `saved` to set another, or `saved: null`
+// for an older log with none.
+const builtInPrescription = (templateId, exerciseName) => {
+  const planned = PLANET_FITNESS_TEMPLATES.find(template => template.id === templateId)
+    ?.exercises.find(exercise => exercise.name === exerciseName);
+  return planned ? workoutTemplates.savedRepPrescription(planned.targetReps, planned.sets) : undefined;
+};
+const workout = (id, date, exerciseName, sets, { saved, ...feedback } = {}) => ({
   id,
   date,
   durationMinutes: 40,
   templateId: 'push',
   pain: false,
   ...feedback,
-  exercises: [{ id: `${id}-exercise`, name: exerciseName, kind: 'strength', sets }],
+  exercises: [{
+    id: `${id}-exercise`, name: exerciseName, kind: 'strength', sets,
+    ...(saved === undefined ? builtInPrescription(feedback.templateId ?? 'push', exerciseName) : saved),
+  }],
 });
 
 test('Planet Fitness plan provides five ordered weekday templates', () => {
@@ -749,6 +760,106 @@ test('double progression requires two qualifying sessions and keeps safety vetoe
   assert.match(draft(row, [9, 12, 11], { effort: 'hard' }).prescription, /Reduce to 85 lb/);
   assert.match(draft(row, [15, 41, 15]).prescription, /Hold 90 lb/);
   assert.match(draft(row, [15, 15, 15], { notes: 'No form issues. Not bad form.' }).prescription, /Hold 90 lb/);
+});
+
+test('a top set well over the range earns a step when reps fall off across sets', () => {
+  const bench = 'Smith Machine Bench Press'; // 8–12
+  const session = (id, date, reps, feedback = {}, weight = 110) =>
+    workout(id, date, bench, reps.map((count, i) => ({ id: `${id}-${i}`, weight, reps: count })),
+      { effort: 'right', notes: 'Felt good.', ...feedback });
+  const build = history => buildWorkoutTemplateDraft(
+    'push', () => crypto.randomUUID(), history, new Date('2026-08-10T06:00:00-04:00'),
+  ).exercises[0].prescription;
+  const older = '2026-07-27T06:00:00-04:00';
+  const latest = '2026-08-03T06:00:00-04:00';
+  const lighter = session('lighter', '2026-07-13T06:00:00-04:00', [12, 12, 12], {}, 105);
+
+  assert.equal(workoutTemplates.TOP_SET_OVERSHOOT_REPS, 3);
+  // First set 3+ over the top, no set under the bottom, two sessions running.
+  assert.match(build([lighter, session('a', older, [15, 12, 8]), session('b', latest, [18, 14, 11])]),
+    /Increase to 115 lb/);
+  // Top set only 2 over, a set under the bottom of the range, or a single session: hold.
+  assert.match(build([lighter, session('a', older, [15, 12, 8]), session('b', latest, [14, 12, 10])]),
+    /Hold 110 lb/);
+  assert.match(build([lighter, session('a', older, [15, 12, 8]), session('b', latest, [16, 11, 7])]),
+    /Hold 110 lb/);
+  assert.match(build([lighter, session('b', latest, [18, 14, 11])]), /Hold 110 lb/);
+  // An extra logged set disqualifies the session, as it does for the coach:
+  // the last three of four must not be counted as the working sets.
+  assert.match(build([lighter, session('a', older, [15, 12, 8]), session('b', latest, [10, 18, 14, 11])]),
+    /Hold 110 lb/);
+  assert.match(build([lighter, session('a', older, [12, 12, 12, 12]), session('b', latest, [12, 12, 12])]),
+    /Hold 110 lb/);
+  assert.match(build([lighter, session('a', older, [12, 12, 12]), session('b', latest, [12, 12, 12])]),
+    /Increase to 115 lb/);
+  // Safety feedback still vetoes the top-set path.
+  assert.match(build([lighter, session('a', older, [15, 12, 8]),
+    session('b', latest, [18, 14, 11], { effort: 'hard' })]), /Hold 110 lb/);
+  assert.match(build([lighter, session('a', older, [15, 12, 8]),
+    session('b', latest, [18, 14, 11], { notes: 'Shoulder hurt.' })]), /Hold 110 lb/);
+  // Only the two most recent sessions count: old qualifying days cannot outvote a recent miss.
+  assert.match(build([
+    session('x', '2026-07-13T06:00:00-04:00', [18, 14, 11]),
+    session('y', '2026-07-20T06:00:00-04:00', [18, 14, 11]),
+    session('a', older, [18, 14, 11]),
+    session('b', latest, [13, 11, 9]),
+  ]), /Hold 110 lb/);
+  // A wider range scales the bar: 15 on the first set is mid-range for 12–20.
+  const raise = 'Lateral Raise Machine';
+  const raiseSession = (id, date, reps) => workout(id, date, raise,
+    reps.map((count, i) => ({ id: `${id}-${i}`, weight: 55, reps: count })),
+    { effort: 'right', notes: 'Felt good.' });
+  const raiseDraft = history => buildWorkoutTemplateDraft(
+    'push', () => crypto.randomUUID(), history, new Date('2026-08-10T06:00:00-04:00'),
+  ).exercises.find(exercise => exercise.name === raise).prescription;
+  assert.match(raiseDraft([raiseSession('a', older, [20, 18, 15]), raiseSession('b', latest, [20, 18, 15])]),
+    /Hold 55 lb/);
+  assert.match(raiseDraft([raiseSession('a', older, [23, 18, 15]), raiseSession('b', latest, [24, 19, 14])]),
+    /Use the next available load step above 55 lb/);
+});
+
+test('editing a plan range never re-scores sessions logged under the old range', () => {
+  const row = 'Seated Cable Row'; // built-in Pull range 8–12
+  const builtInPull = PLANET_FITNESS_TEMPLATES.find(template => template.id === 'pull').exercises;
+  const planWith = targetReps => applyWorkoutPlanOverrides({
+    pull: builtInPull.map(exercise => exercise.name === row ? { ...exercise, targetReps } : exercise),
+  });
+  const logged = (id, date, reps, saved, weight = 90) => workout(id, date, row,
+    reps.map((count, i) => ({ id: `${id}-${i}`, weight, reps: count })),
+    { templateId: 'pull', effort: 'right', notes: 'Felt good.', saved });
+  const prescription = (history, templates) => buildWorkoutTemplateDraft(
+    'pull', () => crypto.randomUUID(), history, new Date('2026-08-10T06:00:00-04:00'), templates,
+  ).exercises.find(exercise => exercise.name === row).prescription;
+  const wide = { targetRepsMin: 12, targetRepsMax: 15, prescribedSets: 3 };
+  const narrow = { targetRepsMin: 8, targetRepsMax: 12, prescribedSets: 3 };
+  const baseline = logged('baseline', '2026-07-20T06:00:00-04:00', [12, 12, 12], wide, 85);
+
+  // Logged under 12–15 and short of it. Narrowing the plan to 8–12 afterwards
+  // must not turn those two sessions into an earned step.
+  const underWide = [baseline,
+    logged('a', '2026-07-27T06:00:00-04:00', [14, 13, 12], wide),
+    logged('b', '2026-08-03T06:00:00-04:00', [14, 13, 12], wide)];
+  assert.match(prescription(underWide, planWith('12–15')), /Hold 90 lb · 3 × 12–15/);
+  assert.match(prescription(underWide, planWith('8–12')), /Hold 90 lb · 3 × 8–12/);
+  // The same reps logged under 8–12 did earn it, whatever the plan says now.
+  const underNarrow = [baseline,
+    logged('a', '2026-07-27T06:00:00-04:00', [14, 13, 12], narrow),
+    logged('b', '2026-08-03T06:00:00-04:00', [14, 13, 12], narrow)];
+  assert.match(prescription(underNarrow, planWith('8–12')), /Increase to 95 lb/);
+  assert.match(prescription(underNarrow, planWith('12–15')), /Increase to 95 lb/);
+  // One session under each range: only the one that met its own range counts.
+  assert.match(prescription([baseline, underNarrow[1], underWide[2]], planWith('8–12')), /Hold 90 lb/);
+  // Widening a range must not turn an in-range session into a reduction either.
+  const inNarrow = [baseline, logged('a', '2026-08-03T06:00:00-04:00', [10, 9, 8], narrow)];
+  assert.match(prescription(inNarrow, planWith('12–15')), /Hold 90 lb/);
+  // A log with no saved prescription cannot earn an increase from today's plan.
+  const legacy = [baseline,
+    logged('a', '2026-07-27T06:00:00-04:00', [12, 12, 12], null),
+    logged('b', '2026-08-03T06:00:00-04:00', [12, 12, 12], null)];
+  assert.match(prescription(legacy, planWith('8–12')), /Hold 90 lb/);
+  // It can still be reduced against the current plan.
+  assert.match(prescription([baseline, logged('a', '2026-08-03T06:00:00-04:00', [7, 6, 6], null)],
+    planWith('8–12')), /Reduce to 85 lb/);
 });
 
 test('the weekly prescription freezes performance but same-week pain vetoes an increase', () => {

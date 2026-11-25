@@ -1355,6 +1355,10 @@ def _format_broader_context(
     return "\n".join(lines)
 
 
+# Keep equal to TOP_SET_OVERSHOOT_REPS in utils/workoutTemplates.ts.
+TOP_SET_OVERSHOOT_REPS = 3
+
+
 def _build_prompt(
     current: WorkoutSessionDB,
     history: list[WorkoutSessionDB],
@@ -1391,10 +1395,17 @@ def _build_prompt(
         same_load = bool(sets) and sets[0].weight > 0 and all(
             ws.weight == sets[0].weight for ws in sets
         )
+        complete = len(sets) == ex.prescribed_sets and same_load and all(ws.reps <= 40 for ws in sets)
+        all_at_top = complete and all(ws.reps >= ex.target_reps_max for ws in sets)
+        # Mirrors utils/workoutTemplates.ts: near-failure sets lose reps, so a
+        # first set well over the top also qualifies if no set leaves the range.
+        top_set_over = (
+            complete
+            and sets[0].reps >= ex.target_reps_max + TOP_SET_OVERSHOOT_REPS
+            and all(ws.reps >= ex.target_reps_min for ws in sets)
+        )
         eligible = (
-            len(sets) == ex.prescribed_sets
-            and same_load
-            and all(ex.target_reps_max <= ws.reps <= 40 for ws in sets)
+            (all_at_top or top_set_over)
             and current.effort in ("easy", "right")
             and not current.pain
             and not safety_concern
@@ -1403,7 +1414,9 @@ def _build_prompt(
             f"  {name}: prescribed {ex.prescribed_sets} working sets of "
             f"{ex.target_reps_min}–{ex.target_reps_max} reps; "
             f"earned next-load step: {'yes' if eligible else 'no'} "
-            "(requires all prescribed sets at one positive load reaching the top, "
+            "(requires all prescribed sets at one positive load, with either every set "
+            f"reaching the top or the first set at least {TOP_SET_OVERSHOOT_REPS} reps over the top "
+            "and no set below the bottom of the range; "
             "easy/about-right effort, no reported pain or clear safety/form concern)."
         )
     prescription_context = "\n".join(prescription_lines) or "  No strength prescription supplied."
