@@ -471,6 +471,13 @@ function priorExercises(
 // light even when later sets fall back inside the range.
 export const TOP_SET_OVERSHOOT_REPS = 3;
 
+// The range and set count that were on screen when the exercise was logged.
+function savedPrescription(exercise: Exercise): { minimum: number; maximum: number; sets: number } | null {
+  const { targetRepsMin: minimum, targetRepsMax: maximum, prescribedSets: sets } = exercise;
+  if (!minimum || !maximum || !sets || minimum > maximum) return null;
+  return { minimum, maximum, sets };
+}
+
 function targetRange(targetReps: string): [number, number] {
   const values = targetReps.split(/[^0-9]+/).filter(Boolean).map(Number);
   return [values[0], values[1] ?? values[0]];
@@ -525,12 +532,15 @@ function buildWeightRecommendation(
   const latestSet = sets[sets.length - 1];
   if (!latestSet) return null;
 
-  const [minimum, maximum] = targetRange(templateExercise.targetReps);
+  // Judge the latest session against the range it was logged under. Only a log
+  // with no saved prescription falls back to today's plan, and only for a reduction.
+  const latestSaved = savedPrescription(previous);
+  const minimum = latestSaved?.minimum ?? targetRange(templateExercise.targetReps)[0];
   const increment = inferWeightIncrement(history);
   let recommended = latestSet.weight;
   let action = 'Hold';
 
-  const workingSets = previous.sets.slice(-templateExercise.sets);
+  const workingSets = previous.sets.slice(-(latestSaved?.sets ?? templateExercise.sets));
   const validWorkingSets = workingSets.filter(set => validSets({ ...previous, sets: [set] }).length > 0);
   const belowMinimum = validWorkingSets.filter(set => set.reps < minimum).length;
   const substantiallyLow = validWorkingSets.some(set => set.reps <= minimum - 2);
@@ -559,15 +569,20 @@ function buildWeightRecommendation(
     // top of the range, or (for sets taken near failure, where reps fall off)
     // the first set clears the top by TOP_SET_OVERSHOOT_REPS and no set drops
     // below the bottom of the range.
+    // Each session is measured against the prescription saved with it, never
+    // today's plan: editing a range must not turn old sessions into an earned
+    // step. A log with no saved prescription cannot earn an increase.
     const qualifiesAtLoad = ({ exercise, session }: PriorExercise): boolean => {
-      const candidateSets = exercise.sets.slice(-templateExercise.sets);
-      if (candidateSets.length !== templateExercise.sets ||
+      const saved = savedPrescription(exercise);
+      if (!saved) return false;
+      const candidateSets = exercise.sets.slice(-saved.sets);
+      if (candidateSets.length !== saved.sets ||
           !candidateSets.every(set => set.weight === latestSet.weight && set.reps <= 40)) {
         return false;
       }
-      const allAtTop = candidateSets.every(set => set.reps >= maximum);
-      const topSetOver = candidateSets[0].reps >= maximum + TOP_SET_OVERSHOOT_REPS &&
-        candidateSets.every(set => set.reps >= minimum);
+      const allAtTop = candidateSets.every(set => set.reps >= saved.maximum);
+      const topSetOver = candidateSets[0].reps >= saved.maximum + TOP_SET_OVERSHOOT_REPS &&
+        candidateSets.every(set => set.reps >= saved.minimum);
       return (allAtTop || topSetOver) && feedbackSupportsIncrease(session);
     };
     // Only the two most recent sessions count, so an old good day cannot earn
