@@ -37,3 +37,4 @@ GainLog keeps completed workouts as immutable history. The app's built-in five-d
 - Effort, pain, note and same-week safety vetoes, the Monday freeze, template isolation, the reduce rule and load-step inference are unchanged. The coach still judges the single current session; the Log screen needs two.
 - Needs a backend deploy and a new signed client build before it is live. Ranges stay as prescribed: prefer letting the load step up over widening a range to match logged reps.
 - 2026-11-25: week of 2026-11-23 revision 5. Legs: Goblet Squat replaced by 45-Degree Back Extension (second hip hinge); Dumbbell Romanian Deadlift substitutes now Barbell/Smith Machine Romanian Deadlift. Pull, Upper unchanged.
+- 2026-11-25: week of 2026-11-23 revision 6. Legs: 45-Degree Back Extension replaced by Goblet Squat (8–12, subs Hack Squat Machine / Smith Machine Squat) at Neal's request. Pull, Upper unchanged.
